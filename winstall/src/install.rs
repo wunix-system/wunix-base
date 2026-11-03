@@ -204,8 +204,22 @@ where
         done += 1;
     }
 
-    // Создаем правильный limine.conf для жесткого диска, если его нет
-    let limine_conf_content = b"timeout: 3\n\n/Wunix OS (Installed)\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    module_path: boot():/boot/initramfs.tar\n    cmdline: root=/dev/vda1 lang=ru mode=disk\n";
+    // Создаем правильный limine.conf для жесткого диска
+    let mut part1 = [0u8; 64];
+    let mut plen = 0;
+    while plen < disk_path.len() && disk_path[plen] != 0 && plen < 60 {
+        part1[plen] = disk_path[plen];
+        plen += 1;
+    }
+    part1[plen] = b'1';
+    let part1_str = core::str::from_utf8(&part1[..plen + 1]).unwrap_or("/dev/vda1");
+
+    let mut conf_buf = [0u8; 512];
+    let mut cpos = 0;
+    cpos = ap(&mut conf_buf, cpos, b"timeout: 3\n\n/Wunix OS (Installed)\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    module_path: boot():/boot/initramfs.tar\n    cmdline: root=");
+    cpos = ap(&mut conf_buf, cpos, part1_str.as_bytes());
+    cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
+    let limine_conf_content = &conf_buf[..cpos];
     write_file(b"/mnt/boot/limine.conf\0", limine_conf_content, 0o644);
     write_file(b"/mnt/limine.conf\0", limine_conf_content, 0o644);
 
