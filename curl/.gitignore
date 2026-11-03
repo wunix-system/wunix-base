@@ -1,0 +1,7 @@
+target/
+Cargo.lock
+*.bin
+*.a
+*.o
+.idea/
+.vscode/

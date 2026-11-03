@@ -1,0 +1,15 @@
+# Артефакты компиляции Rust
+target/
+Cargo.lock
+*.bin
+
+# IDE и редакторы кода
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Файлы операционных систем
+.DS_Store
+Thumbs.db

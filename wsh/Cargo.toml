@@ -1,0 +1,21 @@
+[package]
+name = "wsh"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[features]
+default = []
+std = ["dep:libc"]
+
+[dependencies]
+libc = { version = "0.2", optional = true }
+libwunix = { path = "../../wunix/libs/libwunix" }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+lto = true

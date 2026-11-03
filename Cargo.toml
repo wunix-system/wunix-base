@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = [
+    "cat",
+    "chmod",
+    "chown",
+    "clear",
+    "curl",
+    "date",
+    "echo",
+    "fbset",
+    "fdisk",
+    "free",
+    "host",
+    "hwclock",
+    "id",
+    "init",
+    "ip",
+    "ln",
+    "login",
+    "ls",
+    "lsblk",
+    "lsdev",
+    "lshw",
+    "lsmod",
+    "lspci",
+    "man",
+    "mkdir",
+    "modinfo",
+    "mount",
+    "ntpdate",
+    "passwd",
+    "ping",
+    "pwd",
+    "readlink",
+    "reboot",
+    "rm",
+    "rmdir",
+    "shutdown",
+    "ss",
+    "su",
+    "sudo",
+    "sudoadd",
+    "system",
+    "time",
+    "timedatectl",
+    "timesyncd",
+    "top",
+    "touch",
+    "umount",
+    "uname",
+    "useradd",
+    "userdel",
+    "whoami",
+    "winstall",
+    "wsh",
+]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+lto = true

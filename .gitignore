@@ -1,0 +1,27 @@
+# Артефакты сборки Rust
+target/
+**/target/
+Cargo.lock
+**/Cargo.lock
+*.bin
+
+# Портированные бинарники и артефакты C
+*.o
+*.a
+*.so
+
+# Внешние портированные пакеты стороннего ПО (C-порты)
+openssl/
+openssh-portable/
+nano/
+
+# IDE и редакторы кода
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Файлы операционных систем
+.DS_Store
+Thumbs.db
