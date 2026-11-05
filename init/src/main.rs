@@ -58,7 +58,13 @@ pub extern "C" fn _start() -> ! {
 
         let _ = chdir(b"/root\0");
         let wsh_argv = [b"/bin/wsh\0".as_ptr(), core::ptr::null()];
-        let _ = execve(b"/bin/wsh\0", wsh_argv.as_ptr() as u64, 0);
+        let ret = execve(b"/bin/wsh\0", wsh_argv.as_ptr() as u64, 0);
+        if ret < 0 {
+            let _ = write(
+                STDOUT_FILENO,
+                b"[init] \x1b[1;31m\xd0\x9e\xd1\x88\xd0\xb8\xd0\xb1\xd0\xba\xd0\xb0 \xd0\xb7\xd0\xb0\xd0\xbf\xd1\x83\xd1\x81\xd0\xba\xd0\xb0 /bin/wsh\x1b[0m\n",
+            );
+        }
     } else if is_install_mode {
         let winstall_argv = [b"/bin/winstall\0".as_ptr(), core::ptr::null()];
         let _ = execve(b"/bin/winstall\0", winstall_argv.as_ptr() as u64, 0);
@@ -73,7 +79,13 @@ pub extern "C" fn _start() -> ! {
         );
         let _ = chdir(b"/root\0");
         let wsh_argv = [b"/bin/wsh\0".as_ptr(), core::ptr::null()];
-        let _ = execve(b"/bin/wsh\0", wsh_argv.as_ptr() as u64, 0);
+        let ret = execve(b"/bin/wsh\0", wsh_argv.as_ptr() as u64, 0);
+        if ret < 0 {
+            let _ = write(
+                STDOUT_FILENO,
+                b"[init] \x1b[1;31m\xd0\x9e\xd1\x88\xd0\xb8\xd0\xb1\xd0\xba\xd0\xb0 \xd0\xb7\xd0\xb0\xd0\xbf\xd1\x83\xd1\x81\xd0\xba\xd0\xb0 /bin/wsh\x1b[0m\n",
+            );
+        }
     } else {
         // По умолчанию на установочном ISO запускаем TUI загрузочное меню (winstall)
         let winstall_argv = [b"/bin/winstall\0".as_ptr(), core::ptr::null()];
