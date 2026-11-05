@@ -4,9 +4,10 @@ use crate::disk::{
     validate_partition_plan, DiskInfo, PartitionPlan, MAX_PARTITIONS,
 };
 use crate::tui::{
-    clear_screen, draw_box, draw_centered, draw_footer, draw_header, draw_logo,
-    draw_separator, goto, hide_cursor, run_menu, write_u64, wr, wrs, MenuItem, BOLD,
-    FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_WHITE, FG_YELLOW, LOGO_ROW, RESET,
+    center_col, clear_screen, draw_box, draw_centered, draw_footer, draw_header,
+    draw_logo, draw_separator, goto, hide_cursor, run_menu, write_u64, wr, wrs,
+    MenuItem, BOLD, FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_WHITE, FG_YELLOW,
+    LOGO_ROW, RESET,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -29,15 +30,17 @@ pub fn screen_partition_mode() -> Option<PartitionMode> {
             disabled: false,
         },
         MenuItem {
-            label: "2. Ручная разметка разделов (выбор точек монтирования и выделение места)",
+            label: "2. Ручная разметка разделов (выбор структуры разделов диска)          ",
             disabled: false,
         },
     ];
 
     draw_separator();
-    draw_footer(" ↑↓ Выбор    Enter Подтвердить    Esc Назад ");
+    draw_footer(" Enter Подтвердить    ↑↓ Навигация    Esc Назад ");
 
-    let sel = run_menu(12, 6, &items, 72)?;
+    let menu_w = 70;
+    let col = center_col(menu_w);
+    let sel = run_menu(12, col, &items, menu_w)?;
     Some(if sel == 0 {
         PartitionMode::Auto
     } else {
@@ -66,19 +69,21 @@ pub fn screen_partition_manual(
             disabled: false,
         },
         MenuItem {
-            label: "2. Серверная схема:   /boot (128M) + swap (512M) + / (остаток)",
+            label: "2. Расширенная схема: /boot (128M) + swap (512M) + / (остаток)",
             disabled: total_mb < 800,
         },
         MenuItem {
-            label: "3. Компактная схема:  без swap, весь диск под корень (/)",
+            label: "3. Простая схема:     без swap, весь диск под корень (/)      ",
             disabled: false,
         },
     ];
 
     draw_separator();
-    draw_footer(" ↑↓ Выбор схемы    Enter Подтвердить    Esc Назад ");
+    draw_footer(" Enter Выбрать схему    ↑↓ Навигация    Esc Назад ");
 
-    let sel = run_menu(12, 6, &items, 70)?;
+    let menu_w = 68;
+    let col = center_col(menu_w);
+    let sel = run_menu(12, col, &items, menu_w)?;
 
     match sel {
         0 => {
@@ -102,7 +107,7 @@ pub fn screen_partition_manual(
             Some(3)
         }
         1 => {
-            // Серверная схема
+            // Расширенная схема
             let boot_sec: u32 = 262144; // 128 MiB
             let swap_sec: u32 = 1048576; // 512 MiB
             let root_sec = (disk.sector_count.saturating_sub(2048 + (boot_sec + swap_sec) as u64)).min(0xFFFF_FFFF) as u32;
@@ -122,7 +127,7 @@ pub fn screen_partition_manual(
             Some(3)
         }
         _ => {
-            // Компактная схема без swap
+            // Простая схема без swap
             let root_sec = (disk.sector_count.saturating_sub(2048)).min(0xFFFF_FFFF) as u32;
             plans[0] = PartitionPlan {
                 num: 1, mount_point: "/", fstype: selected_fs, start_lba: 2048,
@@ -146,15 +151,18 @@ pub fn screen_partition_confirm(
     draw_header("  ПОДТВЕРЖДЕНИЕ И ВАЛИДАЦИЯ РАЗМЕТКИ  ");
     draw_logo(LOGO_ROW);
 
-    goto(9, 6);
+    let box_w = 78;
+    let col = center_col(box_w);
+
+    goto(9, col);
     wrs(FG_WHITE);
     wrs("План разметки накопителя ");
     wrs(FG_YELLOW); wrs(BOLD); wrs(disk_name); wrs(RESET); wrs(FG_WHITE);
     wrs(" (MBR таблица разделов):");
 
     // Таблица разделов
-    draw_box(10, 5, 70, 2 + count);
-    goto(11, 7);
+    draw_box(10, col, box_w, 2 + count);
+    goto(11, col + 2);
     wrs(FG_CYAN); wrs(BOLD);
     wrs("№   Точка монтирования   Тип ФС     Размер      Загрузочный (Boot)");
     wrs(RESET);
@@ -162,7 +170,7 @@ pub fn screen_partition_confirm(
     for i in 0..count {
         let p = &plans[i];
         let row = 12 + i;
-        goto(row, 7);
+        goto(row, col + 2);
         wrs(FG_WHITE);
         write_u64((i + 1) as u64);
         wr(b"   ");
@@ -198,7 +206,7 @@ pub fn screen_partition_confirm(
     let mut cur_row = warn_row;
 
     if !val.has_root {
-        goto(cur_row, 6);
+        goto(cur_row, col);
         wrs(FG_RED); wrs(BOLD);
         wrs("✖ ОШИБКА: Корневой раздел (/) не назначен! Установка невозможна.");
         wrs(RESET);
@@ -206,7 +214,7 @@ pub fn screen_partition_confirm(
     }
 
     if !val.has_swap {
-        goto(cur_row, 6);
+        goto(cur_row, col);
         wrs(FG_YELLOW); wrs(BOLD);
         wrs("▲ ВНИМАНИЕ: Раздел подкачки (swap) отсутствует (риск нехватки памяти).");
         wrs(RESET);
@@ -214,7 +222,7 @@ pub fn screen_partition_confirm(
     }
 
     if !val.has_boot {
-        goto(cur_row, 6);
+        goto(cur_row, col);
         wrs(FG_YELLOW);
         wrs("▲ ПРЕДУПРЕЖДЕНИЕ: Загрузочный флаг не установлен (MBR Bootable).");
         wrs(RESET);
@@ -240,10 +248,12 @@ pub fn screen_partition_confirm(
         },
     ];
 
-    draw_footer(" ↑↓ Выбор    Enter Подтвердить    Esc Назад ");
+    draw_footer(" Enter Подтвердить    ↑↓ Навигация    Esc Назад ");
 
+    let menu_w = 66;
+    let menu_col = center_col(menu_w);
     let menu_row = cur_row.max(16);
-    match run_menu(menu_row, 6, &items, 68) {
+    match run_menu(menu_row, menu_col, &items, menu_w) {
         Some(0) => true,
         _ => false,
     }

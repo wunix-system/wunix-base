@@ -1,9 +1,9 @@
 // Создание первого пользователя-администратора (sudo / wheel) и задание имени хоста.
 
 use crate::tui::{
-    clear_screen, draw_footer, draw_header, draw_info, draw_input_field, draw_label,
-    draw_logo, draw_password_field, draw_separator, goto, hide_cursor, input_password,
-    input_text, wrs, DIM, FG_GRAY, FG_RED, LOGO_ROW, RESET,
+    center_col, clear_screen, draw_centered, draw_footer, draw_header, draw_info,
+    draw_input_field, draw_label, draw_logo, draw_password_field, draw_separator,
+    hide_cursor, input_password, input_text, FG_RED, LOGO_ROW,
 };
 
 pub struct UserHostnameConfig {
@@ -41,14 +41,13 @@ pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
         draw_header("  ЭТАП 5: УЧЕТНАЯ ЗАПИСЬ И ИМЯ ХОСТА  ");
         draw_logo(LOGO_ROW);
 
-        goto(9, 10);
-        wrs(FG_GRAY);
-        wrs("Создание первого администратора системы и задание сетевого имени:");
-        wrs(RESET);
+        draw_centered(9, "Создание первого администратора системы и задание сетевого имени:");
 
-        let label_col = 26usize;
-        let field_col = 28usize;
-        let field_w   = 36usize;
+        let form_w = 64usize;
+        let base_col = center_col(form_w);
+        let label_col = base_col + 24;
+        let field_col = base_col + 26;
+        let field_w   = 34usize;
 
         draw_label(11, "Имя пользователя", label_col);
         draw_label(13, "Пароль", label_col);
@@ -60,13 +59,11 @@ pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
         draw_password_field(15, field_col, field_w, 0);
         draw_input_field(17, field_col, field_w, &cfg.hostname, cfg.hostname_len);
 
-        goto(19, 10);
-        wrs(FG_GRAY); wrs(DIM);
-        wrs("Пользователь получит полные права sudo (wheel). Пароль root совпадает с паролем админа.");
-        wrs(RESET);
+        draw_centered(19, "Пользователь получит права администратора sudo (группа wheel).");
+        draw_centered(20, "Пароль суперпользователя root совпадает с паролем администратора.");
 
         if let Some(err) = error_msg {
-            draw_info(20, err, FG_RED);
+            draw_info(21, err, FG_RED);
         }
 
         draw_separator();

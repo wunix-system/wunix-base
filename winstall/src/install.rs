@@ -64,7 +64,6 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
     (b"/boot/wunix-kernel\0",   b"/mnt/boot/wunix-kernel\0"),
-    (b"/boot/initramfs.tar\0",  b"/mnt/boot/initramfs.tar\0"),
     (b"/boot/limine.conf\0",    b"/mnt/boot/limine.conf\0"),
     (b"/boot/limine.conf\0",    b"/mnt/limine.conf\0"),
     (b"/boot/limine-bios.sys\0",b"/mnt/boot/limine-bios.sys\0"),
@@ -112,7 +111,7 @@ fn copy_file(src: &[u8], dst: &[u8], mode: u64) -> bool {
         close(sfd as u64);
         return false;
     }
-    let mut buf = [0u8; 4096];
+    let mut buf = [0u8; 65536];
     let mut off = 0u64;
     loop {
         let n = pread64(sfd as u64, &mut buf, off);
@@ -218,7 +217,7 @@ where
 
     let mut conf_buf = [0u8; 512];
     let mut cpos = 0;
-    cpos = ap(&mut conf_buf, cpos, b"timeout: 3\n\n/Wunix OS (Installed)\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    module_path: boot():/boot/initramfs.tar\n    cmdline: root=");
+    cpos = ap(&mut conf_buf, cpos, b"timeout: 3\n\n/Wunix OS (Installed)\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=");
     cpos = ap(&mut conf_buf, cpos, root_dev_str.as_bytes());
     cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
     let limine_conf_content = &conf_buf[..cpos];

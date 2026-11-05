@@ -2,9 +2,9 @@
 
 use libwunix::time::{clock_realtime, DateTime};
 use crate::tui::{
-    clear_screen, draw_centered, draw_footer, draw_header, draw_input_field,
-    draw_label, draw_logo, draw_separator, goto, hide_cursor,
-    run_menu, MenuItem, BOLD, FG_YELLOW, LOGO_ROW, RESET, wrs,
+    center_col, clear_screen, draw_centered, draw_footer, draw_header, draw_input_field,
+    draw_label, draw_logo, draw_separator, goto, hide_cursor, run_menu_compact,
+    MenuItem, BOLD, FG_YELLOW, LOGO_ROW, RESET, wrs,
 };
 
 pub struct TimezoneChoice {
@@ -99,8 +99,10 @@ pub fn screen_datetime_and_timezone() -> Option<&'static str> {
 
     draw_centered(9, "Текущее системное время получено из аппаратных часов (RTC/CMOS):");
 
-    let label_col = 30usize;
-    let field_col = 32usize;
+    let form_w = 40usize;
+    let base_col = center_col(form_w);
+    let label_col = base_col + 18;
+    let field_col = base_col + 20;
     let field_w   = 16usize;
 
     draw_label(11, "Дата (ГГГГ-ММ-ДД)", label_col);
@@ -109,7 +111,10 @@ pub fn screen_datetime_and_timezone() -> Option<&'static str> {
     draw_input_field(11, field_col, field_w, &date_buf, date_len);
     draw_input_field(13, field_col, field_w, &time_buf, time_len);
 
-    goto(15, 10);
+    let menu_w = 72;
+    let menu_col = center_col(menu_w);
+
+    goto(15, menu_col);
     wrs(FG_YELLOW); wrs(BOLD);
     wrs("Выберите системный часовой пояс (по умолчанию: Москва / МСК):");
     wrs(RESET);
@@ -130,9 +135,9 @@ pub fn screen_datetime_and_timezone() -> Option<&'static str> {
     }
 
     draw_separator();
-    draw_footer(" ↑↓ Выбор часового пояса    Enter Подтвердить    Esc Назад ");
+    draw_footer(" Enter Подтвердить    ↑↓ Навигация    Esc Назад ");
 
-    let sel = run_menu(16, 6, &items, 72)?;
+    let sel = run_menu_compact(16, menu_col, &items, menu_w)?;
     let tz = &TIMEZONES[sel];
 
     Some(tz.name)

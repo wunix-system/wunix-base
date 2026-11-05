@@ -1,13 +1,13 @@
-// Выбор сетевого адаптера, настройка DHCP/Static и ICMP-тестирование ya.ru и google.com.
+// Выбор сетевого адаптера, настройка DHCP/Static и фоновая проверка подключения.
 
 use crate::net::{
     detect_adapter_network, run_ping_four_packets, NetAdapterInfo, NetConfig,
 };
 use crate::tui::{
-    clear_screen, draw_box, draw_centered, draw_footer, draw_header, draw_input_field,
-    draw_label, draw_logo, draw_separator, draw_status, goto, hide_cursor, input_text,
-    run_menu, wait_key, write_u64, wr, wrs, MenuItem, BOLD, FG_GRAY,
-    FG_GREEN, FG_RED, FG_WHITE, FG_YELLOW, LOGO_ROW, RESET,
+    center_col, clear_screen, draw_box, draw_centered, draw_footer, draw_header,
+    draw_input_field, draw_label, draw_logo, draw_separator, draw_status, goto,
+    hide_cursor, input_text, run_menu, wait_key, wr, wrs, MenuItem, BOLD, FG_GRAY,
+    FG_WHITE, FG_YELLOW, LOGO_ROW, RESET,
 };
 
 /// Экран выбора сетевого адаптера. Если адаптеров нет — информирует об автономном режиме.
@@ -21,17 +21,20 @@ pub fn screen_select_adapter<'a>(
         draw_header("  СЕТЕВЫЕ АДАПТЕРЫ НЕ НАЙДЕНЫ  ");
         draw_logo(LOGO_ROW);
 
-        draw_box(10, 8, 64, 7);
-        goto(12, 12);
+        let box_w = 68;
+        let col = center_col(box_w);
+        draw_box(10, col, box_w, 7);
+
+        goto(12, col + 4);
         wrs(FG_YELLOW); wrs(BOLD);
-        wrs("В системе не обнаружено ни одного сетевого адаптера!");
+        wrs("В системе не обнаружено доступных сетевых адаптеров!");
         wrs(RESET);
 
-        goto(14, 12);
+        goto(14, col + 4);
         wrs(FG_WHITE);
         wrs("Установка Wunix OS будет продолжена в автономном режиме");
-        goto(15, 12);
-        wrs("без настройки сетевого интерфейса.");
+        goto(15, col + 4);
+        wrs("без предварительной конфигурации сетевого интерфейса.");
 
         draw_separator();
         draw_footer(" Enter Продолжить установку ");
@@ -82,9 +85,11 @@ pub fn screen_select_adapter<'a>(
     }
 
     draw_separator();
-    draw_footer(" ↑↓ Выбор    Enter Выбрать адаптер    Esc Назад ");
+    draw_footer(" Enter Выбрать адаптер    ↑↓ Навигация    Esc Назад ");
 
-    let sel = run_menu(12, 10, &items[..real], 56)?;
+    let menu_w = 56;
+    let col = center_col(menu_w);
+    let sel = run_menu(12, col, &items[..real], menu_w)?;
     Some(Some(&adapters[sel]))
 }
 
@@ -97,7 +102,10 @@ pub fn screen_network_config(adapter: &NetAdapterInfo) -> Option<NetConfig> {
     draw_header("  ЭТАП 4: НАСТРОЙКА СЕТИ  ");
     draw_logo(LOGO_ROW);
 
-    goto(9, 10);
+    let menu_w = 64;
+    let col = center_col(menu_w);
+
+    goto(9, col);
     wrs(FG_WHITE);
     wrs("Настройка параметров подключения для интерфейса ");
     wrs(FG_YELLOW); wrs(BOLD); wrs(adapter.name_str()); wrs(RESET); wrs(FG_WHITE);
@@ -115,9 +123,9 @@ pub fn screen_network_config(adapter: &NetAdapterInfo) -> Option<NetConfig> {
     ];
 
     draw_separator();
-    draw_footer(" ↑↓ Выбор    Enter Подтвердить    Esc Назад ");
+    draw_footer(" Enter Подтвердить    ↑↓ Навигация    Esc Назад ");
 
-    let mode_sel = run_menu(12, 8, &items, 64)?;
+    let mode_sel = run_menu(12, col, &items, menu_w)?;
     if mode_sel == 0 {
         cfg.is_dhcp = true;
         screen_dhcp_summary(&cfg);
@@ -128,8 +136,8 @@ pub fn screen_network_config(adapter: &NetAdapterInfo) -> Option<NetConfig> {
         }
     }
 
-    // Проверка соединения через пинг ya.ru и google.com
-    screen_ping_four_packets(&cfg);
+    // Фоновая проверка сети без вывода деталей запросов
+    screen_network_check_quiet(&cfg);
 
     Some(cfg)
 }
@@ -142,11 +150,14 @@ fn screen_dhcp_summary(cfg: &NetConfig) {
 
     draw_centered(9, "Реальные параметры сети, полученные от DHCP-сервера:");
 
-    draw_box(11, 14, 52, 6);
-    goto(12, 18); wrs(FG_GRAY); wrs("IP-адрес      : "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.ip_str()); wrs(RESET);
-    goto(13, 18); wrs(FG_GRAY); wrs("Маска подсети : "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.netmask_str()); wrs(RESET);
-    goto(14, 18); wrs(FG_GRAY); wrs("Шлюз (Gateway): "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.gateway_str()); wrs(RESET);
-    goto(15, 18); wrs(FG_GRAY); wrs("DNS-сервер    : "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.dns_str()); wrs(RESET);
+    let box_w = 60;
+    let col = center_col(box_w);
+
+    draw_box(11, col, box_w, 6);
+    goto(12, col + 4); wrs(FG_GRAY); wrs("IP-адрес      : "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.ip_str()); wrs(RESET);
+    goto(13, col + 4); wrs(FG_GRAY); wrs("Маска подсети : "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.netmask_str()); wrs(RESET);
+    goto(14, col + 4); wrs(FG_GRAY); wrs("Шлюз (Gateway): "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.gateway_str()); wrs(RESET);
+    goto(15, col + 4); wrs(FG_GRAY); wrs("DNS-сервер    : "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.dns_str()); wrs(RESET);
 
     draw_separator();
     draw_footer(" Enter Продолжить ");
@@ -161,9 +172,11 @@ fn screen_static_network_form(cfg: &mut NetConfig) -> bool {
 
     draw_centered(9, "Введите сетевые параметры вручную:");
 
-    let label_col = 30usize;
-    let field_col = 32usize;
-    let field_w   = 24usize;
+    let form_w = 54;
+    let base_col = center_col(form_w);
+    let label_col = base_col + 18;
+    let field_col = base_col + 20;
+    let field_w   = 28usize;
 
     draw_label(12, "IP-адрес", label_col);
     draw_label(14, "Маска подсети", label_col);
@@ -201,18 +214,19 @@ fn screen_static_network_form(cfg: &mut NetConfig) -> bool {
     true
 }
 
-/// Проверка сети: 4 пакета — 2 пакета на ya.ru и 2 на google.com
-fn screen_ping_four_packets(cfg: &NetConfig) {
+/// Фоновая проверка подключения к сети:
+/// Запросы выполняются без вывода логов, выдается итоговый статус (ОК / Нестабильно / Плохо)
+fn screen_network_check_quiet(cfg: &NetConfig) {
     hide_cursor();
     clear_screen();
-    draw_header("  ЭТАП 4: ПРОВЕРКА СВЯЗИ С ИНТЕРНЕТОМ  ");
+    draw_header("  ЭТАП 4: ПРОВЕРКА ПОДКЛЮЧЕНИЯ К СЕТИ  ");
     draw_logo(LOGO_ROW);
 
-    draw_centered(9, "Желаете протестировать подключение к сети Интернет (4 пакета)?");
+    draw_centered(9, "Желаете выполнить быструю проверку подключения к сети?");
 
     let items = [
         MenuItem {
-            label: "1. Проверить сеть (2 пакета ya.ru + 2 пакета google.com)       ",
+            label: "1. Выполнить проверку связи в фоновом режиме                 ",
             disabled: false,
         },
         MenuItem {
@@ -222,45 +236,46 @@ fn screen_ping_four_packets(cfg: &NetConfig) {
     ];
 
     draw_separator();
-    draw_footer(" ↑↓ Выбор    Enter Подтвердить ");
+    draw_footer(" Enter Подтвердить    ↑↓ Навигация ");
 
-    let choice = run_menu(11, 8, &items, 64);
+    let menu_w = 64;
+    let col = center_col(menu_w);
+    let choice = run_menu(11, col, &items, menu_w);
     if choice != Some(0) {
         return;
     }
 
-    goto(13, 8);
-    wrs(FG_YELLOW);
-    wrs("Выполняется отправка 4 пакетов (DNS-резолв + ICMP Echo)...");
-    wrs(RESET);
+    // Очищаем область и выводим ненавязчивый индикатор ожидания
+    goto(11, 1); wr(b"\x1b[2K");
+    goto(12, 1); wr(b"\x1b[2K");
+    goto(13, 1); wr(b"\x1b[2K");
+    goto(14, 1); wr(b"\x1b[2K");
+
+    draw_centered(12, "Выполняется быстрая фоновая проверка сетевого соединения...");
+    draw_centered(13, "Пожалуйста, подождите несколько секунд...");
 
     let mut successful = 0usize;
-
-    let (_ya, _goog) = run_ping_four_packets(cfg, |host, seq, total, res| {
-        let row = 13 + seq;
-        goto(row, 8);
-        wr(b"\x1b[2K");
-        goto(row, 8);
-        match res {
-            Some(rtt) => {
-                successful += 1;
-                wrs(FG_GREEN); wr(b" ["); write_u64(seq as u64); wr(b"/"); write_u64(total as u64); wr(b"] \xe2\x9c\x93 "); wrs(RESET);
-                wrs("Ответ от "); wrs(host); wrs(": время="); write_u64(rtt); wrs(" мс");
-            }
-            None => {
-                wrs(FG_RED); wr(b" ["); write_u64(seq as u64); wr(b"/"); write_u64(total as u64); wr(b"] \xe2\x9c\x97 "); wrs(RESET);
-                wrs("Превышен интервал ожидания от "); wrs(host);
-            }
+    let _ = run_ping_four_packets(cfg, |_host, _seq, _total, res| {
+        if res.is_some() {
+            successful += 1;
         }
     });
 
-    goto(18, 8);
-    if successful >= 2 {
-        draw_status(18, 8, true, "Подключение к сети Интернет подтверждено (пакеты доставлены)!");
+    goto(12, 1); wr(b"\x1b[2K");
+    goto(13, 1); wr(b"\x1b[2K");
+
+    let status_w = 50;
+    let scol = center_col(status_w);
+
+    if successful >= 3 {
+        draw_status(12, scol, true, "Статус сети: Отлично (ОК)");
+        draw_centered(14, "Сетевое подключение настроено и работает стабильно.");
     } else if successful >= 1 {
-        draw_status(18, 8, true, "Частичный ответ (часть пакетов доставлена). Связь установлена.");
+        draw_status(12, scol, true, "Статус сети: Нестабильно");
+        draw_centered(14, "Связь обнаружена, но возможны задержки или потери пакетов.");
     } else {
-        draw_status(18, 8, false, "Внешние сайты не ответили. Настройки сохранены для работы в LAN.");
+        draw_status(12, scol, false, "Статус сети: Плохо (Нет связи)");
+        draw_centered(14, "Сетевые параметры сохранены для работы в локальной сети.");
     }
 
     draw_separator();

@@ -2,9 +2,9 @@
 
 use crate::disk::DiskInfo;
 use crate::tui::{
-    clear_screen, draw_centered, draw_footer, draw_header, draw_logo, draw_separator,
-    goto, hide_cursor, run_menu, u64_to_buf, wait_key, wrs, MenuItem, BOLD,
-    FG_RED, FG_WHITE, LOGO_ROW, RESET,
+    center_col, clear_screen, draw_centered, draw_footer, draw_header, draw_logo,
+    draw_separator, goto, hide_cursor, run_menu, u64_to_buf, wait_key, wrs, MenuItem,
+    BOLD, FG_RED, FG_WHITE, LOGO_ROW, RESET,
 };
 
 pub fn screen_select_disk<'a>(disks: &'a [DiskInfo], count: usize) -> Option<&'a DiskInfo> {
@@ -14,16 +14,17 @@ pub fn screen_select_disk<'a>(disks: &'a [DiskInfo], count: usize) -> Option<&'a
         draw_header("  ОШИБКА: НАКОПИТЕЛИ НЕ ОБНАРУЖЕНЫ  ");
         draw_logo(LOGO_ROW);
 
-        goto(11, 10);
+        let col = center_col(64);
+        goto(11, col);
         wrs(FG_RED); wrs(BOLD);
         wrs("В системе не найдено ни одного блочного устройства (диска)!");
         wrs(RESET);
 
-        goto(13, 10);
+        goto(13, col);
         wrs(FG_WHITE);
-        wrs("Проверьте подключение контроллера жестких дисков (VirtIO-Block / SATA)");
-        goto(14, 10);
-        wrs("или параметры запуска виртуальной машины (например, -drive file=disk.img).");
+        wrs("Проверьте подключение жесткого диска к виртуальной машине");
+        goto(14, col);
+        wrs("или параметры эмулятора (например, -drive file=disk.img).");
 
         draw_separator();
         draw_footer(" Enter Повторить попытку    Esc Выйти в Live-консоль ");
@@ -39,10 +40,10 @@ pub fn screen_select_disk<'a>(disks: &'a [DiskInfo], count: usize) -> Option<&'a
         let d = &disks[i];
         let name = d.name().as_bytes();
         let mut pos = 0;
-        let nlen = name.len().min(16);
+        let nlen = name.len().min(14);
         label_bufs[i][pos..pos + nlen].copy_from_slice(&name[..nlen]);
         pos += nlen;
-        while pos < 16 { label_bufs[i][pos] = b' '; pos += 1; }
+        while pos < 14 { label_bufs[i][pos] = b' '; pos += 1; }
 
         let size_mb = d.size_mib();
         if size_mb >= 1024 {
@@ -51,13 +52,13 @@ pub fn screen_select_disk<'a>(disks: &'a [DiskInfo], count: usize) -> Option<&'a
             pos += u64_to_buf(&mut label_bufs[i][pos..], gib);
             label_bufs[i][pos] = b'.'; pos += 1;
             pos += u64_to_buf(&mut label_bufs[i][pos..], frac);
-            let sfx = b" GiB [VirtIO/ATA Storage]                ";
+            let sfx = " GiB [Накопитель]                        ".as_bytes();
             let slen = sfx.len().min(label_bufs[i].len() - pos);
             label_bufs[i][pos..pos + slen].copy_from_slice(&sfx[..slen]);
             pos += slen;
         } else {
             pos += u64_to_buf(&mut label_bufs[i][pos..], size_mb);
-            let sfx = b" MiB [VirtIO/ATA Storage]                ";
+            let sfx = " MiB [Накопитель]                        ".as_bytes();
             let slen = sfx.len().min(label_bufs[i].len() - pos);
             label_bufs[i][pos..pos + slen].copy_from_slice(&sfx[..slen]);
             pos += slen;
@@ -88,8 +89,10 @@ pub fn screen_select_disk<'a>(disks: &'a [DiskInfo], count: usize) -> Option<&'a
     }
 
     draw_separator();
-    draw_footer(" ↑↓ Выбор    Enter Выбрать диск    Esc Назад ");
+    draw_footer(" Enter Выбрать диск    ↑↓ Навигация    Esc Назад ");
 
-    let sel = run_menu(12, 10, &items[..real], 60)?;
+    let menu_w = 60;
+    let col = center_col(menu_w);
+    let sel = run_menu(12, col, &items[..real], menu_w)?;
     Some(&disks[sel])
 }

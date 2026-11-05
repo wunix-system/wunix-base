@@ -1,10 +1,30 @@
 // Низкоуровневые TUI-примитивы для winstall.
 // Принцип: каждый экран = четкая сетка, точный подсчет символов Unicode.
 
-use libwunix::{nanosleep, read, write, STDIN_FILENO, STDOUT_FILENO};
+use libwunix::{get_terminal_size, nanosleep, read, write, STDIN_FILENO, STDOUT_FILENO};
 
-pub const W: usize = 80;
 pub const LOGO_ROW: usize = 3;
+
+/// Реальная ширина терминала в символах (минимум 80)
+#[inline]
+pub fn term_width() -> usize {
+    let (cols, _) = get_terminal_size();
+    if cols >= 80 { cols } else { 80 }
+}
+
+/// Реальная высота терминала в строках (минимум 24)
+#[inline]
+pub fn term_height() -> usize {
+    let (_, rows) = get_terminal_size();
+    if rows >= 24 { rows } else { 25 }
+}
+
+/// Вычисление колонки центрирования элемента заданной ширины
+#[inline]
+pub fn center_col(width: usize) -> usize {
+    let tw = term_width();
+    1 + (tw.saturating_sub(width)) / 2
+}
 
 // ANSI-коды цветов и атрибутов
 pub const RESET: &str     = "\x1b[0m";
@@ -121,34 +141,39 @@ pub fn sleep_ms(ms: u64) {
 // ─── Шапка и подвал ──────────────────────────────────────────────────────────
 
 pub fn draw_header(title: &str) {
+    let tw = term_width();
     goto(1, 1);
     wrs(BG_BLUE); wrs(BOLD); wrs(FG_WHITE);
     let tc = char_count(title);
-    let pad = W.saturating_sub(tc) / 2;
+    let pad = tw.saturating_sub(tc) / 2;
     for _ in 0..pad { wr(b" "); }
     wrs(title);
-    for _ in 0..W.saturating_sub(tc + pad) { wr(b" "); }
+    for _ in 0..tw.saturating_sub(tc + pad) { wr(b" "); }
     wrs(RESET);
 }
 
 pub fn draw_separator() {
-    goto(20, 1);
+    let th = term_height();
+    let tw = term_width();
+    goto(th.saturating_sub(2), 1);
     wrs(FG_GRAY);
     // Горизонтальная линия U+2500 (─)
-    for _ in 0..W {
+    for _ in 0..tw {
         wr(b"\xe2\x94\x80");
     }
     wrs(RESET);
 }
 
 pub fn draw_footer(hint: &str) {
-    goto(22, 1);
-    wrs(DIM); wrs(FG_GRAY);
+    let th = term_height();
+    let tw = term_width();
+    goto(th, 1);
+    wrs(BG_BLUE); wrs(BOLD); wrs(FG_WHITE);
     let hc = char_count(hint);
-    let pad = W.saturating_sub(hc) / 2;
+    let pad = tw.saturating_sub(hc) / 2;
     for _ in 0..pad { wr(b" "); }
     wrs(hint);
-    for _ in 0..W.saturating_sub(hc + pad) { wr(b" "); }
+    for _ in 0..tw.saturating_sub(hc + pad) { wr(b" "); }
     wrs(RESET);
 }
 
@@ -165,7 +190,8 @@ const LOGO: &[&str] = &[
 const LOGO_VISUAL_W: usize = 42;
 
 pub fn draw_logo(start_row: usize) {
-    let col = 1 + (W.saturating_sub(LOGO_VISUAL_W)) / 2;
+    let tw = term_width();
+    let col = 1 + (tw.saturating_sub(LOGO_VISUAL_W)) / 2;
     wrs(BOLD); wrs(FG_CYAN);
     for (i, line) in LOGO.iter().enumerate() {
         goto(start_row + i, col);
@@ -541,16 +567,18 @@ pub fn draw_label(row: usize, label: &str, value_col: usize) {
 }
 
 pub fn draw_centered(row: usize, text: &str) {
+    let tw = term_width();
     let tc = char_count(text);
-    let col = 1 + W.saturating_sub(tc) / 2;
+    let col = 1 + tw.saturating_sub(tc) / 2;
     goto(row, 1); wr(b"\x1b[2K");
     goto(row, col); wrs(text);
 }
 
 pub fn draw_info(row: usize, msg: &str, color: &str) {
+    let tw = term_width();
     goto(row, 1); wr(b"\x1b[2K");
     let mc = char_count(msg);
-    let col = 1 + W.saturating_sub(mc) / 2;
+    let col = 1 + tw.saturating_sub(mc) / 2;
     goto(row, col); wrs(color); wrs(BOLD); wrs(msg); wrs(RESET);
 }
 
