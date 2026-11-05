@@ -45,25 +45,21 @@ pub extern "C" fn _start() -> ! {
         }
     }
 
-    // 3. Маршрутизация целевого режима
+    // 3. Маршрутизация целевого режима: при загрузке с диска запускаем экран входа (login)
     if is_disk_mode && check_installed() {
-        write(
-            STDOUT_FILENO,
-            t(
-                "\x1b[1;32m[Wunix OS] Загрузка установленной системы с диска...\x1b[0m\n\n",
-                "\x1b[1;32m[Wunix OS] Booting installed system from disk...\x1b[0m\n\n",
-            )
-            .as_bytes(),
-        );
-
-        let _ = chdir(b"/root\0");
-        let wsh_argv = [b"/bin/wsh\0".as_ptr(), core::ptr::null()];
-        let ret = execve(b"/bin/wsh\0", wsh_argv.as_ptr() as u64, 0);
-        if ret < 0 {
-            let _ = write(
-                STDOUT_FILENO,
-                b"[init] \x1b[1;31m\xd0\x9e\xd1\x88\xd0\xb8\xd0\xb1\xd0\xba\xd0\xb0 \xd0\xb7\xd0\xb0\xd0\xbf\xd1\x83\xd1\x81\xd0\xba\xd0\xb0 /bin/wsh\x1b[0m\n",
-            );
+        let login_argv = [b"/bin/login\0".as_ptr(), core::ptr::null()];
+        loop {
+            let _ = libwunix::setgid(0);
+            let _ = libwunix::setuid(0);
+            let _ = chdir(b"/\0");
+            let ret = execve(b"/bin/login\0", login_argv.as_ptr() as u64, 0);
+            if ret < 0 {
+                let wsh_argv = [b"/bin/wsh\0".as_ptr(), core::ptr::null()];
+                let _ = execve(b"/bin/wsh\0", wsh_argv.as_ptr() as u64, 0);
+                let req = [1u64, 0u64];
+                libwunix::nanosleep(req.as_ptr() as *const u8, core::ptr::null_mut());
+            }
+            libwunix::yield_now();
         }
     } else if is_install_mode {
         let winstall_argv = [b"/bin/winstall\0".as_ptr(), core::ptr::null()];

@@ -116,7 +116,7 @@ pub fn copy_boot_files_to_boot_partition(disk_path: &[u8], boot_part_num: u8, ro
 
         let mut conf_buf = [0u8; 512];
         let mut cpos = 0;
-        cpos = ap(&mut conf_buf, cpos, b"timeout: 3\n\n/Wunix OS (Installed)\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=");
+        cpos = ap(&mut conf_buf, cpos, b"timeout: 0\n\n/Wunix OS\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=");
         cpos = ap(&mut conf_buf, cpos, root_dev_str.as_bytes());
         cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
         let limine_conf_content = &conf_buf[..cpos];
@@ -250,7 +250,7 @@ where
 
     let mut conf_buf = [0u8; 512];
     let mut cpos = 0;
-    cpos = ap(&mut conf_buf, cpos, b"timeout: 3\n\n/Wunix OS (Installed)\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=");
+    cpos = ap(&mut conf_buf, cpos, b"timeout: 0\n\n/Wunix OS\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=");
     cpos = ap(&mut conf_buf, cpos, root_dev_str.as_bytes());
     cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
     let limine_conf_content = &conf_buf[..cpos];
