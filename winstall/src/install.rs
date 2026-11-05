@@ -247,7 +247,12 @@ where
         let pct = (10 + (done * 50 / total)).min(60) as u8;
         progress(pct, name, done, total);
 
-        copy_file(src, dst, 0o755);
+        let mode = if name == "sudo" || name == "su" || name == "passwd" || name == "sudoadd" {
+            0o4755
+        } else {
+            0o755
+        };
+        copy_file(src, dst, mode);
         done += 1;
     }
 
