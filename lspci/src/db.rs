@@ -52,6 +52,7 @@ pub fn pci_vendor_name(vendor: u16) -> &'static str {
         0x1234 => "Bochs / QEMU",
         0x1013 => "Cirrus Logic",
         0x10EC => "Realtek Semiconductor Co., Ltd.",
+        0x1B36 => "Red Hat, Inc. / QEMU",
         0x1002 => "Advanced Micro Devices, Inc. [AMD/ATI]",
         0x10DE => "NVIDIA Corporation",
         _ => t("Неизвестный производитель", "Unknown vendor"),
@@ -83,6 +84,11 @@ pub fn pci_device_desc(vendor: u16, device: u16) -> &'static str {
         (0x1234, 0x1111) => "VESA/VGA Display Adapter",
         (0x1013, 0x00B8) => "GD 5446 VisualMedia",
         (0x10EC, 0x8139) => "RTL-8139/8139C/8139C+ Fast Ethernet",
+        (0x10EC, 0x8168) | (0x10EC, 0x8111) => "RTL8168/8111 PCIe Gigabit Ethernet",
+        (0x1B36, 0x000D) => "QEMU USB 3.0 xHCI Controller",
+        (0x1B36, 0x0010) => "NVM Express Controller",
+        (0x8086, 0x2668) => "82801G (ICH7 Family) High Definition Audio",
+        (0x8086, 0x2415) => "82801AA AC'97 Audio",
         _ => t("Устройство PCI", "PCI Device"),
     }
 }
