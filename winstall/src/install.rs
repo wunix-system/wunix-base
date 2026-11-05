@@ -63,8 +63,6 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/nano\0",       b"/mnt/bin/nano\0"),
     (b"/bin/ssh\0",        b"/mnt/bin/ssh\0"),
     (b"/bin/sshd\0",       b"/mnt/bin/sshd\0"),
-    (b"/bin/tcc\0",        b"/mnt/bin/tcc\0"),
-    (b"/bin/cc\0",         b"/mnt/bin/cc\0"),
     (b"/bin/openssl\0",    b"/mnt/bin/openssl\0"),
     (b"/bin/ntpdate\0",    b"/mnt/bin/ntpdate\0"),
     (b"/bin/timesyncd\0",  b"/mnt/bin/timesyncd\0"),
@@ -92,9 +90,7 @@ pub const INSTALL_ETC_FILES: &[(&[u8], &[u8])] = &[
     (b"/etc/ssh/sshd_config\0",            b"/mnt/etc/ssh/sshd_config\0"),
 ];
 
-pub const INSTALL_EXTRA_FILES: &[(&[u8], &[u8])] = &[
-    (b"/usr/lib/tcc/libtcc1.a\0", b"/mnt/usr/lib/tcc/libtcc1.a\0"),
-];
+pub const INSTALL_EXTRA_FILES: &[(&[u8], &[u8])] = &[];
 
 pub fn mount_root_partition(disk_path: &[u8], root_part_num: u8) -> bool {
     let _ = mkdir(b"/mnt\0", 0o755);
@@ -235,7 +231,7 @@ where
         b"/mnt/etc/ssl\0", b"/mnt/etc/ssl/certs\0",
         b"/mnt/etc/ssh\0", b"/mnt/etc/services\0", b"/mnt/etc/services/enabled\0",
         b"/mnt/var\0", b"/mnt/var/empty\0",
-        b"/mnt/usr\0", b"/mnt/usr/lib\0", b"/mnt/usr/lib/tcc\0",
+        b"/mnt/usr\0", b"/mnt/usr/lib\0",
         b"/mnt/usr/include\0", b"/mnt/usr/share\0",
     ] {
         ensure_dir(d);

@@ -15,8 +15,12 @@ pub fn check_installed() -> bool {
 
     // Проверяем доступные дисковые разделы
     let candidate_devs: &[&[u8]] = &[
+        b"/dev/vda3\0",
+        b"/dev/sda3\0",
         b"/dev/vda1\0",
         b"/dev/sda1\0",
+        b"/dev/vda2\0",
+        b"/dev/sda2\0",
         b"/dev/vda\0",
         b"/dev/sda\0",
     ];
