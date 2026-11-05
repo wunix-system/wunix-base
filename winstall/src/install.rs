@@ -8,6 +8,8 @@ use libwunix::{
     O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
 };
 
+/// Список системных утилит Wunix Base для копирования на диск.
+/// ВНИМАНИЕ: winstall здесь ИСКЛЮЧЕН — установщик на диске не нужен!
 pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/init\0",       b"/mnt/bin/init\0"),
     (b"/bin/wsh\0",        b"/mnt/bin/wsh\0"),
@@ -58,7 +60,6 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/sudo\0",       b"/mnt/bin/sudo\0"),
     (b"/bin/login\0",      b"/mnt/bin/login\0"),
     (b"/bin/sudoadd\0",    b"/mnt/bin/sudoadd\0"),
-    (b"/bin/winstall\0",   b"/mnt/bin/winstall\0"),
 ];
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
@@ -75,17 +76,16 @@ pub const INSTALL_ETC_FILES: &[(&[u8], &[u8])] = &[
     (b"/etc/locale\0",     b"/mnt/etc/locale\0"),
 ];
 
-pub fn mount_target(disk_path: &[u8]) -> bool {
+pub fn mount_root_partition(disk_path: &[u8], root_part_num: u8) -> bool {
     let _ = mkdir(b"/mnt\0", 0o755);
 
-    // Сначала пробуем смонтировать раздел 1 (например /dev/vda -> /dev/vda1)
     let mut part_path = [0u8; 64];
     let mut len = 0;
     while len < disk_path.len() && disk_path[len] != 0 && len < 60 {
         part_path[len] = disk_path[len];
         len += 1;
     }
-    part_path[len] = b'1';
+    part_path[len] = b'0' + root_part_num;
     part_path[len + 1] = 0;
 
     if mount(&part_path[..len + 2], b"/mnt\0", b"fat32\0", 0, b"\0") >= 0 {
@@ -151,10 +151,12 @@ pub fn total_install_items() -> usize {
     INSTALL_BINARIES.len() + INSTALL_BOOT_FILES.len() + INSTALL_ETC_FILES.len() + 10
 }
 
-/// Выполняет полную установку системы Wunix на смонтированный целевой диск.
+/// Выполняет установку системы Wunix на смонтированный диск
 pub fn install_base<F>(
     disk_path: &[u8],
+    root_part_num: u8,
     hostname: &str,
+    timezone: &str,
     admin_user: &str,
     password: &[u8],
     net_cfg: &NetConfig,
@@ -167,7 +169,7 @@ where
     let mut done = 0;
 
     progress(2, "Монтирование диска...", done, total);
-    if !mount_target(disk_path) {
+    if !mount_root_partition(disk_path, root_part_num) {
         return false;
     }
     done += 1;
@@ -182,7 +184,7 @@ where
     }
     done += 1;
 
-    // 1. Копирование системных бинарных файлов (/bin)
+    // 1. Копирование системных бинарных файлов (/bin) - БЕЗ winstall!
     progress(10, "Установка Wunix Base (бинарные файлы)...", done, total);
     for (src, dst) in INSTALL_BINARIES {
         copy_file(src, dst, 0o755);
@@ -205,19 +207,19 @@ where
     }
 
     // Создаем правильный limine.conf для жесткого диска
-    let mut part1 = [0u8; 64];
+    let mut part_path = [0u8; 64];
     let mut plen = 0;
     while plen < disk_path.len() && disk_path[plen] != 0 && plen < 60 {
-        part1[plen] = disk_path[plen];
+        part_path[plen] = disk_path[plen];
         plen += 1;
     }
-    part1[plen] = b'1';
-    let part1_str = core::str::from_utf8(&part1[..plen + 1]).unwrap_or("/dev/vda1");
+    part_path[plen] = b'0' + root_part_num;
+    let root_dev_str = core::str::from_utf8(&part_path[..plen + 1]).unwrap_or("/dev/vda1");
 
     let mut conf_buf = [0u8; 512];
     let mut cpos = 0;
     cpos = ap(&mut conf_buf, cpos, b"timeout: 3\n\n/Wunix OS (Installed)\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    module_path: boot():/boot/initramfs.tar\n    cmdline: root=");
-    cpos = ap(&mut conf_buf, cpos, part1_str.as_bytes());
+    cpos = ap(&mut conf_buf, cpos, root_dev_str.as_bytes());
     cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
     let limine_conf_content = &conf_buf[..cpos];
     write_file(b"/mnt/boot/limine.conf\0", limine_conf_content, 0o644);
@@ -230,7 +232,7 @@ where
         done += 1;
     }
 
-    // 4. Настройка имени хоста (/etc/hostname)
+    // 4. Имя хоста (/etc/hostname)
     progress(72, "Настройка имени компьютера...", done, total);
     {
         let mut buf = [0u8; 128];
@@ -241,12 +243,23 @@ where
     }
     done += 1;
 
-    // 5. Применение реальной настройки сети
+    // 5. Часовой пояс (/etc/timezone)
+    progress(74, "Настройка часового пояса...", done, total);
+    {
+        let mut buf = [0u8; 64];
+        let l = timezone.len().min(62);
+        buf[..l].copy_from_slice(timezone.as_bytes());
+        buf[l] = b'\n';
+        write_file(b"/mnt/etc/timezone\0", &buf[..l + 1], 0o644);
+    }
+    done += 1;
+
+    // 6. Сетевая конфигурация
     progress(76, "Применение сетевой конфигурации...", done, total);
     apply_network_config(net_cfg, hostname);
     done += 1;
 
-    // 6. Создание учетных записей (root и admin)
+    // 7. Создание учетных записей (root и admin)
     progress(80, "Создание пользователей (root, sudo)...", done, total);
     {
         let mut hash_buf = [0u8; 128];
@@ -272,7 +285,7 @@ where
         }
         write_file(b"/mnt/etc/passwd\0", &pb[..pos], 0o644);
 
-        // /etc/shadow (root получает тот же пароль, что и первый админ!)
+        // /etc/shadow
         let mut sb = [0u8; 768];
         let mut pos = ap(&mut sb, 0, b"root:");
         pos = ap(&mut sb, pos, hash);
@@ -285,7 +298,7 @@ where
         }
         write_file(b"/mnt/etc/shadow\0", &sb[..pos], 0o600);
 
-        // /etc/group (добавляем админа в группу wheel для sudo)
+        // /etc/group
         let mut gb = [0u8; 256];
         let mut pos = ap(&mut gb, 0, b"root:x:0:root\nwheel:x:10:root");
         if !admin_user.is_empty() {
@@ -297,7 +310,7 @@ where
     }
     done += 1;
 
-    // 7. Создание домашнего каталога администратора
+    // 8. Создание домашнего каталога администратора
     progress(86, "Создание домашних каталогов...", done, total);
     if !admin_user.is_empty() {
         let mut hd = [0u8; 64];
@@ -308,8 +321,8 @@ where
     }
     done += 1;
 
-    // 8. Маркер установленной системы
-    progress(90, "Фиксация маркерного флага установки...", done, total);
+    // 9. Маркер установленной системы
+    progress(90, "Фиксация флага установки...", done, total);
     write_file(
         b"/mnt/etc/installed\0",
         b"WUNIX_INSTALLED=1\nINSTALL_STAGE=11\nRELEASE=1.0\n",
@@ -317,12 +330,12 @@ where
     );
     done += 1;
 
-    // 9. Размонтирование файловой системы
+    // 10. Размонтирование файловой системы
     progress(94, "Сброс дискового кэша и размонтирование /mnt...", done, total);
     unmount_target();
     done += 1;
 
-    // 10. Установка загрузочной записи Limine в MBR целевого диска
+    // 11. Установка загрузчика Limine в MBR
     progress(98, "Установка загрузчика Limine в MBR диска...", done, total);
     let _ = install_limine_bootloader(disk_path);
     done += 1;

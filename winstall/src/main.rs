@@ -7,15 +7,23 @@ mod net;
 mod screens;
 mod tui;
 
-use disk::{format_fat32, scan_disks, write_mbr, DiskInfo, MAX_DISKS};
-use install::install_base;
-use screens::{
-    begin_progress_screen, screen_confirm_partition, screen_create_user,
-    screen_error, screen_finish, screen_hostname, screen_network_config,
-    screen_select_disk, screen_select_fs, screen_welcome, update_progress,
-    FinishChoice, WelcomeChoice,
+use disk::{
+    build_auto_partition_plan, format_fat32, init_swap, scan_disks,
+    wipe_disk_signatures, write_mbr_table, DiskInfo, PartitionPlan, MAX_DISKS,
+    MAX_PARTITIONS,
 };
-use tui::{clear_screen, hide_cursor, show_cursor};
+use install::install_base;
+use net::{scan_network_adapters, NetAdapterInfo, NetConfig, MAX_ADAPTERS};
+use screens::{
+    begin_install_progress_screen, begin_partition_process_screen,
+    screen_boot_menu, screen_datetime_and_timezone, screen_error, screen_finish,
+    screen_network_config, screen_partition_confirm, screen_partition_manual,
+    screen_partition_mode, screen_select_adapter, screen_select_disk,
+    screen_select_fs, screen_user_and_hostname, screen_welcome_info,
+    update_install_progress, update_partition_step, FinishChoice, PartitionMode,
+    WelcomeChoice,
+};
+use tui::{clear_screen, hide_cursor, show_cursor, sleep_ms};
 
 use libwunix::{close, execve, exit, open, pread64, write, O_RDONLY, STDERR_FILENO, STDOUT_FILENO};
 
@@ -28,8 +36,7 @@ pub extern "C" fn _start(_argc: isize, _argv: *const *const u8) -> ! {
 }
 
 fn run_wizard() -> ! {
-    // Если в параметрах командной строки ядра указан mode=install,
-    // сразу переходим к интерактивному установщику
+    // Если в параметрах ядра указан mode=install, сразу переходим к установщику
     let mut cmdline_buf = [0u8; 256];
     let cmd_fd = open(b"/proc/cmdline\0", O_RDONLY as u64, 0);
     if cmd_fd >= 0 {
@@ -44,24 +51,29 @@ fn run_wizard() -> ! {
     }
 
     let welcome = loop {
-        match screen_welcome() {
+        match screen_boot_menu() {
             Some(w) => break w,
             None => {}
         }
     };
 
     match welcome {
-        WelcomeChoice::Live => {
-            launch_shell();
-        }
         WelcomeChoice::Install => {
             run_install_wizard();
+        }
+        WelcomeChoice::Live => {
+            launch_shell();
         }
     }
 }
 
 fn run_install_wizard() -> ! {
-    // ── 1. Выбор диска ───────────────────────────────────────────────────────
+    // ── 1. Окно приветствия и рассказ про Wunix OS ───────────────────────────
+    if !screen_welcome_info() {
+        run_wizard();
+    }
+
+    // ── 2. Выбор целевого диска ──────────────────────────────────────────────
     let mut disks = [DiskInfo::default(); MAX_DISKS];
     let disk_count = scan_disks(&mut disks);
 
@@ -74,8 +86,8 @@ fn run_install_wizard() -> ! {
         }
     };
 
-    // ── 2. Выбор файловой системы ────────────────────────────────────────────
-    let _fs_choice = loop {
+    // ── 3. Выбор файловой системы ────────────────────────────────────────────
+    let fs_choice = loop {
         match screen_select_fs() {
             Some(fs) => break fs,
             None => {
@@ -84,84 +96,150 @@ fn run_install_wizard() -> ! {
         }
     };
 
-    // ── 3. Подтверждение разметки ────────────────────────────────────────────
-    if !screen_confirm_partition(target_disk.name()) {
-        run_install_wizard();
-    }
+    // ── 4. Разметка диска (Автоматическая / Ручная + Валидация) ──────────────
+    let mut plans = [PartitionPlan::empty(); MAX_PARTITIONS];
+    let mut plan_count;
 
-    // ── 4. Настройка сети (DHCP / Static IP + Ping проверка) ──────────────────
-    let net_cfg = loop {
-        match screen_network_config() {
-            Some(cfg) => break cfg,
+    loop {
+        let mode = match screen_partition_mode() {
+            Some(m) => m,
             None => {
                 run_install_wizard();
             }
+        };
+
+        match mode {
+            PartitionMode::Auto => {
+                plan_count = build_auto_partition_plan(target_disk.sector_count, fs_choice, &mut plans);
+            }
+            PartitionMode::Manual => {
+                match screen_partition_manual(target_disk, fs_choice, &mut plans) {
+                    Some(c) => plan_count = c,
+                    None => continue,
+                }
+            }
         }
+
+        if screen_partition_confirm(target_disk.name(), &plans[..plan_count], plan_count) {
+            break;
+        }
+    }
+
+    // ── 5. Очистка и разметка диска (с отображением процесса) ────────────────
+    begin_partition_process_screen(target_disk.name());
+
+    // Шаг 1: Очистка нулевого сектора и старых сигнатур
+    update_partition_step(1, false);
+    sleep_ms(150);
+    wipe_disk_signatures(target_disk.path);
+    update_partition_step(1, true);
+
+    // Шаг 2: Запись новой таблицы разделов MBR
+    update_partition_step(2, false);
+    sleep_ms(150);
+    if !write_mbr_table(target_disk.path, &plans[..plan_count], plan_count) {
+        screen_error("Ошибка записи таблицы MBR на целевой накопитель!");
+        launch_shell();
+    }
+    update_partition_step(2, true);
+
+    // Шаг 3: Форматирование корневого раздела (FAT32)
+    update_partition_step(3, false);
+    sleep_ms(200);
+    let mut root_part_num = 1u8;
+    for (idx, p) in plans[..plan_count].iter().enumerate() {
+        if p.mount_point == "/" {
+            root_part_num = (idx + 1) as u8;
+            if !format_fat32(target_disk.path, p.start_lba as u64, p.sector_count as u64) {
+                screen_error("Ошибка форматирования корневого раздела FAT32!");
+                launch_shell();
+            }
+        } else if p.mount_point == "/boot" && p.fstype == "fat32" {
+            // Форматируем также отдельный раздел /boot если он выделен
+            let _ = format_fat32(target_disk.path, p.start_lba as u64, p.sector_count as u64);
+        }
+    }
+    update_partition_step(3, true);
+
+    // Шаг 4: Инициализация Swap раздела (если задан)
+    update_partition_step(4, false);
+    sleep_ms(150);
+    for p in plans[..plan_count].iter() {
+        if p.mount_point == "swap" || p.fstype == "swap" {
+            let _ = init_swap(target_disk.path, p.start_lba as u64, p.sector_count as u64);
+        }
+    }
+    update_partition_step(4, true);
+
+    // Шаг 5: Проверка и фиксация
+    update_partition_step(5, false);
+    sleep_ms(150);
+    update_partition_step(5, true);
+    sleep_ms(250);
+
+    // ── 6. Сеть: Выбор адаптера и параметров ─────────────────────────────────
+    let mut adapters = [NetAdapterInfo::default(); MAX_ADAPTERS];
+    let adapter_count = scan_network_adapters(&mut adapters);
+
+    let net_cfg = match screen_select_adapter(&adapters[..adapter_count], adapter_count) {
+        Some(Some(adapter)) => {
+            match screen_network_config(adapter) {
+                Some(cfg) => cfg,
+                None => NetConfig::default(),
+            }
+        }
+        _ => NetConfig::default(),
     };
 
-    // ── 5. Создание пользователя-администратора (sudo / wheel) ───────────────
+    // ── 7. Учетная запись администратора и имя хоста ─────────────────────────
     let user_cfg = loop {
-        match screen_create_user() {
-            Some(cfg) => break cfg,
+        match screen_user_and_hostname() {
+            Some(u) => break u,
             None => {
                 run_install_wizard();
             }
         }
     };
 
-    // ── 6. Имя хоста ─────────────────────────────────────────────────────────
-    let (hostname_buf, hostname_len) = loop {
-        match screen_hostname() {
-            Some(h) => break h,
-            None => {
-                run_install_wizard();
-            }
-        }
-    };
-
-    let hostname = {
-        core::str::from_utf8(&hostname_buf[..hostname_len]).unwrap_or("wunix")
-    };
-    let username = {
-        core::str::from_utf8(&user_cfg.username[..user_cfg.username_len]).unwrap_or("admin")
-    };
+    let username = core::str::from_utf8(&user_cfg.username[..user_cfg.username_len]).unwrap_or("admin");
     let password = &user_cfg.password[..user_cfg.password_len];
+    let hostname = core::str::from_utf8(&user_cfg.hostname[..user_cfg.hostname_len]).unwrap_or("wunix");
 
-    // ── 7. Установка Wunix Base на диск ──────────────────────────────────────
-    begin_progress_screen();
-    let total_items = install::total_install_items();
+    // ── 8. Дата, время и часовой пояс ────────────────────────────────────────
+    let timezone = match screen_datetime_and_timezone() {
+        Some(tz) => tz,
+        None => "Europe/Moscow",
+    };
 
-    update_progress(1, "\u{417}\u{430}\u{43f}\u{438}\u{441}\u{44c} MBR \u{440}\u{430}\u{437}\u{434}\u{435}\u{43b}\u{43e}\u{432}...", 0, total_items);
-    let sectors = target_disk.sector_count;
-    if !write_mbr(target_disk.path, sectors) {
-        screen_error("\u{41e}\u{448}\u{438}\u{431}\u{43a}\u{430} \u{437}\u{430}\u{43f}\u{438}\u{441}\u{438} MBR \u{43d}\u{430} \u{434}\u{438}\u{441}\u{43a}.");
-        launch_shell();
-    }
-
-    update_progress(3, "\u{424}\u{43e}\u{440}\u{43c}\u{430}\u{442}\u{438}\u{440}\u{43e}\u{432}\u{430}\u{43d}\u{438}\u{445} FAT32...", 0, total_items);
-    if !format_fat32(target_disk.path, 2048, sectors.saturating_sub(2048)) {
-        screen_error("\u{41e}\u{448}\u{438}\u{431}\u{43a}\u{430} \u{444}\u{43e}\u{440}\u{43c}\u{430}\u{442}\u{438}\u{440}\u{43e}\u{432}\u{430}\u{43d}\u{438}\u{44f} FAT32.");
-        launch_shell();
-    }
+    // ── 9. Установка Wunix Base на диск (БЕЗ winstall!) ─────────────────────
+    begin_install_progress_screen();
 
     let ok = install_base(
         target_disk.path,
+        root_part_num,
         hostname,
+        timezone,
         username,
         password,
         &net_cfg,
         |pct, stage, done, total| {
-            update_progress(pct, stage, done, total);
+            update_install_progress(pct, stage, done, total);
         },
     );
 
     if !ok {
-        screen_error("\u{41e}\u{448}\u{438}\u{431}\u{43a}\u{430} \u{43f}\u{440}\u{438} \u{443}\u{441}\u{442}\u{430}\u{43d}\u{43e}\u{432}\u{43a}\u{435} \u{441}\u{438}\u{441}\u{442}\u{435}\u{43c}\u{44b} \u{43d}\u{430} \u{434}\u{438}\u{441}\u{43a}.");
+        screen_error("Ошибка при установке компонентов системы на диск.");
         launch_shell();
     }
 
-    // ── 8. Завершение установки ──────────────────────────────────────────────
-    match screen_finish(target_disk.name(), username, hostname, net_cfg.ip_str()) {
+    // ── 10. Завершение установки ─────────────────────────────────────────────
+    match screen_finish(
+        target_disk.name(),
+        username,
+        hostname,
+        net_cfg.ip_str(),
+        timezone,
+    ) {
         FinishChoice::Reboot => do_reboot(),
         FinishChoice::Shutdown => do_shutdown(),
         FinishChoice::Shell => launch_shell(),
