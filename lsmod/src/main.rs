@@ -72,7 +72,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         i += 1;
     }
 
-    let mut buf = [0u8; 4096];
+    let mut buf = [0u8; 16384];
     let mut len = 0usize;
     let fd = open(b"/proc/modules\0", 0, 0);
     if fd >= 0 {
@@ -84,11 +84,11 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     }
 
     let text = core::str::from_utf8(&buf[..len]).unwrap_or("");
-    let mut entries: [Option<ModuleEntry>; 32] = [None; 32];
+    let mut entries: [Option<ModuleEntry>; 64] = [None; 64];
     let mut count = 0usize;
 
     for line in text.lines() {
-        if line.is_empty() || count >= 32 {
+        if line.is_empty() || count >= 64 {
             continue;
         }
         let mut parts = line.split_whitespace();

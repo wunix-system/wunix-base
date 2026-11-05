@@ -95,6 +95,38 @@ pub fn mount_root_partition(disk_path: &[u8], root_part_num: u8) -> bool {
     mount(disk_path, b"/mnt\0", b"fat32\0", 0, b"\0") >= 0
 }
 
+/// Копирует ядро и конфигурации загрузчика на выделенный раздел /boot (если он задан)
+pub fn copy_boot_files_to_boot_partition(disk_path: &[u8], boot_part_num: u8, root_dev_str: &str) {
+    let _ = mkdir(b"/mnt_boot\0", 0o755);
+    let mut part_path = [0u8; 64];
+    let mut len = 0;
+    while len < disk_path.len() && disk_path[len] != 0 && len < 60 {
+        part_path[len] = disk_path[len];
+        len += 1;
+    }
+    part_path[len] = b'0' + boot_part_num;
+    part_path[len + 1] = 0;
+
+    if mount(&part_path[..len + 2], b"/mnt_boot\0", b"fat32\0", 0, b"\0") >= 0 {
+        let _ = mkdir(b"/mnt_boot/boot\0", 0o755);
+        copy_file(b"/boot/wunix-kernel\0", b"/mnt_boot/boot/wunix-kernel\0", 0o644);
+        copy_file(b"/boot/wunix-kernel\0", b"/mnt_boot/wunix-kernel\0", 0o644);
+        copy_file(b"/boot/limine-bios.sys\0", b"/mnt_boot/limine-bios.sys\0", 0o644);
+        copy_file(b"/boot/limine-bios.sys\0", b"/mnt_boot/boot/limine-bios.sys\0", 0o644);
+
+        let mut conf_buf = [0u8; 512];
+        let mut cpos = 0;
+        cpos = ap(&mut conf_buf, cpos, b"timeout: 3\n\n/Wunix OS (Installed)\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=");
+        cpos = ap(&mut conf_buf, cpos, root_dev_str.as_bytes());
+        cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
+        let limine_conf_content = &conf_buf[..cpos];
+        write_file(b"/mnt_boot/boot/limine.conf\0", limine_conf_content, 0o644);
+        write_file(b"/mnt_boot/limine.conf\0", limine_conf_content, 0o644);
+
+        let _ = umount2(b"/mnt_boot\0", 0);
+    }
+}
+
 pub fn unmount_target() {
     let _ = umount2(b"/mnt\0", 0);
 }
@@ -154,6 +186,7 @@ pub fn total_install_items() -> usize {
 pub fn install_base<F>(
     disk_path: &[u8],
     root_part_num: u8,
+    boot_part_num: u8,
     hostname: &str,
     timezone: &str,
     admin_user: &str,
@@ -333,6 +366,11 @@ where
     progress(94, "Сброс дискового кэша и размонтирование /mnt...", done, total);
     unmount_target();
     done += 1;
+
+    // 10b. Если выделен отдельный раздел /boot, копируем файлы ядра и загрузчика и туда
+    if boot_part_num != 0 && boot_part_num != root_part_num {
+        copy_boot_files_to_boot_partition(disk_path, boot_part_num, root_dev_str);
+    }
 
     // 11. Установка загрузчика Limine в MBR
     progress(98, "Установка загрузчика Limine в MBR диска...", done, total);

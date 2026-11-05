@@ -147,6 +147,7 @@ fn run_install_wizard() -> ! {
     update_partition_step(3, false);
     sleep_ms(200);
     let mut root_part_num = 1u8;
+    let mut boot_part_num = 0u8;
     for (idx, p) in plans[..plan_count].iter().enumerate() {
         if p.mount_point == "/" {
             root_part_num = (idx + 1) as u8;
@@ -155,6 +156,7 @@ fn run_install_wizard() -> ! {
                 launch_shell();
             }
         } else if p.mount_point == "/boot" && p.fstype == "fat32" {
+            boot_part_num = (idx + 1) as u8;
             // Форматируем также отдельный раздел /boot если он выделен
             let _ = format_fat32(target_disk.path, p.start_lba as u64, p.sector_count as u64);
         }
@@ -217,6 +219,7 @@ fn run_install_wizard() -> ! {
     let ok = install_base(
         target_disk.path,
         root_part_num,
+        boot_part_num,
         hostname,
         timezone,
         username,
