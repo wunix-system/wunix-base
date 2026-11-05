@@ -60,6 +60,16 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/sudo\0",       b"/mnt/bin/sudo\0"),
     (b"/bin/login\0",      b"/mnt/bin/login\0"),
     (b"/bin/sudoadd\0",    b"/mnt/bin/sudoadd\0"),
+    (b"/bin/nano\0",       b"/mnt/bin/nano\0"),
+    (b"/bin/ssh\0",        b"/mnt/bin/ssh\0"),
+    (b"/bin/sshd\0",       b"/mnt/bin/sshd\0"),
+    (b"/bin/tcc\0",        b"/mnt/bin/tcc\0"),
+    (b"/bin/cc\0",         b"/mnt/bin/cc\0"),
+    (b"/bin/openssl\0",    b"/mnt/bin/openssl\0"),
+    (b"/bin/ntpdate\0",    b"/mnt/bin/ntpdate\0"),
+    (b"/bin/timesyncd\0",  b"/mnt/bin/timesyncd\0"),
+    (b"/bin/system\0",     b"/mnt/bin/system\0"),
+    (b"/bin/nslookup\0",   b"/mnt/bin/nslookup\0"),
 ];
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
@@ -71,8 +81,19 @@ pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
 ];
 
 pub const INSTALL_ETC_FILES: &[(&[u8], &[u8])] = &[
-    (b"/etc/os-release\0", b"/mnt/etc/os-release\0"),
-    (b"/etc/locale\0",     b"/mnt/etc/locale\0"),
+    (b"/etc/os-release\0",                 b"/mnt/etc/os-release\0"),
+    (b"/etc/locale\0",                     b"/mnt/etc/locale\0"),
+    (b"/etc/hosts\0",                      b"/mnt/etc/hosts\0"),
+    (b"/etc/timesyncd.conf\0",             b"/mnt/etc/timesyncd.conf\0"),
+    (b"/etc/ntp.conf\0",                   b"/mnt/etc/ntp.conf\0"),
+    (b"/etc/ssl/certs/ca-certificates.crt\0", b"/mnt/etc/ssl/certs/ca-certificates.crt\0"),
+    (b"/etc/ssl/openssl.cnf\0",            b"/mnt/etc/ssl/openssl.cnf\0"),
+    (b"/etc/ssh/ssh_config\0",             b"/mnt/etc/ssh/ssh_config\0"),
+    (b"/etc/ssh/sshd_config\0",            b"/mnt/etc/ssh/sshd_config\0"),
+];
+
+pub const INSTALL_EXTRA_FILES: &[(&[u8], &[u8])] = &[
+    (b"/usr/lib/tcc/libtcc1.a\0", b"/mnt/usr/lib/tcc/libtcc1.a\0"),
 ];
 
 pub fn mount_root_partition(disk_path: &[u8], root_part_num: u8) -> bool {
@@ -179,7 +200,7 @@ fn make_salt(out: &mut [u8; 8]) {
 }
 
 pub fn total_install_items() -> usize {
-    INSTALL_BINARIES.len() + INSTALL_BOOT_FILES.len() + INSTALL_ETC_FILES.len() + 10
+    INSTALL_BINARIES.len() + INSTALL_BOOT_FILES.len() + INSTALL_ETC_FILES.len() + INSTALL_EXTRA_FILES.len() + 10
 }
 
 /// Выполняет установку системы Wunix на смонтированный диск
@@ -211,24 +232,27 @@ where
         b"/mnt/bin\0".as_ref(), b"/mnt/etc\0", b"/mnt/tmp\0",
         b"/mnt/root\0", b"/mnt/home\0", b"/mnt/mnt\0",
         b"/mnt/boot\0", b"/mnt/dev\0",  b"/mnt/proc\0", b"/mnt/sys\0",
+        b"/mnt/etc/ssl\0", b"/mnt/etc/ssl/certs\0",
+        b"/mnt/etc/ssh\0", b"/mnt/etc/services\0", b"/mnt/etc/services/enabled\0",
+        b"/mnt/var\0", b"/mnt/var/empty\0",
+        b"/mnt/usr\0", b"/mnt/usr/lib\0", b"/mnt/usr/lib/tcc\0",
+        b"/mnt/usr/include\0", b"/mnt/usr/share\0",
     ] {
         ensure_dir(d);
     }
     done += 1;
 
     // 1. Копирование системных бинарных файлов (/bin) - БЕЗ winstall!
-    progress(10, "Установка Wunix Base (бинарные файлы)...", done, total);
     for (src, dst) in INSTALL_BINARIES {
+        let s = *src;
+        let start = s.iter().rposition(|&b| b == b'/').map(|p| p + 1).unwrap_or(0);
+        let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
+        let name = core::str::from_utf8(&s[start..end]).unwrap_or("bin");
+        let pct = (10 + (done * 50 / total)).min(60) as u8;
+        progress(pct, name, done, total);
+
         copy_file(src, dst, 0o755);
         done += 1;
-        let pct = (10 + (done * 50 / total)).min(60) as u8;
-        if done % 3 == 0 {
-            let s = *src;
-            let start = s.iter().rposition(|&b| b == b'/').map(|p| p + 1).unwrap_or(0);
-            let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
-            let name = core::str::from_utf8(&s[start..end]).unwrap_or("bin");
-            progress(pct, name, done, total);
-        }
     }
 
     // 2. Копирование файлов ядра и загрузчика (/boot)
@@ -263,6 +287,15 @@ where
         copy_file(src, dst, 0o644);
         done += 1;
     }
+
+    for (src, dst) in INSTALL_EXTRA_FILES {
+        copy_file(src, dst, 0o644);
+        done += 1;
+    }
+
+    // Автозапуск системных служб
+    write_file(b"/mnt/etc/services/enabled/timesyncd\0", b"/bin/timesyncd\n", 0o644);
+    write_file(b"/mnt/etc/services/enabled/network\0", b"/bin/ip link set eth0 up\n", 0o644);
 
     // 4. Имя хоста (/etc/hostname)
     progress(72, "Настройка имени компьютера...", done, total);
