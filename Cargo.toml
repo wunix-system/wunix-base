@@ -11,6 +11,7 @@ members = [
     "fbset",
     "fdisk",
     "free",
+    "gzip",
     "host",
     "hwclock",
     "id",
@@ -42,6 +43,7 @@ members = [
     "sudo",
     "sudoadd",
     "system",
+    "tar",
     "time",
     "timedatectl",
     "timesyncd",
@@ -49,11 +51,15 @@ members = [
     "touch",
     "umount",
     "uname",
+    "unrar",
+    "unzip",
+    "unzip",
     "useradd",
     "userdel",
     "whoami",
     "winstall",
     "wsh",
+    "zip",
 ]
 
 [profile.dev]
