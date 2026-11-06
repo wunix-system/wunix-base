@@ -76,7 +76,10 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/zip\0",        b"/mnt/bin/zip\0"),
     (b"/bin/unzip\0",      b"/mnt/bin/unzip\0"),
     (b"/bin/gzip\0",       b"/mnt/bin/gzip\0"),
+    (b"/bin/gunzip\0",     b"/mnt/bin/gunzip\0"),
     (b"/bin/unrar\0",      b"/mnt/bin/unrar\0"),
+    (b"/bin/ar\0",         b"/mnt/bin/ar\0"),
+    (b"/bin/cpio\0",       b"/mnt/bin/cpio\0"),
 ];
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[

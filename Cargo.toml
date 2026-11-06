@@ -1,16 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
+    "ar",
     "cat",
     "chmod",
     "chown",
     "clear",
+    "cpio",
     "curl",
     "date",
     "echo",
     "fbset",
     "fdisk",
     "free",
+    "gunzip",
     "gzip",
     "host",
     "hwclock",
