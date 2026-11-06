@@ -4,16 +4,33 @@ use libwunix::{
     close, mkdir, mount, open, pread64, pwrite64, umount2, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
 };
 
+static mut CHECKED: bool = false;
+static mut IS_INSTALLED: bool = false;
+
 /// Проверяет, является ли окружение установленной системой.
-/// Если система найдена на диске, монтирует /dev/vda1 в /mnt и синхронизирует учетные записи.
+/// Если система найдена на диске, монтирует раздел в /mnt и синхронизирует учетные записи.
 pub fn check_installed() -> bool {
+    unsafe {
+        if CHECKED {
+            return IS_INSTALLED;
+        }
+    }
+    let res = do_check_installed();
+    unsafe {
+        CHECKED = true;
+        IS_INSTALLED = res;
+    }
+    res
+}
+
+fn do_check_installed() -> bool {
     let fd = open(b"/etc/installed\0", O_RDONLY as u64, 0);
     if fd >= 0 {
         close(fd as u64);
         return true;
     }
 
-    // Проверяем доступные дисковые разделы
+    // Проверяем доступные дисковые разделы (только UFS и EXT4)
     let candidate_devs: &[&[u8]] = &[
         b"/dev/vda3\0",
         b"/dev/sda3\0",
@@ -28,7 +45,7 @@ pub fn check_installed() -> bool {
     let _ = mkdir(b"/mnt\0", 0o755);
 
     for dev in candidate_devs {
-        for fstype in &[b"ufs\0".as_ref(), b"ext4\0", b"fat32\0", b"\0"] {
+        for fstype in &[b"ufs\0".as_ref(), b"ext4\0"] {
             if mount(*dev, b"/mnt\0", *fstype, 0, b"\0") >= 0 {
                 let inst_fd = open(b"/mnt/etc/installed\0", O_RDONLY as u64, 0);
                 if inst_fd >= 0 {

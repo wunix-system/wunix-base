@@ -402,6 +402,7 @@ directory = /\n";
             pos = ap(&mut pb, pos, b":/bin/wsh\n");
         }
         write_file(b"/mnt/etc/passwd\0", &pb[..pos], 0o644);
+        write_file(b"/etc/passwd\0", &pb[..pos], 0o644);
 
         // /etc/shadow
         let mut sb = [0u8; 768];
@@ -415,6 +416,7 @@ directory = /\n";
             pos = ap(&mut sb, pos, b":19000:0:99999:7:::\n");
         }
         write_file(b"/mnt/etc/shadow\0", &sb[..pos], 0o600);
+        write_file(b"/etc/shadow\0", &sb[..pos], 0o600);
 
         // /etc/group
         let mut gb = [0u8; 256];
@@ -425,6 +427,7 @@ directory = /\n";
         }
         pos = ap(&mut gb, pos, b"\nnogroup:x:65534:\n");
         write_file(b"/mnt/etc/group\0", &gb[..pos], 0o644);
+        write_file(b"/etc/group\0", &gb[..pos], 0o644);
     }
     done += 1;
 
@@ -438,6 +441,14 @@ directory = /\n";
         ensure_dir(&hd[..pos + 1]);
         let _ = libwunix::chown(&hd[..pos + 1], 1000, 1000);
         let _ = libwunix::chmod(&hd[..pos + 1], 0o750);
+
+        let mut hd_live = [0u8; 64];
+        let mut pos_l = ap(&mut hd_live, 0, b"/home/");
+        pos_l = ap(&mut hd_live, pos_l, admin_user.as_bytes());
+        hd_live[pos_l] = 0;
+        ensure_dir(&hd_live[..pos_l + 1]);
+        let _ = libwunix::chown(&hd_live[..pos_l + 1], 1000, 1000);
+        let _ = libwunix::chmod(&hd_live[..pos_l + 1], 0o750);
     }
     done += 1;
 
@@ -445,6 +456,11 @@ directory = /\n";
     progress(90, "Фиксация флага установки...", done, total);
     write_file(
         b"/mnt/etc/installed\0",
+        b"WUNIX_INSTALLED=1\nINSTALL_STAGE=11\nRELEASE=1.0\n",
+        0o644,
+    );
+    write_file(
+        b"/etc/installed\0",
         b"WUNIX_INSTALLED=1\nINSTALL_STAGE=11\nRELEASE=1.0\n",
         0o644,
     );

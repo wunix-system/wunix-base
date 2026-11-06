@@ -280,13 +280,20 @@ fn do_shutdown() -> ! {
 fn launch_shell() -> ! {
     show_cursor();
     clear_screen();
-    write(
-        STDOUT_FILENO,
-        "\x1b[1;36mДобро пожаловать в Wunix OS (Live-сессия)!\x1b[0m\n\n".as_bytes(),
-    );
-    let argv = [b"/bin/wsh\0".as_ptr(), core::ptr::null()];
-    let _ = execve(b"/bin/wsh\0", argv.as_ptr() as u64, 0);
-    write(STDERR_FILENO, b"winstall: failed to exec /bin/wsh\n");
+    let inst_fd = open(b"/etc/installed\0", libwunix::O_RDONLY as u64, 0);
+    let target_bin: &[u8] = if inst_fd >= 0 {
+        close(inst_fd as u64);
+        b"/bin/login\0"
+    } else {
+        write(
+            STDOUT_FILENO,
+            "\x1b[1;36mДобро пожаловать в Wunix OS (Live-сессия)!\x1b[0m\n\n".as_bytes(),
+        );
+        b"/bin/wsh\0"
+    };
+    let argv = [target_bin.as_ptr(), core::ptr::null()];
+    let _ = execve(target_bin, argv.as_ptr() as u64, 0);
+    write(STDERR_FILENO, b"winstall: failed to exec shell\n");
     exit(1);
 }
 

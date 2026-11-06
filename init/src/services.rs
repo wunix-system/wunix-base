@@ -1,7 +1,7 @@
 //! Инициализация и автозапуск системных служб Wunix при старте ядра.
 
 use libwunix::{
-    chmod, close, execve, getdents64, mkdir, open, symlink, write, O_CREAT, O_EXCL, O_RDONLY, O_WRONLY,
+    chmod, close, execve, mkdir, open, symlink, write, O_CREAT, O_EXCL, O_WRONLY,
     STDOUT_FILENO, t,
 };
 
@@ -80,47 +80,10 @@ pub fn init_services() {
         .as_bytes(),
     );
 
-    // 5. Запускаем включенные службы через /bin/system start <служба>
-    let fd = open(b"/etc/services/enabled\0", O_RDONLY as u64, 0);
-    if fd >= 0 {
-        let mut buf = [0u8; 2048];
-        loop {
-            let n = getdents64(fd as u64, &mut buf);
-            if n <= 0 {
-                break;
-            }
-
-            let total = (n as usize).min(buf.len());
-            let mut pos = 0;
-            while pos + 19 <= total {
-                let reclen = u16::from_ne_bytes([buf[pos + 16], buf[pos + 17]]) as usize;
-                if reclen == 0 || pos + reclen > total {
-                    break;
-                }
-
-                let name_start = pos + 19;
-                let mut name_end = name_start;
-                let max_end = pos + reclen;
-                while name_end < max_end && buf[name_end] != 0 {
-                    name_end += 1;
-                }
-
-                if name_end > name_start {
-                    let entry_slice = &buf[name_start..name_end];
-                    if let Ok(entry_name) = core::str::from_utf8(entry_slice) {
-                        if entry_name.ends_with(".conf") && !entry_name.starts_with('.') {
-                            if let Some(clean) = entry_name.strip_suffix(".conf") {
-                                start_one_service(clean);
-                            }
-                        }
-                    }
-                }
-
-                pos += reclen;
-            }
-        }
-        close(fd as u64);
-    }
+    // 5. Запускаем ключевые службы в строго определенном порядке
+    start_one_service("network");
+    start_one_service("timesyncd");
+    start_one_service("sshd");
 
     write(
         STDOUT_FILENO,

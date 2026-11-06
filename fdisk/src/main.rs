@@ -26,7 +26,8 @@ fn type_name(id: u8) -> &'static str {
         0x0C => "W95 FAT32 (LBA)",
         0x0E => "W95 FAT16 (LBA)",
         0x82 => "Linux swap",
-        0x83 => "Linux",
+        0x83 => "Linux (ext4)",
+        0xA5 => "FreeBSD / UFS",
         0xEE => "GPT",
         _ => "Unknown",
     }

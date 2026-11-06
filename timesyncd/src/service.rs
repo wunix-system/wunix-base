@@ -4,10 +4,10 @@ use libwunix::{close, open, println, read, t, write, O_CREAT, O_RDONLY, O_TRUNC,
 use crate::args::TimesyncdArgs;
 
 const DEFAULT_SERVERS: [&str; 4] = [
+    "10.0.2.2",
     "pool.ntp.org",
     "time.google.com",
     "time.cloudflare.com",
-    "10.0.2.2",
 ];
 
 pub fn run(args: TimesyncdArgs) -> i32 {
@@ -36,7 +36,7 @@ pub fn run(args: TimesyncdArgs) -> i32 {
 
     loop {
         let mut synced = false;
-        let max_tries = servers.len();
+        let max_tries = if args.once { 1 } else { servers.len() };
         for &server in &servers[..max_tries.min(servers.len())] {
             if args.verbose {
                 println!("{}: {}", t("timesyncd: опрос сервера", "timesyncd: querying server"), server);

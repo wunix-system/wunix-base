@@ -22,10 +22,6 @@ pub fn screen_select_fs() -> Option<&'static str> {
             label: "2. Ext4  — Журналируемая файловая система Linux                    ",
             disabled: false,
         },
-        MenuItem {
-            label: "3. Btrfs — CoW файловая система нового поколения (в разработке)    ",
-            disabled: true,
-        },
     ];
 
     draw_separator();
@@ -36,7 +32,6 @@ pub fn screen_select_fs() -> Option<&'static str> {
     let sel = run_menu(12, col, &items, menu_w)?;
     match sel {
         0 => Some("ufs"),
-        1 => Some("ext4"),
-        _ => Some("btrfs"),
+        _ => Some("ext4"),
     }
 }

@@ -35,7 +35,7 @@ fn print_mounts() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
-    let mut fstype = &b"fat32"[..];
+    let mut fstype = &b"auto"[..];
     let mut verbose = false;
     let mut positional = [&b""[..]; 2];
     let mut pos_count = 0;
@@ -51,7 +51,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                        mount [-t тип] [-o опции] <источник> <каталог>\n  \
                        mount (без параметров: список точек монтирования)\n\
                      Опции:\n  \
-                       -t, --types <тип>   Тип файловой системы (fat, fat32, vfat)\n  \
+                       -t, --types <тип>   Тип файловой системы (auto, ufs, ext4, fat32)\n  \
                        -o, --options <опц> Дополнительные опции монтирования (ro, rw)\n  \
                        -v, --verbose       Подробный вывод\n  \
                        -h, --help          Показать эту справку\n  \
@@ -60,7 +60,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                        mount [-t fstype] [-o options] <source> <target>\n  \
                        mount (no arguments: list mount points)\n\
                      Options:\n  \
-                       -t, --types <type>  Filesystem type (fat, fat32, vfat)\n  \
+                       -t, --types <type>  Filesystem type (auto, ufs, ext4, fat32)\n  \
                        -o, --options <opt> Mount options (ro, rw)\n  \
                        -v, --verbose       Verbose output\n  \
                        -h, --help          Display this help and exit\n  \
