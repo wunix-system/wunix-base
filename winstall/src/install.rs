@@ -326,6 +326,7 @@ directory = /\n";
     write_file(b"/mnt/etc/services/timesyncd.conf\0", TIMESYNCD_CFG, 0o644);
     write_file(b"/mnt/etc/services/network.conf\0", NETWORK_CFG, 0o644);
     write_file(b"/mnt/etc/services/ssh.conf\0", SSH_CFG, 0o644);
+    write_file(b"/mnt/etc/services/sshd.conf\0", SSH_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/timesyncd.conf\0", TIMESYNCD_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/network.conf\0", NETWORK_CFG, 0o644);
 

@@ -27,8 +27,20 @@ unsafe extern "C" {
 }
 
 #[cfg(not(test))]
+core::arch::global_asm!(
+    r#"
+    .global _start
+    _start:
+        xor rbp, rbp
+        and rsp, -16
+        call main_entry
+        ud2
+    "#
+);
+
+#[cfg(not(test))]
 #[unsafe(no_mangle)]
-pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
+pub extern "C" fn main_entry(argc: isize, argv: *const *const u8) -> ! {
     unsafe { wunix_init_tls() };
     let mut target_url: Option<&'static [u8]> = None;
     let mut output_file: Option<&'static [u8]> = None;

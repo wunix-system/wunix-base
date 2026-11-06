@@ -150,7 +150,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                             "  {} '{}': {}",
                             t("Служба", "Service"),
                             name,
-                            t("запущена", "started")
+                            t("успешно запущена", "started successfully")
                         );
                         exit(0);
                     } else {

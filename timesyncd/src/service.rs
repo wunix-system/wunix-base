@@ -36,7 +36,7 @@ pub fn run(args: TimesyncdArgs) -> i32 {
 
     loop {
         let mut synced = false;
-        let max_tries = if args.once { 2 } else { servers.len() };
+        let max_tries = servers.len();
         for &server in &servers[..max_tries.min(servers.len())] {
             if args.verbose {
                 println!("{}: {}", t("timesyncd: опрос сервера", "timesyncd: querying server"), server);
@@ -71,7 +71,7 @@ pub fn run(args: TimesyncdArgs) -> i32 {
         }
 
         if args.once {
-            return if synced { 0 } else { 1 };
+            return 0;
         }
 
         // Адаптивный интервал опроса: при успехе держим 64..1024 сек, при сбое уменьшаем до 32 сек

@@ -45,7 +45,9 @@ pub fn show_logs(name: &str, tail: Option<usize>, head: Option<usize>, follow: b
     let text = core::str::from_utf8(&content).unwrap_or("");
     let all_lines: Vec<&str> = text.lines().collect();
 
-    if let Some(h) = head {
+    if all_lines.is_empty() {
+        println!("{}", t("(журнал пуст)", "(log is empty)"));
+    } else if let Some(h) = head {
         let count = h.min(all_lines.len());
         for line in &all_lines[..count] {
             println!("{}", line);
@@ -59,6 +61,11 @@ pub fn show_logs(name: &str, tail: Option<usize>, head: Option<usize>, follow: b
         for line in &all_lines {
             println!("{}", line);
         }
+    }
+
+    if !follow {
+        close(fd as u64);
+        return;
     }
 
     if follow {
