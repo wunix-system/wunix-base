@@ -82,6 +82,8 @@ pub fn init_services() {
 
     // 5. Запускаем ключевые службы в строго определенном порядке
     start_one_service("network");
+    start_one_service("timesyncd");
+    start_one_service("sshd");
 
     write(
         STDOUT_FILENO,
