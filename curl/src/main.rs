@@ -23,7 +23,7 @@ fn cstr_to_slice(ptr: *const u8) -> &'static [u8] {
 }
 
 unsafe extern "C" {
-    fn wunix_init_tls();
+    fn wunix_init_tls(argc: isize, argv: *const *const u8);
 }
 
 #[cfg(not(test))]
@@ -41,7 +41,7 @@ core::arch::global_asm!(
 #[cfg(not(test))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main_entry(argc: isize, argv: *const *const u8) -> ! {
-    unsafe { wunix_init_tls() };
+    unsafe { wunix_init_tls(argc, argv) };
     let mut target_url: Option<&'static [u8]> = None;
     let mut output_file: Option<&'static [u8]> = None;
     let mut remote_name = false;

@@ -10,22 +10,40 @@ typedef struct {
     SSL *ssl;
 } WunixTls;
 
-extern int __init_tp(void *p);
-static char main_thread_area[4096] __attribute__((aligned(64)));
+extern void __init_libc(char **envp, char *pn);
 static int tls_initialized = 0;
 
-void wunix_init_tls(void) {
+static unsigned long fallback_auxv[] = {
+    25, (unsigned long)"\x59\x5e\x9f\xbd\x94\xfd\xa7\x66\x12\x34\x56\x78\x9a\xbc\xde\xf0", /* AT_RANDOM */
+    6, 4096, /* AT_PAGESZ */
+    0, 0     /* AT_NULL */
+};
+
+static char *fallback_envp[] = {
+    "PATH=/bin:/usr/bin",
+    NULL,
+    (char *)fallback_auxv
+};
+
+void wunix_init_tls(long argc, char **argv) {
     if (!tls_initialized) {
-        // Прямая инициализация области локального хранилища потока (TLS)
-        // без использования libc syscall(), требующего уже инициализированного canary в %fs:0x28
-        __init_tp(main_thread_area);
-        *(unsigned long *)((char *)main_thread_area + 0x28) = 0x595e9fbd94fda766UL;
+        char **envp = NULL;
+        char *pn = "curl";
+
+        if (argv && argc > 0) {
+            pn = argv[0];
+            envp = argv + argc + 1;
+        } else {
+            envp = fallback_envp;
+        }
+
+        __init_libc(envp, pn);
         tls_initialized = 1;
     }
 }
 
 void *wunix_tls_connect(int fd, const char *hostname, const char *ca_file, int insecure) {
-    wunix_init_tls();
+    wunix_init_tls(0, NULL);
 
     // Инициализация контекста TLS клиента
     const SSL_METHOD *method = TLS_client_method();

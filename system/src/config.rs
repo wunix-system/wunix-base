@@ -43,7 +43,12 @@ impl Default for ServiceConfig {
 
 pub fn get_service_path(name: &str) -> String {
     let clean = name.strip_suffix(".conf").unwrap_or(name);
-    format!("{}/{}.conf", SERVICES_DIR, clean)
+    let resolved = if clean == "ssh" && !file_exists(&format!("{}/ssh.conf", SERVICES_DIR)) {
+        "sshd"
+    } else {
+        clean
+    };
+    format!("{}/{}.conf", SERVICES_DIR, resolved)
 }
 
 pub fn get_enabled_path(name: &str) -> String {

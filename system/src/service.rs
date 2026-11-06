@@ -55,7 +55,13 @@ pub fn get_pid_path(name: &str) -> String {
 
 pub fn get_log_path(name: &str) -> String {
     let clean = name.strip_suffix(".conf").unwrap_or(name);
-    format!("{}/{}.log", LOG_SERVICES_DIR, clean)
+    let resolved = if clean == "ssh" {
+        let ssh_log = format!("{}/ssh.log", LOG_SERVICES_DIR);
+        if crate::config::file_exists(&ssh_log) { "ssh" } else { "sshd" }
+    } else {
+        clean
+    };
+    format!("{}/{}.log", LOG_SERVICES_DIR, resolved)
 }
 
 pub fn load_runtime_status(name: &str) -> RuntimeStatus {

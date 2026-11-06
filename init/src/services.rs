@@ -43,7 +43,6 @@ pub fn init_services() {
     // 2. Создаем базовые файлы конфигураций, если отсутствуют
     create_service_if_missing(b"/etc/services/timesyncd.conf\0", TIMESYNCD_DEFAULT);
     create_service_if_missing(b"/etc/services/network.conf\0", NETWORK_DEFAULT);
-    create_service_if_missing(b"/etc/services/ssh.conf\0", SSH_DEFAULT);
     create_service_if_missing(b"/etc/services/sshd.conf\0", SSH_DEFAULT);
 
     // 3. Включаем автозапуск по умолчанию для базовых одноразовых служб
