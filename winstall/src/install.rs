@@ -240,6 +240,8 @@ where
     ] {
         ensure_dir(d);
     }
+    let _ = libwunix::chmod(b"/mnt/tmp\0", 0o1777);
+    let _ = libwunix::chmod(b"/mnt/root\0", 0o700);
     done += 1;
 
     // 1. Копирование системных бинарных файлов (/bin) - БЕЗ winstall!
@@ -416,6 +418,8 @@ directory = /\n";
         pos = ap(&mut hd, pos, admin_user.as_bytes());
         hd[pos] = 0;
         ensure_dir(&hd[..pos + 1]);
+        let _ = libwunix::chown(&hd[..pos + 1], 1000, 1000);
+        let _ = libwunix::chmod(&hd[..pos + 1], 0o750);
     }
     done += 1;
 
