@@ -245,7 +245,10 @@ where
         b"/mnt/boot\0", b"/mnt/dev\0",  b"/mnt/proc\0", b"/mnt/sys\0",
         b"/mnt/etc/ssl\0", b"/mnt/etc/ssl/certs\0",
         b"/mnt/etc/ssh\0", b"/mnt/etc/services\0", b"/mnt/etc/services/enabled\0",
+        b"/mnt/etc/wsp\0", b"/mnt/etc/wpm\0",
         b"/mnt/var\0", b"/mnt/var/empty\0", b"/mnt/var/log\0", b"/mnt/var/log/services\0",
+        b"/mnt/var/lib/wsp\0", b"/mnt/var/lib/wpm\0",
+        b"/mnt/var/cache/wsp\0", b"/mnt/var/cache/wpm\0",
         b"/mnt/run\0", b"/mnt/run/services\0",
         b"/mnt/usr\0", b"/mnt/usr/lib\0", b"/mnt/usr/libexec\0",
         b"/mnt/usr/include\0", b"/mnt/usr/share\0",
@@ -350,6 +353,17 @@ directory = /\n";
     write_file(b"/mnt/etc/services/enabled/timesyncd.conf\0", TIMESYNCD_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/network.conf\0", NETWORK_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/sshd.conf\0", SSH_CFG, 0o644);
+
+    // Конфигурационные файлы пакетных менеджеров WSP и WPM
+    const WSP_DAEMON_CFG: &str = "# Конфигурация фонового демона WSP\n[daemon]\ncheck_interval_hours = 24\nnotify_critical = true\non_boot_check = true\nauto_download = false\n";
+    const WSP_CONF: &str = "# Системный менеджер пакетов WSP\n[system]\nrepo_url = \"http://wunix.rusos.site/repo/system/x86_64\"\ncache_dir = \"/var/cache/wsp\"\nbackup_kernel = true\nlimine_conf = \"/boot/limine.conf\"\n";
+    const WPM_CONF: &str = "# Пользовательский менеджер пакетов WPM\n[general]\ncache_dir = \"/var/cache/wpm\"\nverify_checksum = true\nblock_if_wsp_outdated = true\n";
+    const WPM_SOURCES_CFG: &str = "# Источники репозиториев WPM\n[apps]\nServer = http://wunix.rusos.site/repo/apps/x86_64\n";
+
+    write_file(b"/mnt/etc/wsp/daemon.conf\0", WSP_DAEMON_CFG.as_bytes(), 0o644);
+    write_file(b"/mnt/etc/wsp/wsp.conf\0", WSP_CONF.as_bytes(), 0o644);
+    write_file(b"/mnt/etc/wpm/wpm.conf\0", WPM_CONF.as_bytes(), 0o644);
+    write_file(b"/mnt/etc/wpm/sources.conf\0", WPM_SOURCES_CFG.as_bytes(), 0o644);
 
     // 4. Имя хоста (/etc/hostname)
     progress(72, "Настройка имени компьютера...", done, total);

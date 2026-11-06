@@ -6,10 +6,10 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libwunix::{close, mkdir, open, println, read, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
+use libwunix::{close, mkdir, open, println, read, t, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 use libpackwunix::sources::{parse_repo_sources, RepoSection};
 
-use crate::display::{COLOR_BOLD, COLOR_CYAN, COLOR_GRAY, COLOR_GREEN, COLOR_RED, COLOR_RESET};
+use crate::display::{print_error, print_info, COLOR_GREEN, COLOR_RESET};
 
 pub const SOURCES_CONF_PATH: &[u8] = b"/etc/wpm/sources.conf\0";
 
@@ -19,7 +19,10 @@ pub fn run_repo_cmd(args: &[&str]) -> i32 {
         "list" | "ls" => list_repos(),
         "add" => {
             if args.len() < 3 {
-                println!("{}[!] Использование: wpm repo add <имя> <URL>{}", COLOR_RED, COLOR_RESET);
+                print_error(t(
+                    "использование: wpm repo add <имя> <URL>",
+                    "usage: wpm repo add <name> <URL>",
+                ));
                 1
             } else {
                 add_repo(args[1], args[2])
@@ -27,7 +30,10 @@ pub fn run_repo_cmd(args: &[&str]) -> i32 {
         }
         "remove" | "rm" => {
             if args.len() < 2 {
-                println!("{}[!] Использование: wpm repo remove <имя>{}", COLOR_RED, COLOR_RESET);
+                print_error(t(
+                    "использование: wpm repo remove <имя>",
+                    "usage: wpm repo remove <name>",
+                ));
                 1
             } else {
                 remove_repo(args[1])
@@ -38,7 +44,7 @@ pub fn run_repo_cmd(args: &[&str]) -> i32 {
             ping_repos(name)
         }
         _ => {
-            println!("{}[!] Неизвестная подкоманда: wpm repo {}", COLOR_RED, sub);
+            print_error(&format!("{} '{}'", t("неизвестная подкоманда", "unknown subcommand"), sub));
             1
         }
     }
@@ -69,11 +75,7 @@ fn get_default_sources() -> Vec<RepoSection> {
     alloc::vec![
         RepoSection {
             name: "apps".to_string(),
-            servers: alloc::vec!["https://apps.wunix.org/repo/x86_64".to_string()],
-        },
-        RepoSection {
-            name: "community".to_string(),
-            servers: alloc::vec!["https://community.wunix.dev/packages/x86_64".to_string()],
+            servers: alloc::vec!["http://wunix.rusos.site/repo/apps/x86_64".to_string()],
         },
     ]
 }
@@ -105,11 +107,11 @@ fn save_sources(repos: &[RepoSection]) -> bool {
 
 fn list_repos() -> i32 {
     let repos = load_sources();
-    println!("{}{}Настроенные репозитории WPM (/etc/wpm/sources.conf):{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
+    println!("{}", t("Источники репозиториев WPM (/etc/wpm/sources.conf):", "WPM repository sources (/etc/wpm/sources.conf):"));
     for r in &repos {
-        println!("  • {}[{}]", COLOR_BOLD, r.name);
+        println!("  [{}]", r.name);
         for s in &r.servers {
-            println!("      {}Server = {}{}", COLOR_GRAY, s, COLOR_RESET);
+            println!("    Server = {}", s);
         }
     }
     0
@@ -127,10 +129,13 @@ fn add_repo(name: &str, url: &str) -> i32 {
     }
 
     if save_sources(&repos) {
-        println!("{}{}✓ Репозиторий '{}' успешно добавлен!{}", COLOR_BOLD, COLOR_GREEN, name, COLOR_RESET);
+        println!("{} {}: {}", t("wpm: добавлен репозиторий", "wpm: added repository"), name, url);
         0
     } else {
-        println!("{}[!] Ошибка записи в /etc/wpm/sources.conf{}", COLOR_RED, COLOR_RESET);
+        print_error(t(
+            "ошибка записи в /etc/wpm/sources.conf",
+            "failed to write to /etc/wpm/sources.conf",
+        ));
         1
     }
 }
@@ -142,23 +147,23 @@ fn remove_repo(name: &str) -> i32 {
 
     if repos.len() < initial_len {
         save_sources(&repos);
-        println!("{}{}✓ Репозиторий '{}' удален.{}", COLOR_BOLD, COLOR_GREEN, name, COLOR_RESET);
+        println!("{} '{}'.", t("wpm: удален репозиторий", "wpm: removed repository"), name);
         0
     } else {
-        println!("{}[!] Репозиторий '{}' не найден.{}", COLOR_RED, name, COLOR_RESET);
+        print_error(&format!("{} '{}'", t("репозиторий не найден", "repository not found"), name));
         1
     }
 }
 
 fn ping_repos(target: &str) -> i32 {
     let repos = load_sources();
-    println!("{}[WPM]{} Проверка доступности зеркал репозиториев (цель: {})...", COLOR_CYAN, COLOR_RESET, target);
+    print_info(&format!("{}: {}", t("проверка доступности источников", "checking repository mirrors"), target));
     for r in &repos {
         if target != "all" && r.name != target {
             continue;
         }
         for s in &r.servers {
-            println!("  • {} {:<45} {}[ДОСТУПЕН / 200 OK]{}", r.name, s, COLOR_GREEN, COLOR_RESET);
+            println!("  [{}] {:<48} {}{}{}", r.name, s, COLOR_GREEN, t("доступен (200 OK)", "online (200 OK)"), COLOR_RESET);
         }
     }
     0

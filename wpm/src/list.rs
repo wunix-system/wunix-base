@@ -1,32 +1,32 @@
 //! Модуль просмотра установленных программ WPM.
 
 extern crate alloc;
+use alloc::format;
 use libwunix::{println, t};
 
-use crate::display::{
-    print_card_footer, print_card_header, print_card_row, COLOR_BOLD, COLOR_CYAN, COLOR_GRAY,
-    COLOR_RED, COLOR_RESET,
-};
+use crate::display::{print_error, print_field, COLOR_RESET};
 use crate::install::load_installed_apps;
 use crate::search::get_sample_catalog;
 
 pub fn run_list() -> i32 {
     let apps = load_installed_apps();
-    println!("{}{}Установленные прикладные программы (WPM):{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
-    println!("┌──────────────────────┬─────────────┬───────────────────────────────┐");
-    println!("│ Имя программы        │ Версия      │ Категория                     │");
-    println!("├──────────────────────┼─────────────┼───────────────────────────────┤");
+
+    println!("{:<20} {:<10} {}", 
+        t("ПРОГРАММА", "APPLICATION"),
+        t("ВЕРСИЯ", "VERSION"),
+        t("КАТЕГОРИЯ", "CATEGORY")
+    );
 
     if apps.is_empty() {
-        println!("│ (Пока нет установленных пользовательских программ)                   │");
+        println!("{}", t("(нет установленных пользовательских программ)", "(no user applications installed)"));
     } else {
         for a in &apps {
-            println!("│ {:<20} │ {:<11} │ {:<29} │", a.name, a.version, a.category);
+            println!("{:<20} {:<10} {}", a.name, a.version, a.category);
         }
     }
 
-    println!("└──────────────────────┴─────────────┴───────────────────────────────┘");
-    println!("{}Всего программ: {}{}", COLOR_GRAY, apps.len(), COLOR_RESET);
+    println!();
+    println!("{} {}: {}", t("Всего программ", "Total programs"), apps.len(), COLOR_RESET);
     0
 }
 
@@ -36,17 +36,16 @@ pub fn run_info(name: &str) -> i32 {
 
     match pkg {
         Some(p) => {
-            print_card_header(&alloc::format!("Инфо о программе: {}", p.name));
-            print_card_row(t("Имя:", "Name:"), &p.name);
-            print_card_row(t("Версия:", "Version:"), &p.version);
-            print_card_row(t("Категория:", "Category:"), &p.category);
-            print_card_row(t("Описание:", "Description:"), &p.description);
-            print_card_row(t("Размер:", "Size:"), &p.size);
-            print_card_footer();
+            println!("{}: {}", t("Пользовательская программа", "User application"), p.name);
+            print_field(t("Имя:", "Name:"), &p.name);
+            print_field(t("Версия:", "Version:"), &p.version);
+            print_field(t("Категория:", "Category:"), &p.category);
+            print_field(t("Описание:", "Description:"), &p.description);
+            print_field(t("Размер:", "Size:"), &p.size);
             0
         }
         None => {
-            println!("{}[!] Программа '{}' не найдена в репозиториях WPM.{}", COLOR_RED, name, COLOR_RESET);
+            print_error(&format!("{} '{}'", t("программа не найдена в репозиториях WPM", "application not found in WPM repositories"), name));
             1
         }
     }

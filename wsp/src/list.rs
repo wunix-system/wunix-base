@@ -5,22 +5,22 @@
 //! - `wsp info <пакет>`: детальная карточка системного пакета.
 
 extern crate alloc;
+use alloc::format;
 use libwunix::{println, t};
 
 use crate::db::load_installed_packages;
-use crate::display::{
-    print_card_footer, print_card_header, print_card_row, print_card_separator,
-    COLOR_BOLD, COLOR_CYAN, COLOR_GRAY, COLOR_RED, COLOR_RESET,
-};
+use crate::display::{print_error, print_field, COLOR_GREEN, COLOR_RED, COLOR_RESET};
 
-/// Выводит список установленных пакетов системы
+/// Выводит список установленных пакетов системы в стандартном табличном формате
 pub fn run_list(_upgradable_only: bool, critical_only: bool) -> i32 {
     let packages = load_installed_packages();
 
-    println!("{}{}Установленные системные пакеты (Wunix Base):{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
-    println!("┌──────────────────────┬─────────────┬──────────────┬───────────────────────────────┐");
-    println!("│ Имя пакета           │ Версия      │ Уровень      │ Описание                      │");
-    println!("├──────────────────────┼─────────────┼──────────────┼───────────────────────────────┤");
+    println!("{:<20} {:<10} {:<12} {}", 
+        t("ПАКЕТ", "PACKAGE"),
+        t("ВЕРСИЯ", "VERSION"),
+        t("УРОВЕНЬ", "TIER"),
+        t("ОПИСАНИЕ", "DESCRIPTION")
+    );
 
     let mut count = 0;
     for pkg in &packages {
@@ -29,56 +29,55 @@ pub fn run_list(_upgradable_only: bool, critical_only: bool) -> i32 {
         }
 
         let tier_label = if pkg.tier == "critical" {
-            alloc::format!("{}[КРИТИЧЕСКИЙ]{}", COLOR_RED, COLOR_RESET)
+            format!("{}[критич]{}", COLOR_RED, COLOR_RESET)
         } else {
-            alloc::format!("{}[БАЗОВЫЙ]    {}", COLOR_CYAN, COLOR_RESET)
+            format!("{}[базовый]{}", COLOR_GREEN, COLOR_RESET)
         };
 
         // Обрезаем описание, если длинное
-        let desc = if pkg.description.chars().count() > 30 {
-            let mut s: alloc::string::String = pkg.description.chars().take(27).collect();
+        let desc = if pkg.description.chars().count() > 36 {
+            let mut s: alloc::string::String = pkg.description.chars().take(33).collect();
             s.push_str("...");
             s
         } else {
             pkg.description.clone()
         };
 
-        println!("│ {:<20} │ {:<11} │ {} │ {:<29} │", pkg.name, pkg.version, tier_label, desc);
+        println!("{:<20} {:<10} {:<20} {}", pkg.name, pkg.version, tier_label, desc);
         count += 1;
     }
 
-    println!("└──────────────────────┴─────────────┴──────────────┴───────────────────────────────┘");
-    println!("{}Всего компонентов: {}{}", COLOR_GRAY, count, COLOR_RESET);
+    println!();
+    println!("{} {}: {}", t("Всего системных компонентов", "Total system components"), count, COLOR_RESET);
 
     0
 }
 
-/// Выводит детальную карточку конкретного системного пакета
+/// Выводит детальную информацию о конкретном системном пакете
 pub fn run_info(pkg_name: &str, show_files: bool) -> i32 {
     let packages = load_installed_packages();
     let pkg = match packages.iter().find(|p| p.name == pkg_name) {
         Some(p) => p,
         None => {
-            println!("{}[!] Системный пакет '{}' не найден в базе данных WSP.{}", COLOR_RED, pkg_name, COLOR_RESET);
+            print_error(&format!("{} '{}'", t("системный пакет не найден", "system package not found"), pkg_name));
             return 1;
         }
     };
 
-    print_card_header(&alloc::format!("Инфо о пакете: {}", pkg.name));
-    print_card_row(t("Имя пакета:", "Package name:"), &pkg.name);
-    print_card_row(t("Версия:", "Version:"), &pkg.version);
-    print_card_row(t("Уровень важности:", "System tier:"), &pkg.tier);
-    print_card_row(t("Описание:", "Description:"), &pkg.description);
-    print_card_row(t("Количество файлов:", "Total files:"), &alloc::format!("{}", pkg.files.len()));
+    println!("{}: {}", t("Системный пакет", "System package"), pkg.name);
+    print_field(t("Имя пакета:", "Package name:"), &pkg.name);
+    print_field(t("Версия:", "Version:"), &pkg.version);
+    print_field(t("Уровень важности:", "System tier:"), &pkg.tier);
+    print_field(t("Описание:", "Description:"), &pkg.description);
+    print_field(t("Всего файлов:", "Total files:"), &format!("{}", pkg.files.len()));
 
     if show_files {
-        print_card_separator();
-        println!("{}│ Список файлов на диске:{}", COLOR_GRAY, COLOR_RESET);
+        println!();
+        println!("{}:", t("  Файлы в системе", "  Installed files"));
         for f in &pkg.files {
-            println!("{}│   • {}{}", COLOR_GRAY, f, COLOR_RESET);
+            println!("    {}", f);
         }
     }
 
-    print_card_footer();
     0
 }

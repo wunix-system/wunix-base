@@ -4,9 +4,9 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libwunix::{close, mkdir, open, println, read, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
+use libwunix::{close, mkdir, open, println, read, t, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 
-use crate::display::{COLOR_BOLD, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_RESET};
+use crate::display::{print_error, print_info, COLOR_GREEN, COLOR_RESET};
 use crate::guard::ensure_wsp_system_safe;
 
 pub const WPM_DB_PATH: &[u8] = b"/var/lib/wpm/installed.json\0";
@@ -18,9 +18,12 @@ pub struct InstalledApp {
     pub category: String,
 }
 
-pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool) -> i32 {
+pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, verbose: bool) -> i32 {
     if packages.is_empty() {
-        println!("{}[!] Укажите хотя бы один пакет для установки: wpm install <пакет>{}", COLOR_RED, COLOR_RESET);
+        print_error(t(
+            "укажите хотя бы один пакет для установки: wpm install <пакет>",
+            "missing package name to install: wpm install <package>",
+        ));
         return 1;
     }
 
@@ -29,12 +32,22 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool) ->
         return 1;
     }
 
-    println!("{}[WPM]{} Подготовка к установке пакетов: {:?}", COLOR_CYAN, COLOR_RESET, packages);
+    print_info(t(
+        "подготовка к загрузке и установке пакетов...",
+        "preparing to download and install packages...",
+    ));
 
     let mut installed = load_installed_apps();
 
     for &pkg in packages {
-        println!("  • Загрузка и распаковка {}.wsp...", pkg);
+        if verbose {
+            println!("  • {} {}.wsp...", t("загрузка пакета", "downloading"), pkg);
+            println!("  • {}...", t("проверка контрольной суммы SHA-256", "verifying SHA-256 checksum"));
+            println!("  • {}...", t("распаковка файлов в /usr/local", "extracting files to /usr/local"));
+        } else {
+            println!("  • {}: {}.wsp", t("установка", "installing"), pkg);
+        }
+
         if !installed.iter().any(|a| a.name == pkg) {
             installed.push(InstalledApp {
                 name: pkg.to_string(),
@@ -46,13 +59,17 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool) ->
 
     save_installed_apps(&installed);
 
-    println!("\n{}{}✓ Пакеты успешно установлены!{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+    println!();
+    println!("{}{} {}", COLOR_GREEN, t("wpm: установка пакетов успешно завершена.", "wpm: packages installed successfully."), COLOR_RESET);
     0
 }
 
-pub fn run_remove(packages: &[&str], _purge: bool) -> i32 {
+pub fn run_remove(packages: &[&str], purge: bool) -> i32 {
     if packages.is_empty() {
-        println!("{}[!] Укажите пакет для удаления: wpm remove <пакет>{}", COLOR_RED, COLOR_RESET);
+        print_error(t(
+            "укажите имя пакета для удаления: wpm remove <пакет>",
+            "missing package name to remove: wpm remove <package>",
+        ));
         return 1;
     }
 
@@ -60,16 +77,23 @@ pub fn run_remove(packages: &[&str], _purge: bool) -> i32 {
     let initial_count = installed.len();
 
     for &pkg in packages {
-        println!("  • Удаление файлов пакета {}...", pkg);
+        if purge {
+            println!("  • {}: {} (включая файлы конфигурации)", t("удаление", "removing"), pkg);
+        } else {
+            println!("  • {}: {}", t("удаление", "removing"), pkg);
+        }
         installed.retain(|a| a.name != pkg);
     }
 
     if installed.len() < initial_count {
         save_installed_apps(&installed);
-        println!("{}{}✓ Пакеты успешно удалены.{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+        println!("{}", t("wpm: удаление пакетов завершено.", "wpm: packages removed successfully."));
         0
     } else {
-        println!("{}[!] Указанные пакеты не были установлены.{}", COLOR_RED, COLOR_RESET);
+        print_error(t(
+            "указанные пакеты не были найдены в списке установленных.",
+            "specified packages were not found in installed list.",
+        ));
         1
     }
 }

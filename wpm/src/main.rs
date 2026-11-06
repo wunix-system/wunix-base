@@ -4,7 +4,7 @@
 //! Пользовательский менеджер пакетов Wunix Package Manager (WPM).
 //!
 //! Отвечает за установку прикладных программ, утилит для разработчиков
-//! и управление источниками в стиле Wunix.
+//! и управление источниками репозиториев Wunix.
 
 extern crate alloc;
 
@@ -16,6 +16,8 @@ mod list;
 mod repo_cmd;
 mod search;
 
+use alloc::format;
+use alloc::vec::Vec;
 use libwunix::{exit, println, t};
 
 #[panic_handler]
@@ -54,20 +56,16 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         0
     };
 
-    if count == 0 {
-        display::print_help();
-        exit(0);
-    }
-
-    let cmd = args[0];
-
-    // Флаги
+    // Флаги командной строки
     let mut flag_yes = false;
     let mut flag_purge = false;
     let mut flag_ignore_unsafe = false;
-    let mut positional_args: alloc::vec::Vec<&str> = alloc::vec::Vec::new();
+    let mut flag_quiet = false;
+    let mut flag_verbose = false;
 
-    let mut i = 1;
+    let mut positional: Vec<&str> = Vec::new();
+
+    let mut i = 0;
     while i < count {
         let a = args[i];
         match a {
@@ -75,64 +73,90 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 display::print_help();
                 exit(0);
             }
+            "-V" | "--version" => {
+                display::print_version();
+                exit(0);
+            }
             "-y" | "--yes" => flag_yes = true,
+            "-q" | "--quiet" => flag_quiet = true,
+            "-v" | "--verbose" => flag_verbose = true,
             "--purge" => flag_purge = true,
             "--ignore-critical-unsafe" => flag_ignore_unsafe = true,
             _ => {
-                if !a.starts_with('-') {
-                    positional_args.push(a);
+                if !a.is_empty() {
+                    if a.starts_with('-') {
+                        display::print_error(&format!("{} '{}'", t("неизвестная опция", "unknown option"), a));
+                        println!("{}", t("Используйте 'wpm --help' для просмотра доступных опций.", "Use 'wpm --help' for available options."));
+                        exit(1);
+                    } else {
+                        positional.push(a);
+                    }
                 }
             }
         }
         i += 1;
     }
 
+    if positional.is_empty() {
+        display::print_help();
+        exit(0);
+    }
+
+    let cmd = positional[0];
+    let rest = &positional[1..];
+
     let code = match cmd {
         "update" => {
-            println!("{}[WPM]{} Синхронизация списков репозиториев WPM...", display::COLOR_CYAN, display::COLOR_RESET);
-            println!("{}{}✓ Все настроенные репозитории актуальны (200 OK).{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+            if !flag_quiet {
+                display::print_info(t(
+                    "синхронизация списков репозиториев WPM...",
+                    "synchronizing WPM repository lists...",
+                ));
+                println!("{}", t("wpm: все настроенные репозитории синхронизированы (200 OK).", "wpm: all configured repositories are synchronized (200 OK)."));
+            }
             0
         }
         "search" => {
-            let q = if positional_args.is_empty() { "" } else { positional_args[0] };
+            let q = if rest.is_empty() { "" } else { rest[0] };
             search::run_search(q)
         }
         "install" => {
-            install::run_install(&positional_args, flag_yes, flag_ignore_unsafe)
+            install::run_install(rest, flag_yes, flag_ignore_unsafe, flag_verbose)
         }
         "remove" | "rm" => {
-            install::run_remove(&positional_args, flag_purge)
+            install::run_remove(rest, flag_purge)
         }
         "upgrade" => {
-            println!("{}[WPM]{} Проверка обновлений установленных прикладных программ...", display::COLOR_CYAN, display::COLOR_RESET);
-            println!("{}{}✓ Все установленные пользовательские программы имеют последние версии.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+            if !flag_quiet {
+                display::print_info(t(
+                    "проверка обновлений пользовательских программ...",
+                    "checking updates for user applications...",
+                ));
+                println!("{}", t("wpm: все установленные прикладные программы имеют актуальные версии.", "wpm: all installed applications are up to date."));
+            }
             0
         }
         "list" | "ls" => {
             list::run_list()
         }
         "info" => {
-            if let Some(&name) = positional_args.first() {
+            if let Some(&name) = rest.first() {
                 list::run_info(name)
             } else {
-                println!("{}[!] Укажите имя программы: wpm info <программа>{}", display::COLOR_RED, display::COLOR_RESET);
+                display::print_error(t("укажите имя программы: wpm info <программа>", "missing program name: wpm info <program>"));
                 1
             }
         }
         "repo" => {
-            repo_cmd::run_repo_cmd(&positional_args)
+            repo_cmd::run_repo_cmd(rest)
         }
         "clean" => {
-            println!("{}[WPM]{} Очистка кэша загруженных пакетов (/var/cache/wpm)...", display::COLOR_CYAN, display::COLOR_RESET);
-            println!("{}{}✓ Локальный кэш пакетов очищен.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
-            0
-        }
-        "-h" | "--help" => {
-            display::print_help();
+            display::print_info(t("очистка локального кэша пакетов...", "cleaning local package cache..."));
+            println!("{}", t("wpm: локальный кэш /var/cache/wpm очищен.", "wpm: local cache /var/cache/wpm cleaned."));
             0
         }
         _ => {
-            println!("{}[!] Неизвестная команда WPM: '{}'{}", display::COLOR_RED, cmd, display::COLOR_RESET);
+            display::print_error(&format!("{} '{}'", t("неизвестная команда", "unknown command"), cmd));
             println!("{}", t("Используйте 'wpm --help' для списка доступных команд.", "Use 'wpm --help' for list of commands."));
             1
         }

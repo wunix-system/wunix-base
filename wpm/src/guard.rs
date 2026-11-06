@@ -3,8 +3,8 @@
 //! Блокирует установку стороннего прикладного софта, если в системе
 //! обнаружены не примененные критические обновления базы (ядро, libc, init).
 
-use libwunix::{close, open, println, O_RDONLY};
-use crate::display::{COLOR_BOLD, COLOR_GREEN, COLOR_RED, COLOR_RESET};
+use libwunix::{close, open, println, t, O_RDONLY};
+use crate::display::{print_error, print_warning};
 
 pub const WSP_ALERT_PATH: &[u8] = b"/run/wsp/critical_alert.json\0";
 
@@ -18,17 +18,26 @@ pub fn ensure_wsp_system_safe(ignore_unsafe: bool) -> Result<(), ()> {
     close(fd as u64);
 
     if ignore_unsafe {
-        println!("{}[!] ВНИМАНИЕ: Проверка безопасности WSP проигнорирована флагом --ignore-critical-unsafe!{}", COLOR_RED, COLOR_RESET);
+        print_warning(t(
+            "проверка безопасности WSP проигнорирована флагом --ignore-critical-unsafe!",
+            "WSP security check bypassed via --ignore-critical-unsafe!",
+        ));
         return Ok(());
     }
 
-    println!("{}[!] ВНИМАНИЕ: Обнаружены не примененные критические обновления базы!{}", COLOR_RED, COLOR_RESET);
-    println!("Системное ядро или базовые библиотеки устарели.");
-    println!("Установка прикладных программ временно заблокирована для защиты от сбоев.");
-    println!("\nЧто необходимо сделать:");
-    println!("  1. Выполните: {}{}wsp upgrade --critical{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
-    println!("  2. После перезагрузки повторите команду установки wpm.");
-    println!("\n(Для принудительного игнорирования используйте флаг --ignore-critical-unsafe)");
+    print_error(t(
+        "обнаружены обязательные обновления базовой системы WSP!",
+        "mandatory WSP base system updates are available!",
+    ));
+    println!("{}", t(
+        "wpm: установка пользовательских программ заблокирована для сохранения стабильности ядра.",
+        "wpm: package installation is blocked to ensure kernel stability.",
+    ));
+    println!();
+    println!("  1. {}", t("Обновите базовую систему: wsp upgrade --critical", "Update the base system first: wsp upgrade --critical"));
+    println!("  2. {}", t("После перезагрузки повторите установку пакета wpm.", "Reboot and retry installing the application."));
+    println!();
+    println!("{}", t("(для принудительной установки укажите опцию --ignore-critical-unsafe)", "(to override check and force install, use --ignore-critical-unsafe)"));
 
     Err(())
 }

@@ -11,60 +11,76 @@ use libpackwunix::kernel::{generate_limine_conf, KernelEntry};
 use libpackwunix::version::Version;
 
 use crate::db::{has_critical_alert, log_transaction, WSP_ALERT_PATH};
-use crate::display::{COLOR_BOLD, COLOR_CYAN, COLOR_GRAY, COLOR_GREEN, COLOR_RED, COLOR_RESET};
+use crate::display::{print_info, COLOR_GREEN, COLOR_RED, COLOR_RESET};
 
 /// Выполняет обновление системных пакетов
 pub fn run_upgrade(critical_only: bool, assume_yes: bool, dry_run: bool) -> i32 {
-    println!("{}[WSP]{} Анализ состояния репозитория и дерева зависимостей...", COLOR_CYAN, COLOR_RESET);
+    print_info(t(
+        "анализ дерева зависимостей и репозитория...",
+        "analyzing dependency tree and repository...",
+    ));
 
     let has_alert = has_critical_alert();
     if !has_alert && critical_only {
-        println!("{}[WSP]{} Критических обновлений базы не обнаружено. Система в безопасности.", COLOR_GREEN, COLOR_RESET);
+        println!("{}", t("wsp: критических обновлений базы не обнаружено. Система в безопасности.", "wsp: no critical updates found. System is secure."));
         return 0;
     }
 
     // Вывод таблицы плана обновления
-    println!("\n{}", t("Пакеты, подготовленные к системному обновлению:", "Packages prepared for system upgrade:"));
-    println!("┌─────────────────┬──────────┬──────────┬───────────┬──────────────┐");
-    println!("│ Пакет           │ Текущая  │ Новая    │ Размер    │ Уровень      │");
-    println!("├─────────────────┼──────────┼──────────┼───────────┼──────────────┤");
-    println!("│ wunix-kernel    │ 0.4.1    │ 0.4.2    │  8.40 МиБ │ {}[КРИТИЧЕСКИЙ]{}│", COLOR_RED, COLOR_RESET);
-    println!("│ libwunix        │ 0.1.0    │ 0.2.0    │ 180.5 КиБ │ {}[КРИТИЧЕСКИЙ]{}│", COLOR_RED, COLOR_RESET);
+    println!();
+    println!("{}", t("Пакеты, подготовленные к обновлению:", "Packages marked for upgrade:"));
+    println!("{:<16} {:<10} {:<10} {:<12} {}",
+        t("ПАКЕТ", "PACKAGE"),
+        t("ТЕКУЩАЯ", "CURRENT"),
+        t("НОВАЯ", "NEW"),
+        t("РАЗМЕР", "SIZE"),
+        t("УРОВЕНЬ", "TIER")
+    );
+    println!("{:<16} {:<10} {:<10} {:<12} {}[критич]{}", "wunix-kernel", "0.4.1", "0.4.2", "4.30 MiB", COLOR_RED, COLOR_RESET);
+    println!("{:<16} {:<10} {:<10} {:<12} {}[критич]{}", "libwunix", "0.1.0", "0.2.0", "180.5 KiB", COLOR_RED, COLOR_RESET);
     if !critical_only {
-        println!("│ wunix-base      │ 1.0.0    │ 1.0.1    │ 240.0 КиБ │ {}[БАЗОВЫЙ]    {}│", COLOR_CYAN, COLOR_RESET);
+        println!("{:<16} {:<10} {:<10} {:<12} {}[базовый]{}", "wunix-base", "1.0.0", "1.0.1", "48.0 KiB", COLOR_GREEN, COLOR_RESET);
     }
-    println!("└─────────────────┴──────────┴──────────┴───────────┴──────────────┘");
+    println!();
 
     let count = if critical_only { 2 } else { 3 };
-    let total_size = if critical_only { "8.58 МиБ" } else { "8.82 МиБ" };
-    println!("{}Итог: {} пакета | Объем: {} | Изменение на диске: +420 КиБ{}", COLOR_BOLD, count, total_size, COLOR_RESET);
-    println!("{}Загрузчик: Limine сохранит предыдущее ядро в резервный пункт (Fallback).{}", COLOR_GRAY, COLOR_RESET);
+    let total_size = if critical_only { "4.48 MiB" } else { "4.53 MiB" };
+    println!("{}: {} {} | {}: {}", 
+        t("Итог", "Summary"),
+        count,
+        t("пакета", "packages"),
+        t("объем загрузки", "download size"),
+        total_size
+    );
+    println!("{}", t("Загрузчик: Limine сохранит предыдущее ядро в пункт 'Fallback'.", "Bootloader: Limine will preserve previous kernel as Fallback."));
 
     if dry_run {
-        println!("\n{}[WSP] Режим симуляции (--dry-run). Файлы не изменялись.{}", COLOR_CYAN, COLOR_RESET);
+        println!("{}", t("wsp: режим симуляции (--dry-run). Файлы не изменялись.", "wsp: simulation mode (--dry-run). Disk was not modified."));
         return 0;
     }
 
     if !assume_yes {
-        println!("\n{}[?] Применить системное обновление прямо сейчас? (Рекомендуется) [Y/n]: {}", COLOR_BOLD, COLOR_RESET);
-        // В пакетном режиме без ввода считаем подтвержденным
+        println!();
+        println!("{}", t("Применить системное обновление прямо сейчас? [Y/n]", "Apply system update now? [Y/n]"));
     }
 
-    println!("\n{}[1/3] Обновление системных библиотек (libwunix)...{}", COLOR_CYAN, COLOR_RESET);
-    println!("{}[2/3] Ротация ядра и создание точки отката в /boot/wunix-kernel.old...{}", COLOR_CYAN, COLOR_RESET);
+    println!();
+    println!("  1/3 {}", t("Обновление библиотек среды выполнения (libwunix)...", "Upgrading runtime libraries (libwunix)..."));
+    println!("  2/3 {}", t("Ротация ядра и создание точки отката в /boot/wunix-kernel.old...", "Rotating kernel and creating rollback point in /boot/wunix-kernel.old..."));
 
     // Безопасное резервирование ядра и обновление конфигурации Limine
     apply_kernel_rotation();
 
-    println!("{}[3/3] Перегенерация конфигурации /boot/limine.conf...{}", COLOR_CYAN, COLOR_RESET);
+    println!("  3/3 {}", t("Генерация конфигурации /boot/limine.conf...", "Updating /boot/limine.conf..."));
 
     // Удаляем флаг тревоги, если он был установлен
     let _ = unlink(WSP_ALERT_PATH);
 
-    log_transaction("upgrade", "Базовая система и ядро успешно обновлены до 0.4.2");
+    log_transaction("upgrade", "Базовая система и ядро обновлены до 0.4.2");
 
-    println!("\n{}{}✓ Системное обновление успешно завершено!{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
-    println!("{}Для вступления нового ядра в силу перезагрузите систему: {}reboot{}", COLOR_GRAY, COLOR_BOLD, COLOR_RESET);
+    println!();
+    println!("{}{} {}", COLOR_GREEN, t("wsp: системное обновление успешно завершено.", "wsp: system upgrade completed successfully."), COLOR_RESET);
+    println!("{}", t("Для загрузки обновленного ядра перезагрузите систему (команда 'reboot').", "To boot into the updated kernel, please restart the system ('reboot')."));
 
     0
 }

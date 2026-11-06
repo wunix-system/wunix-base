@@ -1,4 +1,7 @@
 //! Модуль отображения и терминального вывода WPM.
+//!
+//! Обеспечивает строгий и удобный вывод в едином стандарте Wunix CLI
+//! с двуязычной локализацией t().
 
 extern crate alloc;
 use alloc::format;
@@ -9,11 +12,13 @@ pub const COLOR_RESET: &str = "\x1b[0m";
 pub const COLOR_BOLD: &str = "\x1b[1m";
 pub const COLOR_RED: &str = "\x1b[31m";
 pub const COLOR_GREEN: &str = "\x1b[32m";
-#[allow(dead_code)]
 pub const COLOR_YELLOW: &str = "\x1b[33m";
+#[allow(dead_code)]
 pub const COLOR_CYAN: &str = "\x1b[36m";
+#[allow(dead_code)]
 pub const COLOR_GRAY: &str = "\x1b[90m";
 
+/// Форматирует размер в байтах в человекочитаемый вид
 #[allow(dead_code)]
 pub fn format_size(bytes: u64) -> String {
     if bytes < 1024 {
@@ -27,45 +32,76 @@ pub fn format_size(bytes: u64) -> String {
     }
 }
 
-pub fn print_card_header(title: &str) {
-    println!("{}{}┌── [ {} ] {}────────────────────────────────────────{}", 
-        COLOR_BOLD, COLOR_CYAN, title, COLOR_GRAY, COLOR_RESET);
+/// Выводит информацию о версии программы в стандартном формате
+pub fn print_version() {
+    println!("wpm (Wunix Package Manager) 1.0.1");
 }
 
-pub fn print_card_row(label: &str, value: &str) {
-    println!("{}│{} {:<22} {}{}{}", 
-        COLOR_GRAY, COLOR_RESET, label, COLOR_BOLD, value, COLOR_RESET);
+/// Выводит строку с выровненным полем вида `  Ключ:      Значение`
+pub fn print_field(label: &str, value: &str) {
+    println!("  {:<22} {}", label, value);
 }
 
-#[allow(dead_code)]
-pub fn print_card_separator() {
-    println!("{}├───────────────────────────────────────────────────────────────────────────────┤{}", 
-        COLOR_GRAY, COLOR_RESET);
+/// Выводит информационное сообщение утилиты
+pub fn print_info(msg: &str) {
+    println!("{}: {}", t("wpm", "wpm"), msg);
 }
 
-pub fn print_card_footer() {
-    println!("{}└───────────────────────────────────────────────────────────────────────────────┘{}", 
-        COLOR_GRAY, COLOR_RESET);
+/// Выводит предупреждение
+pub fn print_warning(msg: &str) {
+    println!("{}{} {}{}", COLOR_YELLOW, t("wpm: предупреждение:", "wpm: warning:"), msg, COLOR_RESET);
 }
 
+/// Выводит ошибку
+pub fn print_error(msg: &str) {
+    println!("{}{} {}{}", COLOR_RED, t("wpm: ошибка:", "wpm: error:"), msg, COLOR_RESET);
+}
+
+/// Выводит справку по использованию утилиты
 pub fn print_help() {
-    println!("{}{}wpm - Пользовательский менеджер пакетов Wunix Package Manager (WPM){}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
-    println!("{}", t("Использование: wpm <команда> [аргументы] [флаги]", "Usage: wpm <command> [args] [flags]"));
-    println!();
-    println!("{}", t("Команды:", "Commands:"));
-    println!("  {}update{}             {}  {}", COLOR_BOLD, COLOR_RESET, t("Синхронизация списков пакетов с репозиториев", "Sync package lists from repositories"), COLOR_GRAY);
-    println!("  {}search <запрос>{}    {}  {}", COLOR_BOLD, COLOR_RESET, t("Поиск программ в репозиториях", "Search software in repositories"), COLOR_GRAY);
-    println!("  {}install <пакет>...{} {}  {}", COLOR_BOLD, COLOR_RESET, t("Установка прикладных программ", "Install user applications"), COLOR_GRAY);
-    println!("  {}remove <пакет>...{}  {}  {}", COLOR_BOLD, COLOR_RESET, t("Удаление программ", "Remove user applications"), COLOR_GRAY);
-    println!("  {}upgrade{}            {}  {}", COLOR_BOLD, COLOR_RESET, t("Обновление установленных программ", "Upgrade all installed applications"), COLOR_GRAY);
-    println!("  {}list{}               {}  {}", COLOR_BOLD, COLOR_RESET, t("Список установленных программ", "List installed programs"), COLOR_GRAY);
-    println!("  {}info <пакет>{}       {}  {}", COLOR_BOLD, COLOR_RESET, t("Подробная информация о программе", "Detailed package information"), COLOR_GRAY);
-    println!("  {}repo{}               {}  {}", COLOR_BOLD, COLOR_RESET, t("Управление источниками (list, add, remove)", "Manage repository sources"), COLOR_GRAY);
-    println!("  {}clean{}              {}  {}", COLOR_BOLD, COLOR_RESET, t("Очистка локального кэша пакетов", "Clean local package cache"), COLOR_GRAY);
-    println!();
-    println!("{}", t("Флаги:", "Flags:"));
-    println!("  -y, --yes                    {}", t("Автоматическое подтверждение установки", "Assume yes for prompts"));
-    println!("  --ignore-critical-unsafe     {}", t("Игнорировать критические предупреждения базы WSP", "Bypass WSP critical update check"));
-    println!("  --purge                      {}", t("Удалить вместе с файлами конфигурации", "Purge configuration files"));
-    println!("  -h, --help                   {}", t("Показать эту справку", "Show this help message"));
+    println!(
+        "{}",
+        t(
+            "Использование: wpm [ОПЦИИ]... [КОМАНДА] [АРГУМЕНТЫ]...\n\
+             Диспетчер пользовательских программ и прикладных пакетов Wunix.\n\n\
+             Команды:\n  \
+               update                   Синхронизация списков пакетов репозиториев\n  \
+               search ЗАПРОС            Поиск программ в настроенных репозиториях\n  \
+               install ПАКЕТ...         Установка пользовательских программ\n  \
+               remove ПАКЕТ...          Удаление установленных программ\n  \
+               upgrade                  Обновление установленных программ\n  \
+               list                     Список установленных пользовательских программ\n  \
+               info ПАКЕТ               Подробная информация о программе\n  \
+               repo [list|add|rm|ping]  Управление источниками репозиториев\n  \
+               clean                    Очистка кэша загруженных пакетов\n\n\
+             Опции:\n  \
+               -y, --yes                Автоматическое подтверждение установки\n  \
+               -q, --quiet              Минимальный вывод сообщений\n  \
+               -v, --verbose            Подробный вывод действий\n  \
+                   --purge              Удалить программу вместе с конфигурациями\n  \
+                   --ignore-critical-unsafe  Игнорировать требование обязательных обновлений базы WSP\n  \
+               -h, --help               Показать эту справку и выйти\n  \
+               -V, --version            Вывести информацию о версии и выйти",
+            "Usage: wpm [OPTIONS]... [COMMAND] [ARGS]...\n\
+             Package manager for user applications and developer tools in Wunix OS.\n\n\
+             Commands:\n  \
+               update                   Synchronize package lists from repositories\n  \
+               search QUERY             Search available applications in repositories\n  \
+               install PACKAGE...       Install user applications\n  \
+               remove PACKAGE...        Remove installed applications\n  \
+               upgrade                  Upgrade all installed applications\n  \
+               list                     List installed user applications\n  \
+               info PACKAGE             Detailed information about a package\n  \
+               repo [list|add|rm|ping]  Manage repository sources\n  \
+               clean                    Clean downloaded packages cache\n\n\
+             Options:\n  \
+               -y, --yes                Assume yes for confirmation prompts\n  \
+               -q, --quiet              Suppress non-essential messages\n  \
+               -v, --verbose            Verbose progress output\n  \
+                   --purge              Remove application along with configuration files\n  \
+                   --ignore-critical-unsafe  Ignore required base system updates check\n  \
+               -h, --help               Display this help and exit\n  \
+               -V, --version            Output version information and exit"
+        )
+    );
 }

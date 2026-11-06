@@ -9,40 +9,37 @@ use alloc::format;
 use libwunix::{close, open, println, t, O_RDONLY};
 
 use crate::db::{has_critical_alert, load_installed_packages};
-use crate::display::{
-    print_card_footer, print_card_header, print_card_row, print_card_separator,
-    COLOR_BOLD, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_RESET,
-};
+use crate::display::{print_field, print_warning, COLOR_BOLD, COLOR_GREEN, COLOR_RED, COLOR_RESET};
 
 /// Выполняет полный аудит системы и выводит информационный блок
 pub fn run_audit(verify_files: bool) -> i32 {
     let packages = load_installed_packages();
     let has_alert = has_critical_alert();
 
-    print_card_header(t("Wunix OS: Аудит базовой системы", "Wunix OS: Base System Audit"));
+    println!("{}", t("Аудит базовой системы Wunix:", "Wunix Base System Audit:"));
 
     // 1. Профиль и архитектура
-    print_card_row(
+    print_field(
         t("Профиль системы:", "System profile:"),
-        "wunix-base (Легковесный / Терминальный)",
+        t("wunix-base (терминальный)", "wunix-base (terminal)"),
     );
-    print_card_row(
+    print_field(
         t("Архитектура CPU:", "CPU Architecture:"),
-        "x86_64 | Загрузчик: Limine 8.x",
+        "x86_64 (Limine 8.x)",
     );
 
     // 2. Статус ядра
     let kernel_fd = open(b"/boot/wunix-kernel\0", O_RDONLY as u64, 0);
     if kernel_fd >= 0 {
         close(kernel_fd as u64);
-        print_card_row(
+        print_field(
             t("Активное ядро:", "Active kernel:"),
-            "/boot/wunix-kernel (Загружено успешно)",
+            "/boot/wunix-kernel (загружено)",
         );
     } else {
-        print_card_row(
+        print_field(
             t("Активное ядро:", "Active kernel:"),
-            "/boot/wunix-kernel [ВНИМАНИЕ: файл не найден]",
+            &format!("{}/boot/wunix-kernel (не найдено!){}", COLOR_RED, COLOR_RESET),
         );
     }
 
@@ -50,18 +47,16 @@ pub fn run_audit(verify_files: bool) -> i32 {
     let fallback_fd = open(b"/boot/wunix-kernel.old\0", O_RDONLY as u64, 0);
     if fallback_fd >= 0 {
         close(fallback_fd as u64);
-        print_card_row(
+        print_field(
             t("Резервное ядро:", "Fallback kernel:"),
-            "/boot/wunix-kernel.old (Доступно)",
+            "/boot/wunix-kernel.old (доступно для отката)",
         );
     } else {
-        print_card_row(
+        print_field(
             t("Резервное ядро:", "Fallback kernel:"),
-            "Отсутствует (Будет создано при обновлении)",
+            t("отсутствует (создается при обновлении)", "none (created on upgrade)"),
         );
     }
-
-    print_card_separator();
 
     // 4. Целостность файлов
     let mut total_files = 0;
@@ -89,38 +84,41 @@ pub fn run_audit(verify_files: bool) -> i32 {
 
     let integrity_str = if verify_files {
         if missing_files == 0 {
-            format!("{}{} файлов проверено (Все на месте, OK){}", COLOR_GREEN, total_files, COLOR_RESET)
+            format!("{}{} проверено, все файлы на месте{}", COLOR_GREEN, total_files, COLOR_RESET)
         } else {
-            format!("{}{} проверено, {} повреждено/отсутствует!{}", COLOR_RED, total_files, missing_files, COLOR_RESET)
+            format!("{}{} проверено, {} повреждено или отсутствует!{}", COLOR_RED, total_files, missing_files, COLOR_RESET)
         }
     } else {
-        format!("{} файлов зарегистрировано (флаг -v для пофайловой сверки)", total_files)
+        format!("{} файлов зарегистрировано (используйте -v для сверки)", total_files)
     };
-    print_card_row(t("Целостность файлов:", "File integrity:"), &integrity_str);
+    print_field(t("Целостность файлов:", "File integrity:"), &integrity_str);
 
-    print_card_row(
+    print_field(
         t("База данных WSP:", "WSP database:"),
-        "/var/lib/wsp/installed.json (Синхронизирована)",
+        "/var/lib/wsp/installed.json",
     );
 
-    print_card_separator();
+    println!();
+    println!("{}", t("Безопасность и обновления:", "Security & Updates:"));
 
     // 5. Статус безопасности
     if has_alert {
-        let alert_status = format!("{}[ ВНИМАНИЕ: ДОСТУПНЫ КРИТИЧЕСКИЕ ОБНОВЛЕНИЯ ]{}", COLOR_RED, COLOR_RESET);
-        print_card_row(t("СТАТУС БЕЗОПАСНОСТИ:", "SECURITY STATUS:"), &alert_status);
-        println!("{}│{}", COLOR_CYAN, COLOR_RESET);
-        println!("{}│ • wunix-kernel   0.4.1 -> 0.4.2   [КРИТИЧЕСКИЙ]  Патч вызовов и планировщика{}", COLOR_RED, COLOR_RESET);
-        println!("{}│ • libwunix       0.1.0 -> 0.2.0   [КРИТИЧЕСКИЙ]  Исправление mmap/vma границ{}", COLOR_RED, COLOR_RESET);
-        println!("{}│{}", COLOR_CYAN, COLOR_RESET);
-        println!("{}│ Рекомендация: обновите систему командой: {}{}wsp upgrade --critical{}", 
-            COLOR_CYAN, COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+        print_field(
+            t("Статус системы:", "System status:"),
+            &format!("{}[требуются критические обновления]{}", COLOR_RED, COLOR_RESET),
+        );
+        println!();
+        println!("  {}", t("Доступны обязательные обновления ядра и базовой системы:", "Mandatory kernel and base updates available:"));
+        println!("    • wunix-kernel   0.4.1 -> 0.4.2   (критическое: исправление планировщика и poll)");
+        println!("    • libwunix       0.1.0 -> 0.2.0   (критическое: исправление границ mmap/vma)");
+        println!();
+        println!("  {}: {}wsp upgrade --critical{}", t("Рекомендация", "Recommendation"), COLOR_BOLD, COLOR_RESET);
     } else {
-        let alert_status = format!("{}[ СИСТЕМА В АКТУАЛЬНОМ И БЕЗОПАСНОМ СОСТОЯНИИ ]{}", COLOR_GREEN, COLOR_RESET);
-        print_card_row(t("СТАТУС БЕЗОПАСНОСТИ:", "SECURITY STATUS:"), &alert_status);
+        print_field(
+            t("Статус системы:", "System status:"),
+            &format!("{}[система актуальна и защищена]{}", COLOR_GREEN, COLOR_RESET),
+        );
     }
-
-    print_card_footer();
 
     if has_alert { 2 } else { 0 }
 }
@@ -136,10 +134,12 @@ pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
             println!("{{\"updates_available\": false, \"critical\": false}}");
         }
     } else if has_alert {
-        println!("{}[КРИТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ]{} Доступны важные обновления базы Wunix! Выполните 'wsp upgrade --critical'",
-            COLOR_RED, COLOR_RESET);
+        print_warning(t(
+            "доступны критические системные обновления! Выполните 'wsp upgrade --critical'",
+            "critical system updates available! Run 'wsp upgrade --critical'",
+        ));
     } else if !critical_only {
-        println!("{}[WSP]{} Базовая система Wunix актуальна.", COLOR_GREEN, COLOR_RESET);
+        println!("{}", t("wsp: базовая система Wunix актуальна.", "wsp: Wunix base system is up to date."));
     }
 
     if has_alert { 2 } else { 0 }

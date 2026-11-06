@@ -6,12 +6,13 @@
 //! - `wsp kernel clean`: очистка устаревших ядер.
 
 extern crate alloc;
-use libwunix::{close, open, println, unlink, write, O_CREAT, O_RDONLY, O_WRONLY};
+use alloc::format;
+use libwunix::{close, open, println, t, unlink, write, O_CREAT, O_RDONLY, O_WRONLY};
 use libpackwunix::kernel::{generate_limine_conf, KernelEntry};
 use libpackwunix::version::Version;
 
 use crate::db::log_transaction;
-use crate::display::{COLOR_BOLD, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_RESET, COLOR_YELLOW};
+use crate::display::{print_error, print_field, print_info, COLOR_GREEN, COLOR_RED, COLOR_RESET, COLOR_YELLOW};
 
 /// Обработка подкоманд управления ядром
 pub fn run_kernel_cmd(subcmd: &str) -> i32 {
@@ -20,8 +21,8 @@ pub fn run_kernel_cmd(subcmd: &str) -> i32 {
         "rollback" | "revert" => rollback_kernel(),
         "clean" | "gc" => clean_kernels(),
         _ => {
-            println!("{}[!] Неизвестная подкоманда управления ядром: '{}'{}", COLOR_RED, subcmd, COLOR_RESET);
-            println!("Использование: wsp kernel <list | rollback | clean>");
+            print_error(&format!("{} '{}'", t("неизвестная подкоманда", "unknown subcommand"), subcmd));
+            println!("{}", t("Использование: wsp kernel [list | rollback | clean]", "Usage: wsp kernel [list | rollback | clean]"));
             1
         }
     }
@@ -29,22 +30,22 @@ pub fn run_kernel_cmd(subcmd: &str) -> i32 {
 
 /// Выводит список ядер, доступных в каталоге /boot
 fn list_kernels() -> i32 {
-    println!("{}{}Ядра Wunix в каталоге /boot:{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
+    println!("{}", t("Ядра Wunix в каталоге /boot:", "Wunix kernels in /boot:"));
 
     let k_main = open(b"/boot/wunix-kernel\0", O_RDONLY as u64, 0);
     if k_main >= 0 {
         close(k_main as u64);
-        println!("  • {}/boot/wunix-kernel{}        {}[АКТИВНОЕ / DEFAULT]{}", COLOR_BOLD, COLOR_RESET, COLOR_GREEN, COLOR_RESET);
+        print_field("/boot/wunix-kernel", &format!("{}[активное / по умолчанию]{}", COLOR_GREEN, COLOR_RESET));
     } else {
-        println!("  • /boot/wunix-kernel        {}[ОТСУТСТВУЕТ]{}", COLOR_RED, COLOR_RESET);
+        print_field("/boot/wunix-kernel", &format!("{}[отсутствует!]{}", COLOR_RED, COLOR_RESET));
     }
 
     let k_old = open(b"/boot/wunix-kernel.old\0", O_RDONLY as u64, 0);
     if k_old >= 0 {
         close(k_old as u64);
-        println!("  • {}/boot/wunix-kernel.old{}    {}[РЕЗЕРВНОЕ / FALLBACK]{}", COLOR_BOLD, COLOR_RESET, COLOR_YELLOW, COLOR_RESET);
+        print_field("/boot/wunix-kernel.old", &format!("{}[резервное / откат]{}", COLOR_YELLOW, COLOR_RESET));
     } else {
-        println!("  • /boot/wunix-kernel.old    {}[НЕ СОЗДАНО]{}", COLOR_RESET, COLOR_RESET);
+        print_field("/boot/wunix-kernel.old", t("[не создано]", "[not created]"));
     }
 
     0
@@ -52,7 +53,10 @@ fn list_kernels() -> i32 {
 
 /// Выполняет откат на резервное ядро в limine.conf
 fn rollback_kernel() -> i32 {
-    println!("{}[WSP]{} Активация резервного ядра в конфигурации Limine...", COLOR_CYAN, COLOR_RESET);
+    print_info(t(
+        "активация резервного ядра в конфигурации Limine...",
+        "activating fallback kernel in Limine configuration...",
+    ));
 
     let fallback_entry = KernelEntry {
         version: Version::new(0, 4, 1),
@@ -67,20 +71,19 @@ fn rollback_kernel() -> i32 {
         let _ = write(fd as u64, b);
         close(fd as u64);
         log_transaction("kernel-rollback", "Загрузчик переключен на резервное ядро");
-        println!("{}{}✓ Успешно! Резервное ядро назначено загрузочным по умолчанию.{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
-        println!("Перезагрузите машину для запуска: reboot");
+        println!("{}", t("wsp: резервное ядро назначено загрузочным по умолчанию.", "wsp: fallback kernel is now set as the default boot kernel."));
+        println!("{}", t("Для запуска резервного ядра выполните перезагрузку ('reboot').", "To boot the fallback kernel, restart the machine ('reboot')."));
         0
     } else {
-        println!("{}[!] Ошибка записи в /boot/limine.conf{}", COLOR_RED, COLOR_RESET);
+        print_error(t("ошибка записи в /boot/limine.conf", "failed to write to /boot/limine.conf"));
         1
     }
 }
 
 /// Удаляет устаревшие резервные ядра для экономии дискового пространства
 fn clean_kernels() -> i32 {
-    println!("{}[WSP]{} Очистка старых резервных ядер...", COLOR_CYAN, COLOR_RESET);
+    print_info(t("очистка резервных ядер...", "cleaning fallback kernels..."));
     let _ = unlink(b"/boot/wunix-kernel.old\0");
-    log_transaction("kernel-clean", "Очистка старых ядер завершена");
-    println!("{}{}✓ Очистка завершена.{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+    println!("{}", t("wsp: каталог /boot очищен от резервных копий.", "wsp: /boot cleaned of fallback copies."));
     0
 }

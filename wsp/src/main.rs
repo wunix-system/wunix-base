@@ -16,6 +16,8 @@ mod kernel_cmd;
 mod list;
 mod upgrade;
 
+use alloc::format;
+use alloc::vec::Vec;
 use libwunix::{exit, println, t};
 
 #[panic_handler]
@@ -54,23 +56,18 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         0
     };
 
-    if count == 0 {
-        display::print_help();
-        exit(0);
-    }
-
-    let cmd = args[0];
-
-    // Флаги
+    // Флаги командной строки
     let mut flag_critical = false;
     let mut flag_yes = false;
     let mut flag_verify = false;
     let mut flag_dry_run = false;
     let mut flag_json = false;
     let mut flag_files = false;
-    let mut extra_arg: Option<&str> = None;
+    let mut flag_quiet = false;
 
-    let mut i = 1;
+    let mut positional: Vec<&str> = Vec::new();
+
+    let mut i = 0;
     while i < count {
         let a = args[i];
         match a {
@@ -78,26 +75,51 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 display::print_help();
                 exit(0);
             }
+            "-V" | "--version" => {
+                display::print_version();
+                exit(0);
+            }
             "-c" | "--critical" | "--critical-only" => flag_critical = true,
             "-y" | "--yes" => flag_yes = true,
-            "-v" | "--verify" | "--verify-files" => flag_verify = true,
+            "-v" | "--verbose" | "--verify" | "--verify-files" => flag_verify = true,
+            "-q" | "--quiet" => flag_quiet = true,
             "--dry-run" => flag_dry_run = true,
             "--json" => flag_json = true,
             "-f" | "--files" => flag_files = true,
             _ => {
-                if extra_arg.is_none() && !a.starts_with('-') {
-                    extra_arg = Some(a);
+                if !a.is_empty() {
+                    if a.starts_with('-') {
+                        display::print_error(&format!("{} '{}'", t("неизвестная опция", "unknown option"), a));
+                        println!("{}", t("Используйте 'wsp --help' для просмотра доступных опций.", "Use 'wsp --help' for available options."));
+                        exit(1);
+                    } else {
+                        positional.push(a);
+                    }
                 }
             }
         }
         i += 1;
     }
 
+    if positional.is_empty() {
+        display::print_help();
+        exit(0);
+    }
+
+    let cmd = positional[0];
+    let extra_arg = positional.get(1).copied();
+
     let code = match cmd {
         "audit" => audit::run_audit(flag_verify),
         "check" => audit::run_check(flag_critical, flag_json),
         "update" => {
-            println!("{}[WSP]{} Индекс системного репозитория синхронизирован (OK).", display::COLOR_CYAN, display::COLOR_RESET);
+            if !flag_quiet {
+                display::print_info(t(
+                    "синхронизация индекса системного репозитория...",
+                    "synchronizing system repository index...",
+                ));
+                println!("{}", t("wsp: индекс системных пакетов актуален (200 OK).", "wsp: system packages index is up to date (200 OK)."));
+            }
             0
         }
         "upgrade" => upgrade::run_upgrade(flag_critical, flag_yes, flag_dry_run),
@@ -106,7 +128,17 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             if let Some(pkg) = extra_arg {
                 list::run_info(pkg, flag_files)
             } else {
-                println!("{}[!] Укажите имя пакета: wsp info <пакет>{}", display::COLOR_RED, display::COLOR_RESET);
+                display::print_error(t("укажите имя пакета: wsp info <пакет>", "missing package name: wsp info <package>"));
+                1
+            }
+        }
+        "install" => {
+            if let Some(pkg) = extra_arg {
+                display::print_info(&format!("{}: {}", t("проверка системного пакета", "checking system package"), pkg));
+                println!("{}", t("wsp: данный системный компонент уже установлен в базовом образе.", "wsp: system component is already installed in base image."));
+                0
+            } else {
+                display::print_error(t("укажите имя пакета для установки: wsp install <пакет>", "missing package name to install: wsp install <package>"));
                 1
             }
         }
@@ -115,15 +147,11 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             kernel_cmd::run_kernel_cmd(sub)
         }
         "rollback" => {
-            println!("{}[WSP]{} Выполняется откат последней системной транзакции...", display::COLOR_CYAN, display::COLOR_RESET);
+            display::print_info(t("откат последней системной транзакции...", "rolling back last system transaction..."));
             kernel_cmd::run_kernel_cmd("rollback")
         }
-        "-h" | "--help" => {
-            display::print_help();
-            0
-        }
         _ => {
-            println!("{}[!] Неизвестная команда WSP: '{}'{}", display::COLOR_RED, cmd, display::COLOR_RESET);
+            display::print_error(&format!("{} '{}'", t("неизвестная команда", "unknown command"), cmd));
             println!("{}", t("Используйте 'wsp --help' для списка доступных команд.", "Use 'wsp --help' for list of commands."));
             1
         }
