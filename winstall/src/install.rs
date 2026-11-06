@@ -72,6 +72,11 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/timesyncd\0",  b"/mnt/bin/timesyncd\0"),
     (b"/bin/system\0",     b"/mnt/bin/system\0"),
     (b"/bin/nslookup\0",   b"/mnt/bin/nslookup\0"),
+    (b"/bin/tar\0",        b"/mnt/bin/tar\0"),
+    (b"/bin/zip\0",        b"/mnt/bin/zip\0"),
+    (b"/bin/unzip\0",      b"/mnt/bin/unzip\0"),
+    (b"/bin/gzip\0",       b"/mnt/bin/gzip\0"),
+    (b"/bin/unrar\0",      b"/mnt/bin/unrar\0"),
 ];
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
