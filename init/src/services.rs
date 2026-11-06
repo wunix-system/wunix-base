@@ -1,7 +1,7 @@
 //! Инициализация и автозапуск системных служб Wunix при старте ядра.
 
 use libwunix::{
-    close, execve, getdents64, mkdir, open, symlink, write, O_CREAT, O_EXCL, O_RDONLY, O_WRONLY,
+    chmod, close, execve, getdents64, mkdir, open, symlink, write, O_CREAT, O_EXCL, O_RDONLY, O_WRONLY,
     STDOUT_FILENO, t,
 };
 
@@ -24,7 +24,7 @@ directory = /\n";
 const SSH_DEFAULT: &[u8] = b"# \xd0\xa1\xd0\xbb\xd1\x83\xd0\xb6\xd0\xb1\xd0\xb0 OpenSSH\n\
 description = \xd0\xa1\xd0\xb5\xd1\x82\xd0\xb5\xd0\xb2\xd0\xbe\xd0\xb9 \xd1\x81\xd0\xb5\xd1\x80\xd0\xb2\xd0\xb5\xd1\x80 \xd1\x83\xd0\xb4\xd0\xb0\xd0\xbb\xd0\xb5\xd0\xbd\xd0\xbd\xd0\xbe\xd0\xb3\xd0\xbe \xd0\xb4\xd0\xbe\xd1\x81\xd1\x82\xd1\x83\xd0\xbf\xd0\xb0 SSH\n\
 command = /bin/sshd -D\n\
-autostart = no\n\
+autostart = yes\n\
 restart = always\n\
 user = root\n\
 directory = /\n";
@@ -36,16 +36,22 @@ pub fn init_services() {
     let _ = mkdir(b"/var\0", 0o755);
     let _ = mkdir(b"/var/log\0", 0o755);
     let _ = mkdir(b"/var/log/services\0", 0o755);
+    let _ = mkdir(b"/var/empty\0", 0o755);
     let _ = mkdir(b"/etc\0", 0o755);
+    let _ = mkdir(b"/etc/ssh\0", 0o755);
     let _ = mkdir(b"/etc/services\0", 0o755);
     let _ = mkdir(b"/etc/services/enabled\0", 0o755);
+
+    // Устанавливаем строгие права 0600 на закрытые серверные ключи OpenSSH
+    let _ = chmod(b"/etc/ssh/ssh_host_ed25519_key\0", 0o600);
+    let _ = chmod(b"/etc/ssh/ssh_host_rsa_key\0", 0o600);
 
     // 2. Создаем базовые файлы конфигураций, если отсутствуют
     create_service_if_missing(b"/etc/services/timesyncd.conf\0", TIMESYNCD_DEFAULT);
     create_service_if_missing(b"/etc/services/network.conf\0", NETWORK_DEFAULT);
     create_service_if_missing(b"/etc/services/sshd.conf\0", SSH_DEFAULT);
 
-    // 3. Включаем автозапуск по умолчанию для базовых одноразовых служб
+    // 3. Включаем автозапуск по умолчанию для базовых служб
     let _ = symlink(
         b"/etc/services/timesyncd.conf\0",
         b"/etc/services/enabled/timesyncd.conf\0",
@@ -53,6 +59,10 @@ pub fn init_services() {
     let _ = symlink(
         b"/etc/services/network.conf\0",
         b"/etc/services/enabled/network.conf\0",
+    );
+    let _ = symlink(
+        b"/etc/services/sshd.conf\0",
+        b"/etc/services/enabled/sshd.conf\0",
     );
 
     // 4. Оповещаем пользователя о начале старта служб

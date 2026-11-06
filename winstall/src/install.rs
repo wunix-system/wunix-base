@@ -295,6 +295,10 @@ where
         done += 1;
     }
 
+    // Устанавливаем строгие права 0600 на закрытые серверные ключи OpenSSH
+    let _ = libwunix::chmod(b"/mnt/etc/ssh/ssh_host_ed25519_key\0", 0o600);
+    let _ = libwunix::chmod(b"/mnt/etc/ssh/ssh_host_rsa_key\0", 0o600);
+
     for (src, dst) in INSTALL_EXTRA_FILES {
         copy_file(src, dst, 0o644);
         done += 1;
@@ -320,7 +324,7 @@ directory = /\n";
     const SSH_CFG: &[u8] = b"# \xd0\xa1\xd0\xbb\xd1\x83\xd0\xb6\xd0\xb1\xd0\xb0 OpenSSH\n\
 description = \xd0\xa1\xd0\xb5\xd1\x82\xd0\xb5\xd0\xb2\xd0\xbe\xd0\xb9 \xd1\x81\xd0\xb5\xd1\x80\xd0\xb2\xd0\xb5\xd1\x80 \xd1\x83\xd0\xb4\xd0\xb0\xd0\xbb\xd0\xb5\xd0\xbd\xd0\xbd\xd0\xbe\xd0\xb3\xd0\xbe \xd0\xb4\xd0\xbe\xd1\x81\xd1\x82\xd1\x83\xd0\xbf\xd0\xb0 SSH\n\
 command = /bin/sshd -D\n\
-autostart = no\n\
+autostart = yes\n\
 restart = always\n\
 user = root\n\
 directory = /\n";
@@ -330,6 +334,7 @@ directory = /\n";
     write_file(b"/mnt/etc/services/sshd.conf\0", SSH_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/timesyncd.conf\0", TIMESYNCD_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/network.conf\0", NETWORK_CFG, 0o644);
+    write_file(b"/mnt/etc/services/enabled/sshd.conf\0", SSH_CFG, 0o644);
 
     // 4. Имя хоста (/etc/hostname)
     progress(72, "Настройка имени компьютера...", done, total);
@@ -376,6 +381,7 @@ directory = /\n";
         // /etc/passwd
         let mut pb = [0u8; 512];
         let mut pos = ap(&mut pb, 0, b"root:x:0:0:Superuser:/root:/bin/wsh\n");
+        pos = ap(&mut pb, pos, b"nobody:x:65534:65534:Nobody:/:/bin/false\n");
         if !admin_user.is_empty() {
             pos = ap(&mut pb, pos, admin_user.as_bytes());
             pos = ap(&mut pb, pos, b":x:1000:1000:Admin:/home/");
@@ -404,7 +410,7 @@ directory = /\n";
             pos = ap(&mut gb, pos, b",");
             pos = ap(&mut gb, pos, admin_user.as_bytes());
         }
-        pos = ap(&mut gb, pos, b"\n");
+        pos = ap(&mut gb, pos, b"\nnogroup:x:65534:\n");
         write_file(b"/mnt/etc/group\0", &gb[..pos], 0o644);
     }
     done += 1;
