@@ -8,7 +8,7 @@ use crate::tui::{
 };
 
 /// Начальный экран процесса очистки и разметки диска
-pub fn begin_partition_process_screen(disk_name: &str) {
+pub fn begin_partition_process_screen(disk_name: &str, fs_choice: &str) {
     hide_cursor();
     clear_screen();
     draw_header("  ОЧИСТКА И РАЗМЕТКА ДИСКА  ");
@@ -27,7 +27,14 @@ pub fn begin_partition_process_screen(disk_name: &str) {
 
     goto(12, col + 3); wrs(FG_GRAY); wrs("[ ] 1. Очистка нулевого сектора (зачистка старых сигнатур)");
     goto(13, col + 3); wrs(FG_GRAY); wrs("[ ] 2. Запись новой таблицы разделов MBR");
-    goto(14, col + 3); wrs(FG_GRAY); wrs("[ ] 3. Форматирование корневого раздела (FAT32)");
+    goto(14, col + 3); wrs(FG_GRAY);
+    wrs("[ ] 3. Форматирование корневого раздела (");
+    if fs_choice == "ext4" {
+        wrs("Ext4");
+    } else {
+        wrs("UFS");
+    }
+    wrs(")");
     goto(15, col + 3); wrs(FG_GRAY); wrs("[ ] 4. Инициализация раздела подкачки (SWAP)");
     goto(16, col + 3); wrs(FG_GRAY); wrs("[ ] 5. Синхронизация буферов и регистрация разделов ядра");
 

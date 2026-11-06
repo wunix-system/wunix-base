@@ -126,7 +126,7 @@ fn run_install_wizard() -> ! {
     }
 
     // ── 5. Очистка и разметка диска (с отображением процесса) ────────────────
-    begin_partition_process_screen(target_disk.name());
+    begin_partition_process_screen(target_disk.name(), fs_choice);
 
     // Шаг 1: Очистка нулевого сектора и старых сигнатур
     update_partition_step(1, false);
