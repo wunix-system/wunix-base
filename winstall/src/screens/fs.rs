@@ -15,12 +15,12 @@ pub fn screen_select_fs() -> Option<&'static str> {
 
     let items = [
         MenuItem {
-            label: "1. FAT32 — Основная файловая система Wunix OS (Рекомендуется)      ",
+            label: "1. UFS   — Unix File System 2 (Рекомендуется)                     ",
             disabled: false,
         },
         MenuItem {
-            label: "2. EXT4  — Журналируемая файловая система (в разработке)           ",
-            disabled: true,
+            label: "2. Ext4  — Журналируемая файловая система Linux                    ",
+            disabled: false,
         },
         MenuItem {
             label: "3. Btrfs — CoW файловая система нового поколения (в разработке)    ",
@@ -35,7 +35,7 @@ pub fn screen_select_fs() -> Option<&'static str> {
     let col = center_col(menu_w);
     let sel = run_menu(12, col, &items, menu_w)?;
     match sel {
-        0 => Some("fat32"),
+        0 => Some("ufs"),
         1 => Some("ext4"),
         _ => Some("btrfs"),
     }

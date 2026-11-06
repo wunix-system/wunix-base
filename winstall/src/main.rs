@@ -8,7 +8,7 @@ mod screens;
 mod tui;
 
 use disk::{
-    build_auto_partition_plan, format_fat32, init_swap, scan_disks,
+    build_auto_partition_plan, format_ext4, format_fat32, format_ufs, init_swap, scan_disks,
     wipe_disk_signatures, write_mbr_table, DiskInfo, PartitionPlan, MAX_DISKS,
     MAX_PARTITIONS,
 };
@@ -143,7 +143,7 @@ fn run_install_wizard() -> ! {
     }
     update_partition_step(2, true);
 
-    // Шаг 3: Форматирование корневого раздела (FAT32)
+    // Шаг 3: Форматирование корневого раздела (выбранная ФС пользователем)
     update_partition_step(3, false);
     sleep_ms(200);
     let mut root_part_num = 1u8;
@@ -151,13 +151,21 @@ fn run_install_wizard() -> ! {
     for (idx, p) in plans[..plan_count].iter().enumerate() {
         if p.mount_point == "/" {
             root_part_num = (idx + 1) as u8;
-            if !format_fat32(target_disk.path, p.start_lba as u64, p.sector_count as u64) {
-                screen_error("Ошибка форматирования корневого раздела FAT32!");
+            let formatted = match fs_choice {
+                "ext4" => format_ext4(target_disk.path, p.start_lba as u64, p.sector_count as u64),
+                "ufs" | "ufs2" => format_ufs(target_disk.path, p.start_lba as u64, p.sector_count as u64),
+                _ => {
+                    screen_error("Неизвестная файловая система! Выберите UFS или Ext4.");
+                    launch_shell();
+                }
+            };
+            if !formatted {
+                screen_error("Ошибка форматирования корневого раздела!");
                 launch_shell();
             }
         } else if p.mount_point == "/boot" && p.fstype == "fat32" {
             boot_part_num = (idx + 1) as u8;
-            // Форматируем также отдельный раздел /boot если он выделен
+            // /boot всегда FAT32 — загрузчик Limine требует FAT
             let _ = format_fat32(target_disk.path, p.start_lba as u64, p.sector_count as u64);
         }
     }
@@ -216,10 +224,18 @@ fn run_install_wizard() -> ! {
     // ── 9. Установка Wunix Base на диск (БЕЗ winstall!) ─────────────────────
     begin_install_progress_screen();
 
+    // Преобразуем строковый идентификатор ФС в null-terminated байтовый срез для syscall mount
+    let fs_type_bytes: &[u8] = match fs_choice {
+        "ext4" => b"ext4\0",
+        "ufs" | "ufs2" => b"ufs\0",
+        _ => b"ufs\0",
+    };
+
     let ok = install_base(
         target_disk.path,
         root_part_num,
         boot_part_num,
+        fs_type_bytes,
         hostname,
         timezone,
         username,

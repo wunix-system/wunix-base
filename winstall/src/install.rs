@@ -95,7 +95,7 @@ pub const INSTALL_ETC_FILES: &[(&[u8], &[u8])] = &[
 
 pub const INSTALL_EXTRA_FILES: &[(&[u8], &[u8])] = &[];
 
-pub fn mount_root_partition(disk_path: &[u8], root_part_num: u8) -> bool {
+pub fn mount_root_partition(disk_path: &[u8], root_part_num: u8, fstype: &[u8]) -> bool {
     let _ = mkdir(b"/mnt\0", 0o755);
 
     let mut part_path = [0u8; 64];
@@ -107,12 +107,12 @@ pub fn mount_root_partition(disk_path: &[u8], root_part_num: u8) -> bool {
     part_path[len] = b'0' + root_part_num;
     part_path[len + 1] = 0;
 
-    if mount(&part_path[..len + 2], b"/mnt\0", b"fat32\0", 0, b"\0") >= 0 {
+    if mount(&part_path[..len + 2], b"/mnt\0", fstype, 0, b"\0") >= 0 {
         return true;
     }
 
     // Если раздел не зарегистрирован, пробуем смонтировать сам диск
-    mount(disk_path, b"/mnt\0", b"fat32\0", 0, b"\0") >= 0
+    mount(disk_path, b"/mnt\0", fstype, 0, b"\0") >= 0
 }
 
 /// Копирует ядро и конфигурации загрузчика на выделенный раздел /boot (если он задан)
@@ -207,6 +207,7 @@ pub fn install_base<F>(
     disk_path: &[u8],
     root_part_num: u8,
     boot_part_num: u8,
+    fs_type: &[u8],
     hostname: &str,
     timezone: &str,
     admin_user: &str,
@@ -221,7 +222,7 @@ where
     let mut done = 0;
 
     progress(2, "Монтирование диска...", done, total);
-    if !mount_root_partition(disk_path, root_part_num) {
+    if !mount_root_partition(disk_path, root_part_num, fs_type) {
         return false;
     }
     done += 1;

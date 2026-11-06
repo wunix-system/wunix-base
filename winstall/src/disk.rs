@@ -1,4 +1,4 @@
-// Обнаружение дисков, планирование разделов, запись MBR и форматирование FAT32/Swap.
+// Обнаружение дисков, планирование разделов, запись MBR и форматирование ФС.
 
 use libwunix::{close, lseek, open, pread64, pwrite64, O_RDONLY, O_RDWR, SEEK_END};
 
@@ -256,11 +256,13 @@ pub fn write_mbr_table(disk_path: &[u8], plans: &[PartitionPlan], count: usize) 
         pe[4] = if p.fstype == "swap" || p.mount_point == "swap" {
             0x82 // Linux swap
         } else if p.mount_point == "/boot" {
-            0x0C // FAT32 LBA
+            0x0C // FAT32 LBA — загрузчик всегда на FAT
         } else if p.fstype == "ext4" {
-            0x83 // Linux native
+            0x83 // Linux native (ext2/3/4)
+        } else if p.fstype == "ufs" || p.fstype == "ufs2" {
+            0xA5 // BSD/UFS — стандартный тип раздела для UFS
         } else {
-            0x0C // FAT32 LBA
+            0x83 // По умолчанию Linux native
         };
 
         pe[5] = 0xFE; pe[6] = 0xFF; pe[7] = 0xFF; // CHS end
@@ -361,6 +363,53 @@ pub fn format_fat32(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> boo
         let _ = pwrite64(fd as u64, &zero, data_start + c_sec * 512);
     }
 
+    close(fd as u64);
+    ok
+}
+
+/// Форматирует раздел как Ext4, записывая минимальный суперблок со стандартной сигнатурой 0xEF53.
+///
+/// Суперблок Ext4 начинается по смещению 1024 байт (2 сектора по 512) от начала раздела.
+/// Это позволяет ядру опознать раздел через `Ext4FileSystem::open()` при монтировании.
+pub fn format_ext4(disk_path: &[u8], lba_offset: u64, _part_sectors: u64) -> bool {
+    let fd = open(disk_path, O_RDWR as u64, 0);
+    if fd < 0 { return false; }
+
+    // Суперблок занимает байты 1024-2047 от начала раздела = LBA 2 от lba_offset
+    let sb_offset = (lba_offset + 2) * 512;
+    let mut sb = [0u8; 1024];
+
+    sb[0..4].copy_from_slice(&1024u32.to_le_bytes());   // s_inodes_count
+    sb[4..8].copy_from_slice(&4096u32.to_le_bytes());   // s_blocks_count_lo
+    // s_log_block_size = 0 → размер блока 1 KiB (по умолчанию для небольших разделов)
+    sb[24..28].copy_from_slice(&0u32.to_le_bytes());
+    sb[56..58].copy_from_slice(&0xEF53u16.to_le_bytes()); // s_magic
+    sb[58..60].copy_from_slice(&1u16.to_le_bytes());     // s_state = 1 (clean)
+
+    let ok = pwrite64(fd as u64, &sb, sb_offset) == 1024;
+    close(fd as u64);
+    ok
+}
+
+/// Форматирует раздел как UFS2, записывая минимальный суперблок.
+///
+/// Суперблок UFS2 записывается по стандартному смещению 65536 байт (128 секторов по 512)
+/// от начала раздела. Содержит магическое число 0x19540119 (FS_UFS2_MAGIC) по смещению 1372.
+pub fn format_ufs(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> bool {
+    let fd = open(disk_path, O_RDWR as u64, 0);
+    if fd < 0 { return false; }
+
+    // LBA 128 от начала раздела = байтовое смещение 65536
+    let sb_offset = (lba_offset + 128) * 512;
+    let mut sb = [0u8; 2048];
+
+    let total_frags = (part_sectors / 8) as i64; // 1 фрагмент = 4096 байт = 8 секторов
+    sb[0..4].copy_from_slice(&128i32.to_le_bytes());           // fs_sblkno
+    sb[32..40].copy_from_slice(&total_frags.to_le_bytes());    // fs_size (int64)
+    // FS_UFS2_MAGIC = 0x19540119, смещение 1372 в суперблоке
+    sb[1372..1376].copy_from_slice(&0x19540119u32.to_le_bytes());
+
+    let ok = pwrite64(fd as u64, &sb, sb_offset) == 2048;
     close(fd as u64);
     ok
 }
