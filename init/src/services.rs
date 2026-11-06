@@ -42,6 +42,11 @@ pub fn init_services() {
     let _ = mkdir(b"/etc/services\0", 0o755);
     let _ = mkdir(b"/etc/services/enabled\0", 0o755);
 
+    let _ = mkdir(b"/usr\0", 0o755);
+    let _ = mkdir(b"/usr/libexec\0", 0o755);
+    let _ = symlink(b"/bin/sshd-session\0", b"/usr/libexec/sshd-session\0");
+    let _ = symlink(b"/bin/sftp-server\0", b"/usr/libexec/sftp-server\0");
+
     // Устанавливаем строгие права 0600 на закрытые серверные ключи OpenSSH
     let _ = chmod(b"/etc/ssh/ssh_host_ed25519_key\0", 0o600);
     let _ = chmod(b"/etc/ssh/ssh_host_rsa_key\0", 0o600);

@@ -28,21 +28,23 @@ pub fn check_installed() -> bool {
     let _ = mkdir(b"/mnt\0", 0o755);
 
     for dev in candidate_devs {
-        if mount(*dev, b"/mnt\0", b"fat32\0", 0, b"\0") >= 0 {
-            let inst_fd = open(b"/mnt/etc/installed\0", O_RDONLY as u64, 0);
-            if inst_fd >= 0 {
-                close(inst_fd as u64);
-                // Синхронизируем учетные записи и системные конфигурации с установленного диска
-                sync_file(b"/mnt/etc/passwd\0", b"/etc/passwd\0", 0o644);
-                sync_file(b"/mnt/etc/shadow\0", b"/etc/shadow\0", 0o600);
-                sync_file(b"/mnt/etc/group\0", b"/etc/group\0", 0o644);
-                sync_file(b"/mnt/etc/hostname\0", b"/etc/hostname\0", 0o644);
-                sync_file(b"/mnt/etc/network.conf\0", b"/etc/network.conf\0", 0o644);
-                sync_file(b"/mnt/etc/resolv.conf\0", b"/etc/resolv.conf\0", 0o644);
-                sync_file(b"/mnt/etc/installed\0", b"/etc/installed\0", 0o644);
-                return true;
-            } else {
-                let _ = umount2(b"/mnt\0", 0);
+        for fstype in &[b"ufs\0".as_ref(), b"ext4\0", b"fat32\0", b"\0"] {
+            if mount(*dev, b"/mnt\0", *fstype, 0, b"\0") >= 0 {
+                let inst_fd = open(b"/mnt/etc/installed\0", O_RDONLY as u64, 0);
+                if inst_fd >= 0 {
+                    close(inst_fd as u64);
+                    // Синхронизируем учетные записи и системные конфигурации с установленного диска
+                    sync_file(b"/mnt/etc/passwd\0", b"/etc/passwd\0", 0o644);
+                    sync_file(b"/mnt/etc/shadow\0", b"/etc/shadow\0", 0o600);
+                    sync_file(b"/mnt/etc/group\0", b"/etc/group\0", 0o644);
+                    sync_file(b"/mnt/etc/hostname\0", b"/etc/hostname\0", 0o644);
+                    sync_file(b"/mnt/etc/network.conf\0", b"/etc/network.conf\0", 0o644);
+                    sync_file(b"/mnt/etc/resolv.conf\0", b"/etc/resolv.conf\0", 0o644);
+                    sync_file(b"/mnt/etc/installed\0", b"/etc/installed\0", 0o644);
+                    return true;
+                } else {
+                    let _ = umount2(b"/mnt\0", 0);
+                }
             }
         }
     }

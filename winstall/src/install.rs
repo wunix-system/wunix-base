@@ -63,6 +63,10 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/nano\0",       b"/mnt/bin/nano\0"),
     (b"/bin/ssh\0",        b"/mnt/bin/ssh\0"),
     (b"/bin/sshd\0",       b"/mnt/bin/sshd\0"),
+    (b"/bin/sshd-session\0", b"/mnt/bin/sshd-session\0"),
+    (b"/bin/ssh-keygen\0", b"/mnt/bin/ssh-keygen\0"),
+    (b"/bin/scp\0",        b"/mnt/bin/scp\0"),
+    (b"/bin/sftp-server\0", b"/mnt/bin/sftp-server\0"),
     (b"/bin/openssl\0",    b"/mnt/bin/openssl\0"),
     (b"/bin/ntpdate\0",    b"/mnt/bin/ntpdate\0"),
     (b"/bin/timesyncd\0",  b"/mnt/bin/timesyncd\0"),
@@ -130,8 +134,6 @@ pub fn copy_boot_files_to_boot_partition(disk_path: &[u8], boot_part_num: u8, ro
     if mount(&part_path[..len + 2], b"/mnt_boot\0", b"fat32\0", 0, b"\0") >= 0 {
         let _ = mkdir(b"/mnt_boot/boot\0", 0o755);
         copy_file(b"/boot/wunix-kernel\0", b"/mnt_boot/boot/wunix-kernel\0", 0o644);
-        copy_file(b"/boot/wunix-kernel\0", b"/mnt_boot/wunix-kernel\0", 0o644);
-        copy_file(b"/boot/limine-bios.sys\0", b"/mnt_boot/limine-bios.sys\0", 0o644);
         copy_file(b"/boot/limine-bios.sys\0", b"/mnt_boot/boot/limine-bios.sys\0", 0o644);
 
         let mut conf_buf = [0u8; 512];
@@ -141,7 +143,6 @@ pub fn copy_boot_files_to_boot_partition(disk_path: &[u8], boot_part_num: u8, ro
         cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
         let limine_conf_content = &conf_buf[..cpos];
         write_file(b"/mnt_boot/boot/limine.conf\0", limine_conf_content, 0o644);
-        write_file(b"/mnt_boot/limine.conf\0", limine_conf_content, 0o644);
 
         let _ = umount2(b"/mnt_boot\0", 0);
     }
@@ -236,13 +237,16 @@ where
         b"/mnt/etc/ssh\0", b"/mnt/etc/services\0", b"/mnt/etc/services/enabled\0",
         b"/mnt/var\0", b"/mnt/var/empty\0", b"/mnt/var/log\0", b"/mnt/var/log/services\0",
         b"/mnt/run\0", b"/mnt/run/services\0",
-        b"/mnt/usr\0", b"/mnt/usr/lib\0",
+        b"/mnt/usr\0", b"/mnt/usr/lib\0", b"/mnt/usr/libexec\0",
         b"/mnt/usr/include\0", b"/mnt/usr/share\0",
     ] {
         ensure_dir(d);
     }
     let _ = libwunix::chmod(b"/mnt/tmp\0", 0o1777);
     let _ = libwunix::chmod(b"/mnt/root\0", 0o700);
+    let _ = libwunix::chmod(b"/mnt/var/empty\0", 0o755);
+    let _ = libwunix::symlink(b"/bin/sshd-session\0", b"/mnt/usr/libexec/sshd-session\0");
+    let _ = libwunix::symlink(b"/bin/sftp-server\0", b"/mnt/usr/libexec/sftp-server\0");
     done += 1;
 
     // 1. Копирование системных бинарных файлов (/bin) - БЕЗ winstall!
