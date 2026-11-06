@@ -1,0 +1,18 @@
+[package]
+name = "wpm"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Пользовательский менеджер пакетов Wunix Package Manager (WPM)"
+
+[dependencies]
+libwunix = { path = "../../wunix/libs/libwunix" }
+libpackwunix = { path = "../../wunix/libs/libpackwunix", default-features = false }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+lto = true

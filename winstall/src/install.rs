@@ -80,6 +80,8 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/unrar\0",      b"/mnt/bin/unrar\0"),
     (b"/bin/ar\0",         b"/mnt/bin/ar\0"),
     (b"/bin/cpio\0",       b"/mnt/bin/cpio\0"),
+    (b"/bin/wsp\0",        b"/mnt/bin/wsp\0"),
+    (b"/bin/wpm\0",        b"/mnt/bin/wpm\0"),
 ];
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
