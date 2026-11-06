@@ -3,7 +3,7 @@ fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
 
     let status = std::process::Command::new("wunix-cc")
-        .args(&["-c", "src/tls.c", "-o", "src/tls.o"])
+        .args(&["-fno-stack-protector", "-c", "src/tls.c", "-o", "src/tls.o"])
         .current_dir(&manifest_dir)
         .status();
 

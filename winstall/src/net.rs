@@ -308,12 +308,17 @@ pub fn apply_network_config(cfg: &NetConfig, hostname: &str) {
     }
 
     // /mnt/etc/resolv.conf
-    let mut res_buf = [0u8; 128];
+    let mut res_buf = [0u8; 256];
     let mut rpos = 0;
-    let rp = b"nameserver ";
-    res_buf[rpos..rpos + rp.len()].copy_from_slice(rp); rpos += rp.len();
-    res_buf[rpos..rpos + cfg.dns_len].copy_from_slice(&cfg.dns[..cfg.dns_len]); rpos += cfg.dns_len;
-    res_buf[rpos] = b'\n'; rpos += 1;
+    if cfg.dns_len > 0 {
+        let rp = b"nameserver ";
+        res_buf[rpos..rpos + rp.len()].copy_from_slice(rp); rpos += rp.len();
+        res_buf[rpos..rpos + cfg.dns_len].copy_from_slice(&cfg.dns[..cfg.dns_len]); rpos += cfg.dns_len;
+        res_buf[rpos] = b'\n'; rpos += 1;
+    }
+    let fallback_dns = b"nameserver 10.0.2.3\nnameserver 1.1.1.1\nnameserver 8.8.8.8\n";
+    res_buf[rpos..rpos + fallback_dns.len()].copy_from_slice(fallback_dns);
+    rpos += fallback_dns.len();
 
     let fd_res = open(b"/mnt/etc/resolv.conf\0", (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o644);
     if fd_res >= 0 {
@@ -324,9 +329,14 @@ pub fn apply_network_config(cfg: &NetConfig, hostname: &str) {
     // /mnt/etc/hosts
     let mut hosts_buf = [0u8; 256];
     let mut hpos = 0;
-    let hp1 = b"127.0.0.1  localhost\n::1        localhost\n";
+    let hp1 = b"127.0.0.1  localhost\n10.0.2.2   host.qemu host gateway\n::1        localhost\n";
     hosts_buf[hpos..hpos + hp1.len()].copy_from_slice(hp1); hpos += hp1.len();
-    hosts_buf[hpos..hpos + cfg.ip_len].copy_from_slice(&cfg.ip[..cfg.ip_len]); hpos += cfg.ip_len;
+    if cfg.ip_len > 0 {
+        hosts_buf[hpos..hpos + cfg.ip_len].copy_from_slice(&cfg.ip[..cfg.ip_len]); hpos += cfg.ip_len;
+    } else {
+        let def_ip = b"127.0.1.1";
+        hosts_buf[hpos..hpos + def_ip.len()].copy_from_slice(def_ip); hpos += def_ip.len();
+    }
     hosts_buf[hpos] = b' '; hpos += 1;
     hosts_buf[hpos] = b' '; hpos += 1;
     let hname = hostname.as_bytes();

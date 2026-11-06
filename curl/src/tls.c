@@ -16,13 +16,10 @@ static int tls_initialized = 0;
 
 void wunix_init_tls(void) {
     if (!tls_initialized) {
-        unsigned long fs_base = 0;
-        // SYS_arch_prctl = 158, ARCH_GET_FS = 0x1003
-        long ret = syscall(158, 0x1003, &fs_base);
-        if (ret != 0 || fs_base == 0) {
-            __init_tp(main_thread_area);
-            *(unsigned long *)((char *)main_thread_area + 0x28) = 0x595e9fbd94fda766UL;
-        }
+        // Прямая инициализация области локального хранилища потока (TLS)
+        // без использования libc syscall(), требующего уже инициализированного canary в %fs:0x28
+        __init_tp(main_thread_area);
+        *(unsigned long *)((char *)main_thread_area + 0x28) = 0x595e9fbd94fda766UL;
         tls_initialized = 1;
     }
 }

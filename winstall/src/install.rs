@@ -73,21 +73,24 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
     (b"/boot/wunix-kernel\0",   b"/mnt/boot/wunix-kernel\0"),
     (b"/boot/limine.conf\0",    b"/mnt/boot/limine.conf\0"),
-    (b"/boot/limine.conf\0",    b"/mnt/limine.conf\0"),
     (b"/boot/limine-bios.sys\0",b"/mnt/boot/limine-bios.sys\0"),
-    (b"/boot/limine-bios.sys\0",b"/mnt/limine-bios.sys\0"),
 ];
 
 pub const INSTALL_ETC_FILES: &[(&[u8], &[u8])] = &[
     (b"/etc/os-release\0",                 b"/mnt/etc/os-release\0"),
     (b"/etc/locale\0",                     b"/mnt/etc/locale\0"),
     (b"/etc/hosts\0",                      b"/mnt/etc/hosts\0"),
+    (b"/etc/resolv.conf\0",                b"/mnt/etc/resolv.conf\0"),
     (b"/etc/timesyncd.conf\0",             b"/mnt/etc/timesyncd.conf\0"),
     (b"/etc/ntp.conf\0",                   b"/mnt/etc/ntp.conf\0"),
     (b"/etc/ssl/certs/ca-certificates.crt\0", b"/mnt/etc/ssl/certs/ca-certificates.crt\0"),
     (b"/etc/ssl/openssl.cnf\0",            b"/mnt/etc/ssl/openssl.cnf\0"),
     (b"/etc/ssh/ssh_config\0",             b"/mnt/etc/ssh/ssh_config\0"),
     (b"/etc/ssh/sshd_config\0",            b"/mnt/etc/ssh/sshd_config\0"),
+    (b"/etc/ssh/ssh_host_ed25519_key\0",      b"/mnt/etc/ssh/ssh_host_ed25519_key\0"),
+    (b"/etc/ssh/ssh_host_ed25519_key.pub\0",  b"/mnt/etc/ssh/ssh_host_ed25519_key.pub\0"),
+    (b"/etc/ssh/ssh_host_rsa_key\0",          b"/mnt/etc/ssh/ssh_host_rsa_key\0"),
+    (b"/etc/ssh/ssh_host_rsa_key.pub\0",      b"/mnt/etc/ssh/ssh_host_rsa_key.pub\0"),
 ];
 
 pub const INSTALL_EXTRA_FILES: &[(&[u8], &[u8])] = &[];
@@ -230,7 +233,8 @@ where
         b"/mnt/boot\0", b"/mnt/dev\0",  b"/mnt/proc\0", b"/mnt/sys\0",
         b"/mnt/etc/ssl\0", b"/mnt/etc/ssl/certs\0",
         b"/mnt/etc/ssh\0", b"/mnt/etc/services\0", b"/mnt/etc/services/enabled\0",
-        b"/mnt/var\0", b"/mnt/var/empty\0",
+        b"/mnt/var\0", b"/mnt/var/empty\0", b"/mnt/var/log\0", b"/mnt/var/log/services\0",
+        b"/mnt/run\0", b"/mnt/run/services\0",
         b"/mnt/usr\0", b"/mnt/usr/lib\0",
         b"/mnt/usr/include\0", b"/mnt/usr/share\0",
     ] {
@@ -253,6 +257,7 @@ where
             0o755
         };
         copy_file(src, dst, mode);
+        let _ = libwunix::chmod(dst, mode as u32);
         done += 1;
     }
 
@@ -280,7 +285,6 @@ where
     cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
     let limine_conf_content = &conf_buf[..cpos];
     write_file(b"/mnt/boot/limine.conf\0", limine_conf_content, 0o644);
-    write_file(b"/mnt/limine.conf\0", limine_conf_content, 0o644);
 
     // 3. Базовые конфигурационные файлы (/etc)
     progress(68, "Копирование конфигураций (/etc)...", done, total);
@@ -294,9 +298,36 @@ where
         done += 1;
     }
 
-    // Автозапуск системных служб
-    write_file(b"/mnt/etc/services/enabled/timesyncd\0", b"/bin/timesyncd\n", 0o644);
-    write_file(b"/mnt/etc/services/enabled/network\0", b"/bin/ip link set eth0 up\n", 0o644);
+    // Автозапуск системных служб Wunix (timesyncd, network, ssh)
+    const TIMESYNCD_CFG: &[u8] = b"# \xd0\xa1\xd0\xbb\xd1\x83\xd0\xb6\xd0\xb1\xd0\xb0 \xd1\x81\xd0\xb8\xd0\xbd\xd1\x85\xd1\x80\xd0\xbe\xd0\xbd\xd0\xb8\xd0\xb7\xd0\xb0\xd1\x86\xd0\xb8\xd0\xb8 \xd0\xb2\xd1\x80\xd0\xb5\xd0\xbc\xd0\xb5\xd0\xbd\xd0\xb8 Wunix NTP\n\
+description = \xd0\xa1\xd0\xb8\xd0\xbd\xd1\x85\xd1\x80\xd0\xbe\xd0\xbd\xd0\xb8\xd0\xb7\xd0\xb0\xd1\x86\xd0\xb8\xd1\x8f \xd1\x81\xd0\xb8\xd1\x81\xd1\x82\xd0\xb5\xd0\xbc\xd0\xbd\xd1\x8b\xd1\x85 \xd1\x87\xd0\xb0\xd1\x81\xd0\xbe\xd0\xb2 \xd0\xbf\xd0\xbe \xd0\xbf\xd1\x80\xd0\xbe\xd1\x82\xd0\xbe\xd0\xba\xd0\xbe\xd0\xbb\xd1\x83 NTP\n\
+command = /bin/timesyncd -1\n\
+autostart = yes\n\
+restart = on-failure\n\
+user = root\n\
+directory = /\n";
+
+    const NETWORK_CFG: &[u8] = b"# \xd0\xa1\xd0\xbb\xd1\x83\xd0\xb6\xd0\xb1\xd0\xb0 \xd0\xbd\xd0\xb0\xd1\x81\xd1\x82\xd1\x80\xd0\xbe\xd0\xb9\xd0\xba\xd0\xb8 \xd1\x81\xd0\xb5\xd1\x82\xd0\xb8\n\
+description = \xd0\x9f\xd1\x80\xd0\xbe\xd0\xb2\xd0\xb5\xd1\x80\xd0\xba\xd0\xb0 \xd0\xb8 \xd0\xb8\xd0\xbd\xd0\xb8\xd1\x86\xd0\xb8\xd0\xb0\xd0\xbb\xd0\xb8\xd0\xb7\xd0\xb0\xd1\x86\xd0\xb8\xd1\x8f \xd1\x81\xd0\xb5\xd1\x82\xd0\xb5\xd0\xb2\xd1\x8b\xd1\x85 \xd0\xb8\xd0\xbd\xd1\x82\xd0\xb5\xd1\x80\xd1\x84\xd0\xb5\xd0\xb9\xd1\x81\xd0\xbe\xd0\xb2\n\
+command = /bin/ip addr\n\
+autostart = yes\n\
+restart = no\n\
+user = root\n\
+directory = /\n";
+
+    const SSH_CFG: &[u8] = b"# \xd0\xa1\xd0\xbb\xd1\x83\xd0\xb6\xd0\xb1\xd0\xb0 OpenSSH\n\
+description = \xd0\xa1\xd0\xb5\xd1\x82\xd0\xb5\xd0\xb2\xd0\xbe\xd0\xb9 \xd1\x81\xd0\xb5\xd1\x80\xd0\xb2\xd0\xb5\xd1\x80 \xd1\x83\xd0\xb4\xd0\xb0\xd0\xbb\xd0\xb5\xd0\xbd\xd0\xbd\xd0\xbe\xd0\xb3\xd0\xbe \xd0\xb4\xd0\xbe\xd1\x81\xd1\x82\xd1\x83\xd0\xbf\xd0\xb0 SSH\n\
+command = /bin/sshd -D\n\
+autostart = no\n\
+restart = always\n\
+user = root\n\
+directory = /\n";
+
+    write_file(b"/mnt/etc/services/timesyncd.conf\0", TIMESYNCD_CFG, 0o644);
+    write_file(b"/mnt/etc/services/network.conf\0", NETWORK_CFG, 0o644);
+    write_file(b"/mnt/etc/services/ssh.conf\0", SSH_CFG, 0o644);
+    write_file(b"/mnt/etc/services/enabled/timesyncd.conf\0", TIMESYNCD_CFG, 0o644);
+    write_file(b"/mnt/etc/services/enabled/network.conf\0", NETWORK_CFG, 0o644);
 
     // 4. Имя хоста (/etc/hostname)
     progress(72, "Настройка имени компьютера...", done, total);
