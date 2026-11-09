@@ -22,7 +22,8 @@ use alloc::vec::Vec;
 use libwunix::{exit, geteuid, getuid, println, t};
 
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    libwunix::println!("wsp: критическая ошибка: {}", info);
     exit(1);
 }
 
@@ -129,13 +130,9 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         "check" => audit::run_check(flag_critical, flag_json),
         "update" => {
             if !flag_quiet {
-                println!();
-                println!("  {}{}◆ WSP ── Синхронизация системного репозитория{}", display::COLOR_BOLD, display::COLOR_CYAN, display::COLOR_RESET);
-                println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                println!("wsp: синхронизация системного репозитория...");
                 display::print_step(1, 1, t("Синхронизация индекса компонентов ядра (200 OK)", "Synchronizing kernel component index (200 OK)"), true);
-                println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
-                println!("  {}{}✔ Индекс системных пакетов актуален.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
-                println!();
+                println!("wsp: индекс системных пакетов актуален.");
             }
             0
         }
@@ -156,20 +153,15 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 display::print_access_denied("install", uid);
                 1
             } else if let Some(pkg_file) = extra_arg {
-                // Если указан файл пакета .wp
                 if pkg_file.ends_with(".wp") || pkg_file.ends_with(".wsp") {
                     match unpack::read_file_to_vec(pkg_file) {
                         Ok(data) => {
-                            println!();
-                            println!("  {}{}◆ WSP ── Установка системного пакета '{}'{}", display::COLOR_BOLD, display::COLOR_CYAN, pkg_file, display::COLOR_RESET);
-                            println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                            println!("wsp: установка системного пакета '{}'", pkg_file);
                             match unpack::unpack_wsp_package(&data, flag_verify) {
                                 Ok((manifest, files)) => {
                                     display::print_step(1, 2, t("Проверка сигнатуры и манифеста", "Verifying signature"), true);
                                     display::print_step(2, 2, t("Установка системных файлов", "Installing system files"), true);
-                                    println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
-                                    println!("  {}{}✔ Системный компонент '{}' успешно установлен (файлов: {}).{}", display::COLOR_BOLD, display::COLOR_GREEN, manifest.name, files.len(), display::COLOR_RESET);
-                                    println!();
+                                    println!("wsp: системный компонент '{}' успешно установлен (файлов: {}).", manifest.name, files.len());
                                     0
                                 }
                                 Err(e) => {
@@ -184,10 +176,8 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                         }
                     }
                 } else {
-                    println!();
-                    display::print_info(&format!("{}: {}", t("проверка системного компонента", "checking system component"), pkg_file));
-                    println!("  {}{}✔ Данный системный компонент уже входит в базовый образ Wunix.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
-                    println!();
+                    println!("wsp: проверка системного компонента '{}'", pkg_file);
+                    println!("  компонент уже входит в базовый образ Wunix.");
                     0
                 }
             } else {

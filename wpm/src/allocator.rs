@@ -1,6 +1,9 @@
-//! Простой потокобезопасный bump-аллокатор кучи для утилиты WPM.
+//! Аллокатор кучи для утилиты WPM.
+//!
+//! Обеспечивает достаточный объем памяти (32 МиБ в BSS) для безопасной
+//! распаковки пакетов программ и работы с архивами данных без OOM.
 
-const WPM_HEAP_SIZE: usize = 2 * 1024 * 1024;
+const WPM_HEAP_SIZE: usize = 32 * 1024 * 1024;
 
 pub struct SimpleBumpAllocator {
     heap: core::cell::UnsafeCell<[u8; WPM_HEAP_SIZE]>,

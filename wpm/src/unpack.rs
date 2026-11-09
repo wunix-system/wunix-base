@@ -4,7 +4,7 @@
 //! - Проверку 128-байтного заголовка WSP1 / WP.
 //! - Валидацию типа пакета (User для WPM).
 //! - Декомпрессию gzip-пейлоада.
-//! - Разбор USTAR tar-архива и безопасную запись файлов на диск с правами 0o755/0o644.
+//! - Разбор USTAR tar-архива и запись файлов на диск с правами 0o755/0o644.
 
 extern crate alloc;
 use alloc::format;
@@ -21,14 +21,14 @@ pub fn read_file_to_vec(path: &str) -> Result<Vec<u8>, &'static str> {
     let mut null_path = [0u8; 256];
     let bytes = path.as_bytes();
     if bytes.len() >= null_path.len() - 1 {
-        return Err("Слишком длинный путь к файлу пакета");
+        return Err("слишком длинный путь к файлу пакета");
     }
     null_path[..bytes.len()].copy_from_slice(bytes);
     null_path[bytes.len()] = 0;
 
     let fd = open(&null_path, O_RDONLY as u64, 0);
     if fd < 0 {
-        return Err("Не удалось открыть файл пакета");
+        return Err("не удалось открыть файл пакета");
     }
 
     let mut result = Vec::new();
@@ -41,6 +41,10 @@ pub fn read_file_to_vec(path: &str) -> Result<Vec<u8>, &'static str> {
         result.extend_from_slice(&chunk[..n as usize]);
     }
     close(fd as u64);
+
+    if result.is_empty() {
+        return Err("файл пакета пуст");
+    }
 
     Ok(result)
 }
@@ -112,18 +116,34 @@ pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
 
     // Проверяем тип пакета: WPM ставит только пользовательские пакеты
     if container.manifest.package_type == PackageType::System {
-        return Err("Данный пакет является системным компонентом ядра Wunix. Для управления системными компонентами используйте утилиту 'wsp'.");
+        return Err("пакет является системным компонентом ядра. Используйте wsp");
     }
 
-    // 1. Декомпрессия payload (gzip -> tar)
-    let mut tar_bytes = Vec::new();
+    // 1. Декомпрессия payload (gzip -> tar) с предварительным выделением емкости
+    let mut tar_bytes = if container.payload.len() >= 4 {
+        let p_len = container.payload.len();
+        let isize = u32::from_le_bytes([
+            container.payload[p_len - 4],
+            container.payload[p_len - 3],
+            container.payload[p_len - 2],
+            container.payload[p_len - 1],
+        ]) as usize;
+        Vec::with_capacity(isize.min(16 * 1024 * 1024))
+    } else {
+        Vec::new()
+    };
+
     if container.payload.len() >= 2 && container.payload[0] == 0x1f && container.payload[1] == 0x8b {
         libwunix::compression::gzip::gzip_decompress(container.payload, |chunk| {
             tar_bytes.extend_from_slice(chunk);
             Ok(())
-        }).map_err(|_| "Ошибка распаковки сжатого пейлоада gzip")?;
+        }).map_err(|_| "ошибка распаковки сжатого пейлоада gzip")?;
     } else {
         tar_bytes.extend_from_slice(container.payload);
+    }
+
+    if tar_bytes.is_empty() {
+        return Err("содержимое архива пакета пусто");
     }
 
     // 2. Разбор блоков USTAR tar
@@ -133,7 +153,6 @@ pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
     while offset + BLOCK_SIZE <= tar_bytes.len() {
         let block = &tar_bytes[offset..offset + BLOCK_SIZE];
         if block[0] == 0 {
-            // Нулевой блок означает конец архива
             break;
         }
 
@@ -154,7 +173,6 @@ pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
             .trim_start_matches("./");
 
         if clean_path.is_empty() || clean_path == "manifest.toml" || !is_safe_path(clean_path) {
-            // Пропускаем служебный манифест или некорректные пути
             let padded_size = ((file_size + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
             offset += BLOCK_SIZE + padded_size;
             continue;
@@ -187,34 +205,36 @@ pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
                     let _ = symlink(&null_link, &null_target);
                     installed_files.push(target_path.clone());
                     if verbose {
-                        libwunix::println!("       ↳ {} -> {}", target_path, linkname);
+                        libwunix::println!("  symlink: {} -> {}", target_path, linkname);
                     }
                 }
             }
             _ => {
-                // Обычный файл (b'0' или 0)
+                // Обычный файл
                 let data_start = offset + BLOCK_SIZE;
                 let data_end = data_start + file_size;
 
                 if data_end > tar_bytes.len() {
-                    return Err("Поврежденный архив: срез файла выходит за границы tar данных");
+                    return Err("поврежденный архив: срез файла выходит за границы данных");
                 }
 
                 let file_data = &tar_bytes[data_start..data_end];
 
                 // Исполняемые файлы в /bin, /sbin, /usr/bin получают права 0o755
                 let is_bin = target_path.starts_with("/bin/") || target_path.starts_with("/usr/bin/");
-                let mode = if is_bin { 0o755 } else { 0o644 };
+                let mode: u32 = if is_bin { 0o755 } else { 0o644 };
 
-                let fd = open(&null_target, (O_CREAT | O_WRONLY | O_TRUNC) as u64, mode);
+                let fd = open(&null_target, (O_CREAT | O_WRONLY | O_TRUNC) as u64, mode as u64);
                 if fd >= 0 {
                     let _ = write(fd as u64, file_data);
                     close(fd as u64);
-                    let _ = chmod(&null_target, mode as u32);
+                    let _ = chmod(&null_target, mode);
                     installed_files.push(target_path.clone());
                     if verbose {
-                        libwunix::println!("       ↳ {}", target_path);
+                        libwunix::println!("  extract: {}", target_path);
                     }
+                } else {
+                    return Err("ошибка создания целевого файла на диске");
                 }
             }
         }

@@ -7,7 +7,7 @@ use libpackwunix::kernel::{generate_limine_conf, KernelEntry};
 use libpackwunix::version::Version;
 
 use crate::db::log_transaction;
-use crate::display::{print_access_denied, print_error, COLOR_BOLD, COLOR_CYAN, COLOR_DIM, COLOR_GREEN, COLOR_RED, COLOR_RESET, COLOR_YELLOW};
+use crate::display::{print_access_denied, print_error, COLOR_BOLD, COLOR_GREEN, COLOR_RED, COLOR_RESET, COLOR_YELLOW};
 
 pub fn run_kernel_cmd(subcmd: &str) -> i32 {
     match subcmd {
@@ -41,37 +41,29 @@ pub fn run_kernel_cmd(subcmd: &str) -> i32 {
 }
 
 fn list_kernels() -> i32 {
-    println!();
-    println!("  {}{}◆ WSP ── Инвентаризация ядер в /boot{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("Ядра в /boot:");
 
     let k_main = open(b"/boot/wunix-kernel\0", O_RDONLY as u64, 0);
     if k_main >= 0 {
         close(k_main as u64);
-        println!("  • /boot/wunix-kernel       {}{}{}", COLOR_GREEN, t("[Активное ядро / по умолчанию]", "[Active / Default]"), COLOR_RESET);
+        println!("  /boot/wunix-kernel       {}{}{}", COLOR_GREEN, t("[активное ядро]", "[active]"), COLOR_RESET);
     } else {
-        println!("  • /boot/wunix-kernel       {}{}{}", COLOR_RED, t("[Отсутствует!]", "[Missing!]"), COLOR_RESET);
+        println!("  /boot/wunix-kernel       {}{}{}", COLOR_RED, t("[отсутствует]", "[missing]"), COLOR_RESET);
     }
 
     let k_old = open(b"/boot/wunix-kernel.old\0", O_RDONLY as u64, 0);
     if k_old >= 0 {
         close(k_old as u64);
-        println!("  • /boot/wunix-kernel.old   {}{}{}", COLOR_YELLOW, t("[Резервное ядро / точка отката]", "[Fallback / Rollback point]"), COLOR_RESET);
+        println!("  /boot/wunix-kernel.old   {}{}{}", COLOR_YELLOW, t("[резервное ядро]", "[fallback]"), COLOR_RESET);
     } else {
-        println!("  • /boot/wunix-kernel.old   {}", t("[Резервное ядро не создано]", "[No fallback kernel created]"));
+        println!("  /boot/wunix-kernel.old   {}", t("[резервное ядро не создано]", "[no fallback]"));
     }
-
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
-    println!("  {}: sudo wsp kernel rollback", t("Откат загрузчика", "Rollback command"));
-    println!();
 
     0
 }
 
 fn rollback_kernel() -> i32 {
-    println!();
-    println!("  {}{}◆ WSP ── Откат на резервное ядро{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("wsp: переключение загрузчика на резервное ядро...");
 
     let fallback_entry = KernelEntry {
         version: Version::new(0, 4, 1),
@@ -86,10 +78,8 @@ fn rollback_kernel() -> i32 {
         let _ = write(fd as u64, b);
         close(fd as u64);
         log_transaction("kernel-rollback", "Загрузчик переключен на резервное ядро");
-        println!("  {}{}✔ Резервное ядро /boot/wunix-kernel.old назначено загрузочным.{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+        println!("wsp: резервное ядро /boot/wunix-kernel.old назначено загрузочным.");
         println!("  {}: {}reboot{}", t("Перезагрузите систему для применения", "Reboot to apply"), COLOR_BOLD, COLOR_RESET);
-        println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
-        println!();
         0
     } else {
         print_error(t("ошибка записи в /boot/limine.conf", "failed to write to /boot/limine.conf"));
@@ -99,6 +89,6 @@ fn rollback_kernel() -> i32 {
 
 fn clean_kernels() -> i32 {
     let _ = unlink(b"/boot/wunix-kernel.old\0");
-    println!("  {}{}✔ Резервные копии ядра в /boot очищены.{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+    println!("wsp: резервные копии ядра в /boot очищены.");
     0
 }

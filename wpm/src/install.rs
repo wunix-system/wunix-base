@@ -6,7 +6,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use libwunix::{close, geteuid, getuid, mkdir, open, println, read, t, unlink, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 
-use crate::display::{format_size, print_access_denied, print_error, print_step, COLOR_BOLD, COLOR_DIM, COLOR_GREEN, COLOR_RESET};
+use crate::display::{format_size, print_access_denied, print_error, print_step, COLOR_BOLD, COLOR_RESET};
 use crate::guard::ensure_wsp_system_safe;
 use crate::unpack::{read_file_to_vec, unpack_wpm_package};
 
@@ -33,6 +33,7 @@ pub fn load_installed_apps() -> Vec<InstalledApp> {
     ensure_db_dir();
     let fd = open(WPM_DB_PATH, O_RDONLY as u64, 0);
     if fd < 0 {
+        save_installed_apps(&[]);
         return Vec::new();
     }
 
@@ -72,7 +73,7 @@ fn parse_installed_db(content: &str) -> Vec<InstalledApp> {
             if let Some(val) = extract_json_val(trimmed) {
                 cur_desc = val;
             }
-        } else if trimmed.starts_with("\"file\":") || (trimmed.starts_with('"') && trimmed.ends_with('"')) {
+        } else if trimmed.starts_with('"') && trimmed.ends_with('"') {
             if let Some(val) = extract_json_val(trimmed) {
                 if !val.is_empty() && val.starts_with('/') {
                     cur_files.push(val);
@@ -149,9 +150,7 @@ pub fn save_installed_apps(apps: &[InstalledApp]) {
     close(fd as u64);
 }
 
-/// Ищет локальный файл пакета по имени или алиасу
 fn locate_package_file(pkg: &str) -> Option<String> {
-    // 1. Прямой путь к файлу
     if pkg.ends_with(".wp") || pkg.ends_with(".wsp") || pkg.contains('/') {
         let mut null_p = [0u8; 256];
         let b = pkg.as_bytes();
@@ -165,7 +164,6 @@ fn locate_package_file(pkg: &str) -> Option<String> {
         }
     }
 
-    // Нормализация алиасов
     let canonical = match pkg {
         "tcc" => "tinycc",
         other => other,
@@ -209,7 +207,6 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
         return 1;
     }
 
-    // 1. Проверка прав администратора (root / sudo)
     let uid = getuid();
     let euid = geteuid();
     if uid != 0 && euid != 0 {
@@ -217,7 +214,6 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
         return 1;
     }
 
-    // 2. Проверка защитного барьера WSP
     if ensure_wsp_system_safe(ignore_unsafe).is_err() {
         return 1;
     }
@@ -230,17 +226,14 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
             Some(p) => p,
             None => {
                 print_error(&format!(
-                    "{} '{}' {} (/var/cache/wpm, /var/lib/wpm/repo).",
-                    t("пакет", "package"),
-                    pkg,
-                    t("не найден в доступных репозиториях и локальном кэше", "was not found in repositories or local cache")
+                    "пакет '{}' не найден в доступных репозиториях и локальном кэше /var/cache/wpm.",
+                    pkg
                 ));
-                println!("  {}", t("Используйте 'wpm search <запрос>' для поиска программ.", "Use 'wpm search <query>' to browse available packages."));
+                println!("  Используйте 'wpm search <запрос>' для поиска программ.");
                 return 1;
             }
         };
 
-        // Считываем пакет .wp
         let pkg_data = match read_file_to_vec(&pkg_file_path) {
             Ok(d) => d,
             Err(e) => {
@@ -249,19 +242,17 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
             }
         };
 
-        println!();
-        println!("  {}{}◆ WPM ── Установка программы '{}'{}", COLOR_BOLD, COLOR_GREEN, pkg, COLOR_RESET);
-        println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+        println!("wpm: подготовка к установке программы '{}'", pkg);
 
-        // Шаг 1: Проверка прав и окружения
-        print_step(1, 4, t("Проверка прав администратора и защиты WSP", "Checking permissions and WSP security"), true);
+        // Шаг 1: Проверка прав
+        print_step(1, 4, t("Проверка прав администратора и барьера WSP", "Checking permissions and WSP security"), true);
 
-        // Шаг 2: Проверка целостности пакета
+        // Шаг 2: Проверка целостности
         let size_str = format_size(pkg_data.len() as u64);
-        let step2_msg = format!("{} {} ({})", t("Проверка целостности контейнера", "Verifying package"), pkg_file_path, size_str);
+        let step2_msg = format!("{} {} ({})", t("Проверка контейнера", "Verifying package"), pkg_file_path, size_str);
         print_step(2, 4, &step2_msg, true);
 
-        // Шаг 3: Распаковка компонентов в файловую систему
+        // Шаг 3: Распаковка
         let (manifest, files) = match unpack_wpm_package(&pkg_data, verbose) {
             Ok(res) => res,
             Err(e) => {
@@ -272,7 +263,7 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
         };
         print_step(3, 4, t("Распаковка исполняемых файлов и библиотек", "Extracting binaries and libraries"), true);
 
-        // Шаг 4: Регистрация в реестре WPM
+        // Шаг 4: Регистрация
         installed_list.retain(|a| a.name != manifest.name);
         installed_list.push(InstalledApp {
             name: manifest.name.clone(),
@@ -283,16 +274,14 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
         save_installed_apps(&installed_list);
         print_step(4, 4, t("Регистрация программы в реестре WPM", "Registering in WPM database"), true);
 
-        println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
         println!(
-            "  {}{}✔ Программа '{}' ({}) успешно установлена!{}",
-            COLOR_BOLD, COLOR_GREEN, manifest.name, manifest.version, COLOR_RESET
+            "wpm: программа '{}{}{}' ({}) успешно установлена.",
+            COLOR_BOLD, manifest.name, COLOR_RESET, manifest.version
         );
 
         if manifest.name == "tinycc" || pkg == "tcc" {
-            println!("  {}: {}tcc -v{}", t("Команда для запуска", "Run command"), COLOR_BOLD, COLOR_RESET);
+            println!("  Команда для запуска: tcc -v");
         }
-        println!();
 
         total_installed += 1;
     }
@@ -309,7 +298,6 @@ pub fn run_remove(packages: &[&str], purge: bool) -> i32 {
         return 1;
     }
 
-    // Проверка прав администратора
     let uid = getuid();
     let euid = geteuid();
     if uid != 0 && euid != 0 {
@@ -320,9 +308,7 @@ pub fn run_remove(packages: &[&str], purge: bool) -> i32 {
     let mut installed_list = load_installed_apps();
     let initial_count = installed_list.len();
 
-    println!();
-    println!("  {}{}◆ WPM ── Удаление программ{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("wpm: удаление программ...");
 
     for &pkg in packages {
         let canonical = match pkg {
@@ -348,8 +334,7 @@ pub fn run_remove(packages: &[&str], purge: bool) -> i32 {
             }
 
             println!(
-                "  • {}: {} (удалено файлов: {}{})",
-                t("Удалена программа", "Removed application"),
+                "  удалено: {} (файлов: {}{})",
                 app.name,
                 removed_count,
                 if purge { t(", конфигурации очищены", ", configs purged") } else { "" }
@@ -361,9 +346,7 @@ pub fn run_remove(packages: &[&str], purge: bool) -> i32 {
 
     if installed_list.len() < initial_count {
         save_installed_apps(&installed_list);
-        println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
-        println!("  {}{}✔ Удаление программ успешно завершено.{}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
-        println!();
+        println!("wpm: удаление программ завершено.");
         0
     } else {
         1

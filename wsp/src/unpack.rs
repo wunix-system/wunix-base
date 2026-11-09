@@ -169,7 +169,7 @@ pub fn unpack_wsp_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
                     let _ = symlink(&null_link, &null_target);
                     installed_files.push(target_path.clone());
                     if verbose {
-                        libwunix::println!("       ↳ {} -> {}", target_path, linkname);
+                        libwunix::println!("       {} -> {}", target_path, linkname);
                     }
                 }
             }
@@ -192,7 +192,7 @@ pub fn unpack_wsp_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
                     let _ = chmod(&null_target, mode);
                     installed_files.push(target_path.clone());
                     if verbose {
-                        libwunix::println!("       ↳ {}", target_path);
+                        libwunix::println!("       {}", target_path);
                     }
                 }
             }

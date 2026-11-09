@@ -4,9 +4,9 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libwunix::{println, t};
+use libwunix::println;
 
-use crate::display::{COLOR_BOLD, COLOR_CYAN, COLOR_DIM, COLOR_GREEN, COLOR_RESET};
+use crate::display::{COLOR_GREEN, COLOR_RESET};
 use crate::install::load_installed_apps;
 
 pub struct CatalogPackage {
@@ -59,9 +59,8 @@ pub fn run_search(query: &str) -> i32 {
     let catalog = get_wpm_catalog();
     let installed = load_installed_apps();
 
+    println!("Поиск программ по запросу: \"{}\"", query);
     println!();
-    println!("  {}{}◆ WPM ── Каталог прикладных программ (поиск: \"{}\"){}", COLOR_BOLD, COLOR_GREEN, query, COLOR_RESET);
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
 
     let mut found = 0;
     for pkg in &catalog {
@@ -77,50 +76,38 @@ pub fn run_search(query: &str) -> i32 {
             let status_badge = if is_installed {
                 format!("{}[установлен]{}", COLOR_GREEN, COLOR_RESET)
             } else {
-                format!("{}[доступен для установки]{}", COLOR_CYAN, COLOR_RESET)
+                "[доступен для установки]".to_string()
             };
 
-            println!("  {}● {}{} • v{} [{}]", COLOR_BOLD, pkg.name, COLOR_RESET, pkg.version, pkg.category);
+            println!("  {} (v{}) [{}]", pkg.name, pkg.version, pkg.category);
             println!("    {}", pkg.description);
 
             if !pkg.aliases.is_empty() {
                 let alias_list = pkg.aliases.join(", ");
-                println!("    {}: {}", t("Алиасы команд", "Command aliases"), alias_list);
+                println!("    Алиасы команд: {}", alias_list);
             }
 
             println!(
-                "    {}: {} | {}: {}",
-                t("Размер", "Size"),
+                "    Размер: {} | Статус: {}",
                 pkg.size,
-                t("Статус", "Status"),
                 status_badge
             );
 
             if !is_installed {
                 println!(
-                    "    {}: {}sudo wpm install {}{}",
-                    t("Установка", "Install command"),
-                    COLOR_BOLD,
-                    if !pkg.aliases.is_empty() { &pkg.aliases[0] } else { &pkg.name },
-                    COLOR_RESET
+                    "    Установка: sudo wpm install {}",
+                    if !pkg.aliases.is_empty() { &pkg.aliases[0] } else { &pkg.name }
                 );
             }
             println!();
         }
     }
 
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
     if found == 0 {
-        println!("  {}", t("Совпадений в каталоге репозиториев не найдено.", "No matching packages found."));
+        println!("  Совпадений в каталоге программ не найдено.");
     } else {
-        println!(
-            "  {}: {}  •  {}",
-            t("Найдено программ", "Packages found"),
-            found,
-            t("Для установки выполните: sudo wpm install <имя>", "To install run: sudo wpm install <name>")
-        );
+        println!("Найдено программ: {} (для установки выполните: sudo wpm install <имя>)", found);
     }
-    println!();
 
     0
 }

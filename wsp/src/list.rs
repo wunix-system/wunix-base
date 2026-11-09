@@ -5,15 +5,13 @@ use alloc::format;
 use libwunix::{println, t};
 
 use crate::db::load_installed_packages;
-use crate::display::{print_error, COLOR_BOLD, COLOR_CYAN, COLOR_DIM, COLOR_GREEN, COLOR_RED, COLOR_RESET};
+use crate::display::{print_error, COLOR_GREEN, COLOR_RED, COLOR_RESET};
 
 /// Выводит список установленных пакетов ядра и базы
 pub fn run_list(_upgradable_only: bool, critical_only: bool) -> i32 {
     let packages = load_installed_packages();
 
-    println!();
-    println!("  {}{}◆ WSP ── Реестр компонентов базовой системы и ядра Wunix{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("Реестр компонентов базовой системы и ядра Wunix:");
 
     let mut count = 0;
     for pkg in &packages {
@@ -27,7 +25,7 @@ pub fn run_list(_upgradable_only: bool, critical_only: bool) -> i32 {
             format!("{}[базовый]{}", COLOR_GREEN, COLOR_RESET)
         };
 
-        println!("  {}● {}{} • v{} {}", COLOR_BOLD, pkg.name, COLOR_RESET, pkg.version, tier_label);
+        println!("  {}{} v{} {}", pkg.name, COLOR_RESET, pkg.version, tier_label);
         if !pkg.description.is_empty() {
             println!("    {}", pkg.description);
         }
@@ -36,10 +34,7 @@ pub fn run_list(_upgradable_only: bool, critical_only: bool) -> i32 {
         count += 1;
     }
 
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
-    println!("  {}: {}", t("Всего системных компонентов", "Total system components"), count);
-    println!();
-
+    println!("{}: {}", t("Всего системных компонентов", "Total system components"), count);
     0
 }
 
@@ -54,9 +49,7 @@ pub fn run_info(pkg_name: &str, show_files: bool) -> i32 {
         }
     };
 
-    println!();
-    println!("  {}{}◆ WSP ── Карточка системного компонента '{}'{}", COLOR_BOLD, COLOR_CYAN, pkg.name, COLOR_RESET);
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("Системный компонент: {}", pkg.name);
     println!("  {:<22} {}", t("Имя компонента:", "Package name:"), pkg.name);
     println!("  {:<22} {}", t("Версия ядра/базы:", "Version:"), pkg.version);
     println!("  {:<22} {}", t("Уровень важности:", "System tier:"), pkg.tier);
@@ -67,12 +60,9 @@ pub fn run_info(pkg_name: &str, show_files: bool) -> i32 {
         println!();
         println!("  {}:", t("Файлы компонента", "Files in system"));
         for f in &pkg.files {
-            println!("    ↳ {}", f);
+            println!("    {}", f);
         }
     }
-
-    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
-    println!();
 
     0
 }

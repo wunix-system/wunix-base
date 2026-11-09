@@ -82,6 +82,7 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/cpio\0",       b"/mnt/bin/cpio\0"),
     (b"/bin/wsp\0",        b"/mnt/bin/wsp\0"),
     (b"/bin/wpm\0",        b"/mnt/bin/wpm\0"),
+    (b"/bin/wspd\0",       b"/mnt/bin/wspd\0"),
 ];
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
@@ -246,7 +247,7 @@ where
         b"/mnt/etc/ssl\0", b"/mnt/etc/ssl/certs\0",
         b"/mnt/etc/ssh\0", b"/mnt/etc/services\0", b"/mnt/etc/services/enabled\0",
         b"/mnt/etc/wsp\0", b"/mnt/etc/wpm\0",
-        b"/mnt/var\0", b"/mnt/var/empty\0", b"/mnt/var/log\0", b"/mnt/var/log/services\0",
+        b"/mnt/var\0", b"/mnt/var/run\0", b"/mnt/var/empty\0", b"/mnt/var/log\0", b"/mnt/var/log/services\0",
         b"/mnt/var/lib/wsp\0", b"/mnt/var/lib/wpm\0",
         b"/mnt/var/cache/wsp\0", b"/mnt/var/cache/wpm\0",
         b"/mnt/run\0", b"/mnt/run/services\0",
@@ -258,8 +259,9 @@ where
     let _ = libwunix::chmod(b"/mnt/tmp\0", 0o1777);
     let _ = libwunix::chmod(b"/mnt/root\0", 0o700);
     let _ = libwunix::chmod(b"/mnt/var/empty\0", 0o755);
-    let _ = libwunix::symlink(b"/bin/sshd-session\0", b"/mnt/usr/libexec/sshd-session\0");
-    let _ = libwunix::symlink(b"/bin/sftp-server\0", b"/mnt/usr/libexec/sftp-server\0");
+    copy_file(b"/bin/sshd-session\0", b"/mnt/usr/libexec/sshd-session\0", 0o755);
+    copy_file(b"/bin/sftp-server\0", b"/mnt/usr/libexec/sftp-server\0", 0o755);
+    copy_file(b"/var/lib/wsp/installed.json\0", b"/mnt/var/lib/wsp/installed.json\0", 0o644);
     done += 1;
 
     // 1. Копирование системных бинарных файлов (/bin) - БЕЗ winstall!
@@ -347,16 +349,26 @@ restart = always\n\
 user = root\n\
 directory = /\n";
 
+    const WSPD_CFG: &[u8] = b"# \xd0\xa1\xd0\xbb\xd1\x83\xd0\xb6\xd0\xb1\xd0\xb0 \xd0\xbf\xd1\x80\xd0\xbe\xd0\xb2\xd0\xb5\xd1\x80\xd0\xba\xd0\xb8 \xd0\xbe\xd0\xb1\xd0\xbd\xd0\xbe\xd0\xb2\xd0\xbb\xd0\xb5\xd0\xbd\xd0\xb8\xd0\xb9 WSP\n\
+description = \xd0\xa4\xd0\xbe\xd0\xbd\xd0\xbe\xd0\xb2\xd0\xb0\xd1\x8f \xd0\xbf\xd1\x80\xd0\xbe\xd0\xb2\xd0\xb5\xd1\x80\xd0\xba\xd0\xb0 \xd0\xbe\xd0\xb1\xd0\xbd\xd0\xbe\xd0\xb2\xd0\xbb\xd0\xb5\xd0\xbd\xd0\xb8\xd0\xb9 \xd0\xb1\xd0\xb5\xd0\xb7\xd0\xbe\xd0\xbf\xd0\xb0\xd1\x81\xd0\xbd\xd0\xbe\xd1\x81\xd1\x82\xd0\xb8 WSP\n\
+command = /bin/wspd -1\n\
+autostart = yes\n\
+restart = on-failure\n\
+user = root\n\
+directory = /\n";
+
     write_file(b"/mnt/etc/services/timesyncd.conf\0", TIMESYNCD_CFG, 0o644);
     write_file(b"/mnt/etc/services/network.conf\0", NETWORK_CFG, 0o644);
     write_file(b"/mnt/etc/services/sshd.conf\0", SSH_CFG, 0o644);
+    write_file(b"/mnt/etc/services/wspd.conf\0", WSPD_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/timesyncd.conf\0", TIMESYNCD_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/network.conf\0", NETWORK_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/sshd.conf\0", SSH_CFG, 0o644);
+    write_file(b"/mnt/etc/services/enabled/wspd.conf\0", WSPD_CFG, 0o644);
 
     // Конфигурационные файлы пакетных менеджеров WSP и WPM
-    const WSP_DAEMON_CFG: &str = "# Конфигурация фонового демона WSP\n[daemon]\ncheck_interval_hours = 24\nnotify_critical = true\non_boot_check = true\nauto_download = false\n";
-    const WSP_CONF: &str = "# Системный менеджер пакетов WSP\n[system]\nrepo_url = \"http://wunix.rusos.site/repo/system/x86_64\"\ncache_dir = \"/var/cache/wsp\"\nbackup_kernel = true\nlimine_conf = \"/boot/limine.conf\"\n";
+    const WSP_DAEMON_CFG: &str = "# Конфигурация фонового демона WSP (wspd)\n[daemon]\nenabled = true\ncheck_interval = 3600\ncheck_on_boot = true\nblock_on_critical = true\nlog_file = \"/var/log/services/wspd.log\"\n";
+    const WSP_CONF: &str = "# Системный менеджер пакетов WSP\n[system]\ncache_dir = \"/var/cache/wsp\"\nbackup_kernel = true\nblock_user_packages_on_critical = true\n";
     const WPM_CONF: &str = "# Пользовательский менеджер пакетов WPM\n[general]\ncache_dir = \"/var/cache/wpm\"\nverify_checksum = true\nblock_if_wsp_outdated = true\n";
     const WPM_SOURCES_CFG: &str = "# Источники репозиториев WPM\n[apps]\nServer = http://wunix.rusos.site/repo/apps/x86_64\n";
 

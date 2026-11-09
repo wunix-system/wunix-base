@@ -22,7 +22,8 @@ use alloc::vec::Vec;
 use libwunix::{exit, geteuid, getuid, println, t};
 
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    libwunix::println!("wpm: критическая ошибка: {}", info);
     exit(1);
 }
 
@@ -125,13 +126,9 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         }
         "update" => {
             if !flag_quiet {
-                println!();
-                println!("  {}{}◆ WPM ── Синхронизация репозиториев программ{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
-                println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                println!("wpm: синхронизация списков репозиториев...");
                 display::print_step(1, 1, t("Синхронизация каталогов программ (200 OK)", "Synchronizing application catalogs (200 OK)"), true);
-                println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
-                println!("  {}{}✔ Списки прикладных пакетов актуальны.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
-                println!();
+                println!("wpm: каталоги программ успешно синхронизированы.");
             }
             0
         }
@@ -146,7 +143,6 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             install::run_remove(rest, flag_purge)
         }
         "upgrade" => {
-            // Проверка прав для upgrade
             let uid = getuid();
             let euid = geteuid();
             if uid != 0 && euid != 0 {
@@ -154,13 +150,9 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 1
             } else {
                 if !flag_quiet {
-                    println!();
-                    println!("  {}{}◆ WPM ── Обновление программ{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
-                    println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
-                    display::print_step(1, 1, t("Проверка обновлений для установленных программ", "Checking updates for installed applications"), true);
-                    println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
-                    println!("  {}{}✔ Все установленные программы имеют актуальные версии.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
-                    println!();
+                    println!("wpm: проверка обновлений установленных программ...");
+                    display::print_step(1, 1, t("Проверка версий программ", "Checking software versions"), true);
+                    println!("wpm: все установленные программы имеют актуальные версии.");
                 }
                 0
             }
@@ -186,8 +178,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 display::print_access_denied("clean", uid);
                 1
             } else {
-                display::print_info(t("очистка локального кэша пакетов /var/cache/wpm...", "cleaning local package cache /var/cache/wpm..."));
-                println!("  {}{}✔ Локальный кэш /var/cache/wpm очищен.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+                display::print_info(t("локальный кэш /var/cache/wpm очищен.", "local cache /var/cache/wpm cleaned."));
                 0
             }
         }
