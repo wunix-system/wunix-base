@@ -222,8 +222,27 @@ impl Builtins {
                 }
                 #[cfg(not(feature = "std"))]
                 {
-                    let is_str = libwunix::t("это", "is");
-                    print_out(&format!("{} {} /bin/{}\n", name, is_str, name));
+                    let mut path_buf = [0u8; 128];
+                    let prefix = b"/bin/";
+                    let mut exists = false;
+                    if prefix.len() + name.len() + 1 < path_buf.len() {
+                        path_buf[..prefix.len()].copy_from_slice(prefix);
+                        path_buf[prefix.len()..prefix.len() + name.len()].copy_from_slice(name.as_bytes());
+                        path_buf[prefix.len() + name.len()] = 0;
+                        let mut st = libwunix::Stat::zeroed();
+                        if libwunix::stat(&path_buf[..prefix.len() + name.len() + 1], &mut st) == 0 {
+                            exists = true;
+                        }
+                    }
+
+                    if exists {
+                        let is_str = libwunix::t("это", "is");
+                        print_out(&format!("{} {} /bin/{}\n", name, is_str, name));
+                    } else {
+                        let not_found_str = libwunix::t("не найдено", "not found");
+                        print_err(&format!("wsh: type: {}: {}\n", name, not_found_str));
+                        status = 1;
+                    }
                 }
             }
         }

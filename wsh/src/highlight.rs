@@ -17,11 +17,11 @@ pub const BUILTINS: &[&str] = &[
 ];
 
 pub const COMMON_COMMANDS: &[&str] = &[
-    "ls", "cat", "rm", "touch", "mkdir", "rmdir", "ln", "readlink", "cp", "mv", "uname", "top", "free",
+    "ls", "cat", "rm", "touch", "mkdir", "rmdir", "ln", "readlink", "uname", "top", "free",
     "ping", "ip", "curl", "man", "mount", "umount", "fdisk", "hwclock",
-    "lspci", "lshw", "lsblk", "lsmod", "modinfo", "fbset", "ss", "grep", "sleep",
-    "date", "time", "timedatectl", "shutdown", "reboot", "poweroff", "halt",
-    "lsdev", "reg", "md", "rd", "mklink",
+    "lspci", "lshw", "lsblk", "lsmod", "modinfo", "fbset", "ss",
+    "date", "time", "timedatectl", "shutdown", "reboot",
+    "lsdev", "md", "rd", "mklink",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -118,10 +118,16 @@ fn is_known_command(word: &str) -> bool {
     if word.contains('/') {
         return true;
     }
-    if BUILTINS.contains(&word) || COMMON_COMMANDS.contains(&word) {
+    if BUILTINS.contains(&word) {
         return true;
     }
-    #[cfg(not(feature = "std"))]
+    #[cfg(any(feature = "std", test))]
+    {
+        if COMMON_COMMANDS.contains(&word) {
+            return true;
+        }
+    }
+    #[cfg(all(not(feature = "std"), not(test)))]
     {
         // Проверяем наличие бинарника в /bin/ через системный вызов stat
         let mut path_buf = [0u8; 128];
@@ -286,13 +292,27 @@ mod tests {
 
     #[test]
     fn test_new_system_commands_highlight_ok() {
-        let commands = ["date", "time", "timedatectl", "shutdown", "reboot", "poweroff", "halt"];
+        let commands = ["date", "time", "timedatectl", "shutdown", "reboot"];
         for cmd in commands {
             let segs = tokenize_for_highlight(&chars(cmd));
             assert_eq!(
                 segs[0].2,
                 TokenKind::CommandOk,
                 "Команда '{}' должна подсвечиваться как CommandOk (зеленым)",
+                cmd
+            );
+        }
+    }
+
+    #[test]
+    fn test_unused_commands_highlight_bad() {
+        let unused = ["reg", "poweroff", "halt", "cp", "mv", "grep", "sleep"];
+        for cmd in unused {
+            let segs = tokenize_for_highlight(&chars(cmd));
+            assert_eq!(
+                segs[0].2,
+                TokenKind::CommandBad,
+                "Несуществующая команда '{}' не должна подсвечиваться зеленым",
                 cmd
             );
         }

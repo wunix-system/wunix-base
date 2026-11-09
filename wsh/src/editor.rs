@@ -572,6 +572,62 @@ pub fn compute_tab_completion(
     }
 }
 
+pub fn collect_command_completions(current_token: &str) -> Vec<(String, EntryKind)> {
+    let mut matches: Vec<(String, EntryKind)> = Vec::new();
+
+    for &cmd in crate::highlight::BUILTINS {
+        if cmd.starts_with(current_token) {
+            matches.push((cmd.to_string(), EntryKind::File));
+        }
+    }
+
+    #[cfg(test)]
+    let bin_entries: Vec<(String, EntryKind)> = Vec::new();
+    #[cfg(not(test))]
+    let bin_entries = read_dir_entries("/bin");
+
+    if !bin_entries.is_empty() {
+        for (name, kind) in bin_entries {
+            if name.starts_with(current_token) && !matches.iter().any(|(m, _)| m == &name) {
+                matches.push((name, kind));
+            }
+        }
+    } else {
+        // Fallback: если /bin пуст или в тестовом окружении хоста,
+        // используем список стандартных доступных утилит
+        for &cmd in crate::highlight::COMMON_COMMANDS {
+            if cmd.starts_with(current_token) && !matches.iter().any(|(m, _)| m == cmd) {
+                matches.push((cmd.to_string(), EntryKind::File));
+            }
+        }
+    }
+
+    matches
+}
+
+fn collect_path_completions(current_token: &str) -> Vec<(String, EntryKind)> {
+    let mut matches = Vec::new();
+    let (dir_path, file_prefix) = if let Some(last_slash) = current_token.rfind('/') {
+        let d = if last_slash == 0 { "/" } else { &current_token[..last_slash] };
+        let p = &current_token[last_slash + 1..];
+        (d, p)
+    } else {
+        (".", current_token)
+    };
+
+    let entries = read_dir_entries(dir_path);
+    for (name, kind) in entries {
+        if (name == "." || name == "..") && !file_prefix.starts_with('.') {
+            continue;
+        }
+        if name.starts_with(file_prefix) {
+            matches.push((name, kind));
+        }
+    }
+
+    matches
+}
+
 fn handle_tab_completion(prompt: &str, line: &mut Vec<char>, cursor: &mut usize, tab_count: usize) {
     let text_before: String = line[..*cursor].iter().collect();
     let token_start = text_before.rfind(' ').map(|i| i + 1).unwrap_or(0);
@@ -579,49 +635,11 @@ fn handle_tab_completion(prompt: &str, line: &mut Vec<char>, cursor: &mut usize,
 
     let is_command = text_before[..token_start].trim().is_empty();
 
-    let mut matches: Vec<(String, EntryKind)> = Vec::new();
-
-    if is_command {
-        for &cmd in crate::highlight::BUILTINS {
-            if cmd.starts_with(current_token) {
-                matches.push((cmd.to_string(), EntryKind::File));
-            }
-        }
-
-        // Добавляем бинарники из /bin
-        let bin_entries = read_dir_entries("/bin");
-        for (name, kind) in bin_entries {
-            if name.starts_with(current_token) && !matches.iter().any(|(m, _)| m == &name) {
-                matches.push((name, kind));
-            }
-        }
-
-        // Добавляем известные общесистемные команды как надежный fallback
-        for &cmd in crate::highlight::COMMON_COMMANDS {
-            if cmd.starts_with(current_token) && !matches.iter().any(|(m, _)| m == cmd) {
-                matches.push((cmd.to_string(), EntryKind::File));
-            }
-        }
+    let matches = if is_command {
+        collect_command_completions(current_token)
     } else {
-        // Дополнение путей к файлам/директориям
-        let (dir_path, file_prefix) = if let Some(last_slash) = current_token.rfind('/') {
-            let d = if last_slash == 0 { "/" } else { &current_token[..last_slash] };
-            let p = &current_token[last_slash + 1..];
-            (d, p)
-        } else {
-            (".", current_token)
-        };
-
-        let entries = read_dir_entries(dir_path);
-        for (name, kind) in entries {
-            if (name == "." || name == "..") && !file_prefix.starts_with('.') {
-                continue;
-            }
-            if name.starts_with(file_prefix) {
-                matches.push((name, kind));
-            }
-        }
-    }
+        collect_path_completions(current_token)
+    };
 
     if matches.is_empty() {
         return;
@@ -1583,5 +1601,19 @@ mod tests {
         handle_tab_completion("", &mut line2, &mut cursor2, 1);
         let completed2: String = line2.iter().collect();
         assert_eq!(completed2, "reboot ");
+    }
+
+    #[test]
+    fn test_unused_commands_not_in_completions() {
+        let matches = collect_command_completions("");
+        let match_names: Vec<&str> = matches.iter().map(|(n, _)| n.as_str()).collect();
+        let unused = ["reg", "poweroff", "halt", "cp", "mv", "grep", "sleep"];
+        for cmd in unused {
+            assert!(
+                !match_names.contains(&cmd),
+                "Несуществующая команда '{}' не должна присутствовать в автодополнении",
+                cmd
+            );
+        }
     }
 }
