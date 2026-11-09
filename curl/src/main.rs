@@ -100,7 +100,7 @@ pub extern "C" fn main_entry(argc: isize, argv: *const *const u8) -> ! {
             );
             exit(0);
         } else if arg == b"-V" || arg == b"--version" {
-            println!("curl 8.5.0 (x86_64-wunix) OpenSSL/4.2.0-dev");
+            println!("curl 1.0.0 (x86_64-wunix) OpenSSL/3.4.0");
             exit(0);
         } else if arg == b"-k" || arg == b"--insecure" {
             insecure = true;
