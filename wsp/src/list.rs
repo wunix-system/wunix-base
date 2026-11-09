@@ -1,26 +1,19 @@
 //! Модуль просмотра информации о системных пакетах WSP.
-//!
-//! Реализует команды:
-//! - `wsp list`: перечень установленных базовых пакетов.
-//! - `wsp info <пакет>`: детальная карточка системного пакета.
 
 extern crate alloc;
 use alloc::format;
 use libwunix::{println, t};
 
 use crate::db::load_installed_packages;
-use crate::display::{print_error, print_field, COLOR_GREEN, COLOR_RED, COLOR_RESET};
+use crate::display::{print_error, COLOR_BOLD, COLOR_CYAN, COLOR_DIM, COLOR_GREEN, COLOR_RED, COLOR_RESET};
 
-/// Выводит список установленных пакетов системы в стандартном табличном формате
+/// Выводит список установленных пакетов ядра и базы
 pub fn run_list(_upgradable_only: bool, critical_only: bool) -> i32 {
     let packages = load_installed_packages();
 
-    println!("{:<20} {:<10} {:<12} {}", 
-        t("ПАКЕТ", "PACKAGE"),
-        t("ВЕРСИЯ", "VERSION"),
-        t("УРОВЕНЬ", "TIER"),
-        t("ОПИСАНИЕ", "DESCRIPTION")
-    );
+    println!();
+    println!("  {}{}◆ WSP ── Реестр компонентов базовой системы и ядра Wunix{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
 
     let mut count = 0;
     for pkg in &packages {
@@ -29,26 +22,23 @@ pub fn run_list(_upgradable_only: bool, critical_only: bool) -> i32 {
         }
 
         let tier_label = if pkg.tier == "critical" {
-            format!("{}[критич]{}", COLOR_RED, COLOR_RESET)
+            format!("{}[критический]{}", COLOR_RED, COLOR_RESET)
         } else {
             format!("{}[базовый]{}", COLOR_GREEN, COLOR_RESET)
         };
 
-        // Обрезаем описание, если длинное
-        let desc = if pkg.description.chars().count() > 36 {
-            let mut s: alloc::string::String = pkg.description.chars().take(33).collect();
-            s.push_str("...");
-            s
-        } else {
-            pkg.description.clone()
-        };
-
-        println!("{:<20} {:<10} {:<20} {}", pkg.name, pkg.version, tier_label, desc);
+        println!("  {}● {}{} • v{} {}", COLOR_BOLD, pkg.name, COLOR_RESET, pkg.version, tier_label);
+        if !pkg.description.is_empty() {
+            println!("    {}", pkg.description);
+        }
+        println!("    {}: {}", t("Компонентов на диске", "Files"), pkg.files.len());
+        println!();
         count += 1;
     }
 
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("  {}: {}", t("Всего системных компонентов", "Total system components"), count);
     println!();
-    println!("{} {}: {}", t("Всего системных компонентов", "Total system components"), count, COLOR_RESET);
 
     0
 }
@@ -59,25 +49,30 @@ pub fn run_info(pkg_name: &str, show_files: bool) -> i32 {
     let pkg = match packages.iter().find(|p| p.name == pkg_name) {
         Some(p) => p,
         None => {
-            print_error(&format!("{} '{}'", t("системный пакет не найден", "system package not found"), pkg_name));
+            print_error(&format!("{} '{}'", t("системный компонент не найден в базе", "system component not found"), pkg_name));
             return 1;
         }
     };
 
-    println!("{}: {}", t("Системный пакет", "System package"), pkg.name);
-    print_field(t("Имя пакета:", "Package name:"), &pkg.name);
-    print_field(t("Версия:", "Version:"), &pkg.version);
-    print_field(t("Уровень важности:", "System tier:"), &pkg.tier);
-    print_field(t("Описание:", "Description:"), &pkg.description);
-    print_field(t("Всего файлов:", "Total files:"), &format!("{}", pkg.files.len()));
+    println!();
+    println!("  {}{}◆ WSP ── Карточка системного компонента '{}'{}", COLOR_BOLD, COLOR_CYAN, pkg.name, COLOR_RESET);
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("  {:<22} {}", t("Имя компонента:", "Package name:"), pkg.name);
+    println!("  {:<22} {}", t("Версия ядра/базы:", "Version:"), pkg.version);
+    println!("  {:<22} {}", t("Уровень важности:", "System tier:"), pkg.tier);
+    println!("  {:<22} {}", t("Описание:", "Description:"), pkg.description);
+    println!("  {:<22} {}", t("Файлов в системе:", "Total files:"), pkg.files.len());
 
-    if show_files {
+    if show_files && !pkg.files.is_empty() {
         println!();
-        println!("{}:", t("  Файлы в системе", "  Installed files"));
+        println!("  {}:", t("Файлы компонента", "Files in system"));
         for f in &pkg.files {
-            println!("    {}", f);
+            println!("    ↳ {}", f);
         }
     }
+
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!();
 
     0
 }

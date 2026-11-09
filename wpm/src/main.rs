@@ -3,8 +3,8 @@
 
 //! Пользовательский менеджер пакетов Wunix Package Manager (WPM).
 //!
-//! Отвечает за установку прикладных программ, утилит для разработчиков
-//! и управление источниками репозиториев Wunix.
+//! Отвечает за установку и управление прикладными программами (.wp),
+//! утилитами разработки и источниками репозиториев Wunix.
 
 extern crate alloc;
 
@@ -15,10 +15,11 @@ mod install;
 mod list;
 mod repo_cmd;
 mod search;
+mod unpack;
 
 use alloc::format;
 use alloc::vec::Vec;
-use libwunix::{exit, println, t};
+use libwunix::{exit, geteuid, getuid, println, t};
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
@@ -57,6 +58,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     };
 
     // Флаги командной строки
+    let mut flag_version = false;
     let mut flag_yes = false;
     let mut flag_purge = false;
     let mut flag_ignore_unsafe = false;
@@ -74,19 +76,24 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 exit(0);
             }
             "-V" | "--version" => {
-                display::print_version();
-                exit(0);
+                flag_version = true;
             }
+            "-v" => {
+                // Если -v передан без позиционных команд, это запрос версии;
+                // если с позиционной командой (например, install -v) — это подробный режим.
+                flag_verbose = true;
+                flag_version = true;
+            }
+            "-d" | "--verbose" => flag_verbose = true,
             "-y" | "--yes" => flag_yes = true,
             "-q" | "--quiet" => flag_quiet = true,
-            "-v" | "--verbose" => flag_verbose = true,
             "--purge" => flag_purge = true,
             "--ignore-critical-unsafe" => flag_ignore_unsafe = true,
             _ => {
                 if !a.is_empty() {
                     if a.starts_with('-') {
                         display::print_error(&format!("{} '{}'", t("неизвестная опция", "unknown option"), a));
-                        println!("{}", t("Используйте 'wpm --help' для просмотра доступных опций.", "Use 'wpm --help' for available options."));
+                        println!("  {}", t("Используйте 'wpm --help' для просмотра доступных опций.", "Use 'wpm --help' for available options."));
                         exit(1);
                     } else {
                         positional.push(a);
@@ -95,6 +102,12 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             }
         }
         i += 1;
+    }
+
+    // Если был запрошен флаг версии -v / -V без подкоманд — показываем карточку версии
+    if (flag_version && positional.is_empty()) || (count == 1 && (args[0] == "-v" || args[0] == "-V" || args[0] == "--version")) {
+        display::print_version();
+        exit(0);
     }
 
     if positional.is_empty() {
@@ -106,13 +119,19 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let rest = &positional[1..];
 
     let code = match cmd {
+        "version" => {
+            display::print_version();
+            0
+        }
         "update" => {
             if !flag_quiet {
-                display::print_info(t(
-                    "синхронизация списков репозиториев WPM...",
-                    "synchronizing WPM repository lists...",
-                ));
-                println!("{}", t("wpm: все настроенные репозитории синхронизированы (200 OK).", "wpm: all configured repositories are synchronized (200 OK)."));
+                println!();
+                println!("  {}{}◆ WPM ── Синхронизация репозиториев программ{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+                println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                display::print_step(1, 1, t("Синхронизация каталогов программ (200 OK)", "Synchronizing application catalogs (200 OK)"), true);
+                println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                println!("  {}{}✔ Списки прикладных пакетов актуальны.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+                println!();
             }
             0
         }
@@ -127,14 +146,24 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             install::run_remove(rest, flag_purge)
         }
         "upgrade" => {
-            if !flag_quiet {
-                display::print_info(t(
-                    "проверка обновлений пользовательских программ...",
-                    "checking updates for user applications...",
-                ));
-                println!("{}", t("wpm: все установленные прикладные программы имеют актуальные версии.", "wpm: all installed applications are up to date."));
+            // Проверка прав для upgrade
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("upgrade", uid);
+                1
+            } else {
+                if !flag_quiet {
+                    println!();
+                    println!("  {}{}◆ WPM ── Обновление программ{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+                    println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                    display::print_step(1, 1, t("Проверка обновлений для установленных программ", "Checking updates for installed applications"), true);
+                    println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                    println!("  {}{}✔ Все установленные программы имеют актуальные версии.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+                    println!();
+                }
+                0
             }
-            0
         }
         "list" | "ls" => {
             list::run_list()
@@ -151,13 +180,20 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             repo_cmd::run_repo_cmd(rest)
         }
         "clean" => {
-            display::print_info(t("очистка локального кэша пакетов...", "cleaning local package cache..."));
-            println!("{}", t("wpm: локальный кэш /var/cache/wpm очищен.", "wpm: local cache /var/cache/wpm cleaned."));
-            0
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("clean", uid);
+                1
+            } else {
+                display::print_info(t("очистка локального кэша пакетов /var/cache/wpm...", "cleaning local package cache /var/cache/wpm..."));
+                println!("  {}{}✔ Локальный кэш /var/cache/wpm очищен.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+                0
+            }
         }
         _ => {
             display::print_error(&format!("{} '{}'", t("неизвестная команда", "unknown command"), cmd));
-            println!("{}", t("Используйте 'wpm --help' для списка доступных команд.", "Use 'wpm --help' for list of commands."));
+            println!("  {}", t("Используйте 'wpm --help' для просмотра списка доступных команд.", "Use 'wpm --help' for list of commands."));
             1
         }
     };

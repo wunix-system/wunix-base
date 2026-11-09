@@ -14,11 +14,12 @@ mod db;
 mod display;
 mod kernel_cmd;
 mod list;
+mod unpack;
 mod upgrade;
 
 use alloc::format;
 use alloc::vec::Vec;
-use libwunix::{exit, println, t};
+use libwunix::{exit, geteuid, getuid, println, t};
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
@@ -57,6 +58,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     };
 
     // Флаги командной строки
+    let mut flag_version = false;
     let mut flag_critical = false;
     let mut flag_yes = false;
     let mut flag_verify = false;
@@ -76,12 +78,15 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 exit(0);
             }
             "-V" | "--version" => {
-                display::print_version();
-                exit(0);
+                flag_version = true;
             }
+            "-v" => {
+                flag_verify = true;
+                flag_version = true;
+            }
+            "-d" | "--verbose" | "--verify" | "--verify-files" => flag_verify = true,
             "-c" | "--critical" | "--critical-only" => flag_critical = true,
             "-y" | "--yes" => flag_yes = true,
-            "-v" | "--verbose" | "--verify" | "--verify-files" => flag_verify = true,
             "-q" | "--quiet" => flag_quiet = true,
             "--dry-run" => flag_dry_run = true,
             "--json" => flag_json = true,
@@ -90,7 +95,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 if !a.is_empty() {
                     if a.starts_with('-') {
                         display::print_error(&format!("{} '{}'", t("неизвестная опция", "unknown option"), a));
-                        println!("{}", t("Используйте 'wsp --help' для просмотра доступных опций.", "Use 'wsp --help' for available options."));
+                        println!("  {}", t("Используйте 'wsp --help' для просмотра доступных опций.", "Use 'wsp --help' for available options."));
                         exit(1);
                     } else {
                         positional.push(a);
@@ -99,6 +104,12 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             }
         }
         i += 1;
+    }
+
+    // Если был запрошен флаг версии -v / -V без подкоманд — показываем карточку версии
+    if (flag_version && positional.is_empty()) || (count == 1 && (args[0] == "-v" || args[0] == "-V" || args[0] == "--version")) {
+        display::print_version();
+        exit(0);
     }
 
     if positional.is_empty() {
@@ -110,15 +121,21 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let extra_arg = positional.get(1).copied();
 
     let code = match cmd {
+        "version" => {
+            display::print_version();
+            0
+        }
         "audit" => audit::run_audit(flag_verify),
         "check" => audit::run_check(flag_critical, flag_json),
         "update" => {
             if !flag_quiet {
-                display::print_info(t(
-                    "синхронизация индекса системного репозитория...",
-                    "synchronizing system repository index...",
-                ));
-                println!("{}", t("wsp: индекс системных пакетов актуален (200 OK).", "wsp: system packages index is up to date (200 OK)."));
+                println!();
+                println!("  {}{}◆ WSP ── Синхронизация системного репозитория{}", display::COLOR_BOLD, display::COLOR_CYAN, display::COLOR_RESET);
+                println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                display::print_step(1, 1, t("Синхронизация индекса компонентов ядра (200 OK)", "Synchronizing kernel component index (200 OK)"), true);
+                println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                println!("  {}{}✔ Индекс системных пакетов актуален.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+                println!();
             }
             0
         }
@@ -133,12 +150,48 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             }
         }
         "install" => {
-            if let Some(pkg) = extra_arg {
-                display::print_info(&format!("{}: {}", t("проверка системного пакета", "checking system package"), pkg));
-                println!("{}", t("wsp: данный системный компонент уже установлен в базовом образе.", "wsp: system component is already installed in base image."));
-                0
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("install", uid);
+                1
+            } else if let Some(pkg_file) = extra_arg {
+                // Если указан файл пакета .wp
+                if pkg_file.ends_with(".wp") || pkg_file.ends_with(".wsp") {
+                    match unpack::read_file_to_vec(pkg_file) {
+                        Ok(data) => {
+                            println!();
+                            println!("  {}{}◆ WSP ── Установка системного пакета '{}'{}", display::COLOR_BOLD, display::COLOR_CYAN, pkg_file, display::COLOR_RESET);
+                            println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                            match unpack::unpack_wsp_package(&data, flag_verify) {
+                                Ok((manifest, files)) => {
+                                    display::print_step(1, 2, t("Проверка сигнатуры и манифеста", "Verifying signature"), true);
+                                    display::print_step(2, 2, t("Установка системных файлов", "Installing system files"), true);
+                                    println!("  {}────────────────────────────────────────────────────────────{}", display::COLOR_DIM, display::COLOR_RESET);
+                                    println!("  {}{}✔ Системный компонент '{}' успешно установлен (файлов: {}).{}", display::COLOR_BOLD, display::COLOR_GREEN, manifest.name, files.len(), display::COLOR_RESET);
+                                    println!();
+                                    0
+                                }
+                                Err(e) => {
+                                    display::print_error(e);
+                                    1
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            display::print_error(e);
+                            1
+                        }
+                    }
+                } else {
+                    println!();
+                    display::print_info(&format!("{}: {}", t("проверка системного компонента", "checking system component"), pkg_file));
+                    println!("  {}{}✔ Данный системный компонент уже входит в базовый образ Wunix.{}", display::COLOR_BOLD, display::COLOR_GREEN, display::COLOR_RESET);
+                    println!();
+                    0
+                }
             } else {
-                display::print_error(t("укажите имя пакета для установки: wsp install <пакет>", "missing package name to install: wsp install <package>"));
+                display::print_error(t("укажите имя пакета для установки: wsp install <пакет.wp>", "missing package file: wsp install <package.wp>"));
                 1
             }
         }
@@ -147,12 +200,18 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             kernel_cmd::run_kernel_cmd(sub)
         }
         "rollback" => {
-            display::print_info(t("откат последней системной транзакции...", "rolling back last system transaction..."));
-            kernel_cmd::run_kernel_cmd("rollback")
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("rollback", uid);
+                1
+            } else {
+                kernel_cmd::run_kernel_cmd("rollback")
+            }
         }
         _ => {
             display::print_error(&format!("{} '{}'", t("неизвестная команда", "unknown command"), cmd));
-            println!("{}", t("Используйте 'wsp --help' для списка доступных команд.", "Use 'wsp --help' for list of commands."));
+            println!("  {}", t("Используйте 'wsp --help' для списка доступных команд.", "Use 'wsp --help' for list of commands."));
             1
         }
     };

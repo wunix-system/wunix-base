@@ -1,111 +1,102 @@
-//! Модуль отображения и терминального вывода WSP.
+//! Модуль отображения и фирменного интерфейса WSP (Wunix System Package).
 //!
-//! Обеспечивает чистый, строгий и информативный вывод в едином
-//! стандарте системных утилит Wunix с поддержкой интернационализации t().
+//! Реализует строгий, надежный и структурированный визуальный стиль Wunix
+//! для управления ядром, системными библиотеками и загрузчиком.
 
 extern crate alloc;
 use alloc::format;
-use alloc::string::String;
 use libwunix::{println, t};
+use libpackwunix::sources::get_wsp_system_repo;
 
 pub const COLOR_RESET: &str = "\x1b[0m";
 pub const COLOR_BOLD: &str = "\x1b[1m";
+pub const COLOR_DIM: &str = "\x1b[2m";
 pub const COLOR_RED: &str = "\x1b[31m";
 pub const COLOR_GREEN: &str = "\x1b[32m";
 pub const COLOR_YELLOW: &str = "\x1b[33m";
-#[allow(dead_code)]
 pub const COLOR_CYAN: &str = "\x1b[36m";
-#[allow(dead_code)]
-pub const COLOR_GRAY: &str = "\x1b[90m";
+pub const COLOR_WHITE: &str = "\x1b[37m";
 
-/// Форматирует размер в байтах в человекочитаемый вид (Байт, КиБ, МиБ)
-#[allow(dead_code)]
-pub fn format_size(bytes: u64) -> String {
-    if bytes < 1024 {
-        format!("{} {}", bytes, t("Б", "B"))
-    } else if bytes < 1024 * 1024 {
-        let kb = (bytes as f64) / 1024.0;
-        format!("{:.1} {}", kb, t("КиБ", "KiB"))
-    } else {
-        let mb = (bytes as f64) / (1024.0 * 1024.0);
-        format!("{:.2} {}", mb, t("МиБ", "MiB"))
-    }
-}
-
-/// Выводит информацию о версии программы в стандартном формате
+/// Фирменная карточка версии WSP
 pub fn print_version() {
-    println!("wsp (Wunix System Package) 1.0.1");
+    println!();
+    println!("  {}{}◆ WSP ── Системный менеджер Wunix (v1.1.0){}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("    {:<18} {}", t("Платформа:", "Platform:"), "Wunix OS (x86_64 / Long Mode)");
+    println!("    {:<18} {}", t("Назначение:", "Scope:"), t("Ядро, системные библиотеки Ring 3 и загрузчик", "Monolithic kernel, base system, and bootloader"));
+    println!("    {:<18} {}", t("Формат пакетов:", "Package format:"), "Wunix Package (.wp)");
+    println!("    {:<18} {} {}", t("Репозиторий:", "Repository:"), get_wsp_system_repo(), t("[встроенный, защищен]", "[builtin, immutable]"));
+    println!("    {:<18} {}", t("Конфигурация:", "Configuration:"), "/etc/wsp/wsp.conf");
+    println!("    {:<18} {}", t("Реестр системы:", "Registry db:"), "/var/lib/wsp/installed.json");
+    println!("    {:<18} {}", t("Загрузчик ядра:", "Bootloader:"), "Limine (boot():/boot/wunix-kernel)");
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("  {}", t("Для просмотра всех доступных команд используйте: wsp --help", "For available commands and flags use: wsp --help"));
+    println!();
 }
 
-/// Выводит строку с выровненным полем вида `  Ключ:      Значение`
-pub fn print_field(label: &str, value: &str) {
-    println!("  {:<22} {}", label, value);
-}
-
-/// Выводит информационное сообщение утилиты
-pub fn print_info(msg: &str) {
-    println!("{}: {}", t("wsp", "wsp"), msg);
-}
-
-/// Выводит предупреждение
-pub fn print_warning(msg: &str) {
-    println!("{}{} {}{}", COLOR_YELLOW, t("wsp: предупреждение:", "wsp: warning:"), msg, COLOR_RESET);
-}
-
-/// Выводит ошибку
-pub fn print_error(msg: &str) {
-    println!("{}{} {}{}", COLOR_RED, t("wsp: ошибка:", "wsp: error:"), msg, COLOR_RESET);
-}
-
-/// Выводит стандартную справку по использованию утилиты
+/// Фирменная справка WSP
 pub fn print_help() {
-    println!(
-        "{}",
-        t(
-            "Использование: wsp [ОПЦИИ]... [КОМАНДА] [АРГУМЕНТЫ]...\n\
-             Диспетчер системных пакетов и обновлений ядра Wunix.\n\n\
-             Команды:\n  \
-               audit                    Полный аудит ядра, файлов и безопасности\n  \
-               check                    Быстрая проверка наличия обновлений базы\n  \
-               update                   Синхронизация индекса системного репозитория\n  \
-               upgrade                  Обновление ядра и базовой системы\n  \
-               list                     Список установленных системных компонентов\n  \
-               info ПАКЕТ               Подробная информация о компоненте\n  \
-               install ПАКЕТ            Установка системного компонента\n  \
-               kernel [list|rollback]   Управление версиями ядра в загрузчике\n  \
-               rollback                 Откат последней системной транзакции\n\n\
-             Опции:\n  \
-               -c, --critical           Работать только с критическими пакетами базы\n  \
-               -y, --yes                Автоматическое подтверждение всех операций\n  \
-               -v, --verbose, --verify  Подробный вывод и проверка контрольных сумм файлов\n  \
-               -q, --quiet              Минимальный вывод сообщений\n  \
-               -f, --files              Отобразить список файлов пакета (для wsp info)\n  \
-                   --dry-run            Режим симуляции без изменения файлов на диске\n  \
-                   --json               Вывод результатов в формате JSON (для wsp check)\n  \
-               -h, --help               Показать эту справку и выйти\n  \
-               -V, --version            Вывести информацию о версии и выйти",
-            "Usage: wsp [OPTIONS]... [COMMAND] [ARGS]...\n\
-             System package and kernel update manager for Wunix OS.\n\n\
-             Commands:\n  \
-               audit                    Full audit of kernel, files, and security\n  \
-               check                    Fast check for available system updates\n  \
-               update                   Synchronize system repository index\n  \
-               upgrade                  Apply kernel and base system upgrades\n  \
-               list                     List installed base system components\n  \
-               info PACKAGE             Detailed information about a component\n  \
-               install PACKAGE          Install a system package\n  \
-               kernel [list|rollback]   Manage kernel versions in bootloader\n  \
-               rollback                 Rollback last system transaction\n\n\
-             Options:\n  \
-               -c, --critical           Target critical base packages only\n  \
-               -y, --yes                Assume yes for all prompts\n  \
-               -v, --verbose, --verify  Verbose output and verify file checksums\n  \
-               -q, --quiet              Suppress non-essential messages\n  \
-               -f, --files              Show installed files list (for wsp info)\n  \
-                   --dry-run            Simulation mode without modifying disk\n  \
-                   --json               Output in JSON format (for wsp check)\n  \
-               -h, --help               Display this help and exit\n  \
-               -V, --version            Output version information and exit"
-        )
-    );
+    println!();
+    println!("  {}{}◆ WSP ── Системный менеджер Wunix{}", COLOR_BOLD, COLOR_CYAN, COLOR_RESET);
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("  {}", t(
+        "Диспетчер системных пакетов, ротации ядра и безопасности базового образа (.wp)",
+        "System package manager, kernel rotation, and base image security (.wp)"
+    ));
+    println!();
+    println!("  {}{}КОМАНДЫ:{}", COLOR_BOLD, COLOR_WHITE, COLOR_RESET);
+    println!("    {:<18} {}", "audit", t("Полный аудит ядра, контрольных сумм файлов и безопасности", "Audit kernel, system files, and security"));
+    println!("    {:<18} {}", "check", t("Быстрая проверка наличия системных обновлений ядра", "Check for available kernel/base updates"));
+    println!("    {:<18} {}", "upgrade", t("Применение обновлений ядра с созданием точки отката", "Upgrade kernel and base system with rollback"));
+    println!("    {:<18} {}", "list", t("Список установленных системных компонентов ядра", "List installed base components"));
+    println!("    {:<18} {}", "info <пакет>", t("Подробная информация о системном компоненте", "Detailed component information"));
+    println!("    {:<18} {}", "install <пакет.wp>", t("Установка системного компонента из файла .wp", "Install a system package from .wp"));
+    println!("    {:<18} {}", "kernel [list|rollback]", t("Управление установленными ядрами в загрузчике", "Manage kernel entries in bootloader"));
+    println!("    {:<18} {}", "rollback", t("Откат к предыдущей версии ядра (/boot/wunix-kernel.old)", "Rollback to previous kernel"));
+    println!("    {:<18} {}", "update", t("Синхронизация индекса системного репозитория", "Synchronize system repository index"));
+    println!();
+    println!("  {}{}ПАРАМЕТРЫ:{}", COLOR_BOLD, COLOR_WHITE, COLOR_RESET);
+    println!("    {:<18} {}", "-v, --version", t("Показать карточку версии WSP", "Display WSP version card"));
+    println!("    {:<18} {}", "-h, --help", t("Показать эту справку", "Display this help message"));
+    println!("    {:<18} {}", "-c, --critical", t("Обрабатывать только критические компоненты базы", "Target critical packages only"));
+    println!("    {:<18} {}", "-y, --yes", t("Не запрашивать подтверждение при обновлении", "Assume yes for prompts"));
+    println!("    {:<18} {}", "-d, --verbose", t("Подробный протокол проверки и распаковки файлов", "Verbose execution details"));
+    println!("    {:<18} {}", "--dry-run", t("Режим симуляции без изменения файлов ядра", "Simulation mode without disk writes"));
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("  {}: {}", t("Безопасность", "Security"), t("Адрес репозитория WSP встроен в код и защищен от подмены", "WSP repository URL is built-in and protected against tampering"));
+    println!();
+}
+
+/// Карточка ошибки отказа в доступе (без sudo)
+pub fn print_access_denied(operation: &str, uid: u32) {
+    println!();
+    println!("  {}{}◆ WSP ── Ограничение доступа к ядру{}", COLOR_BOLD, COLOR_RED, COLOR_RESET);
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("  {}", t(
+        "Управление ядром и базовой системой Wunix разрешено только суперпользователю (root).",
+        "Modifying kernel and base system requires superuser (root) privileges."
+    ));
+    println!("  {}: {} (uid={})", t("Текущий пользователь", "Current caller"), if uid == 0 { "root" } else { "пользователь" }, uid);
+    println!();
+    println!("  {}:", t("Пожалуйста, запустите команду через sudo", "Please run this command with sudo"));
+    println!("    {}sudo wsp {} ...{}", COLOR_BOLD, operation, COLOR_RESET);
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!();
+}
+
+pub fn print_step(current: usize, total: usize, desc: &str, status_ok: bool) {
+    let status_str = if status_ok {
+        format!("{}[ OK ]{}", COLOR_GREEN, COLOR_RESET)
+    } else {
+        format!("{}[FAIL]{}", COLOR_RED, COLOR_RESET)
+    };
+    println!("  [{}/{}] {:<45} {}", current, total, desc, status_str);
+}
+
+pub fn print_info(msg: &str) {
+    println!("  {}•{} {}", COLOR_CYAN, COLOR_RESET, msg);
+}
+
+pub fn print_error(msg: &str) {
+    println!("  {}{}Ошибка:{} {}", COLOR_BOLD, COLOR_RED, COLOR_RESET, msg);
 }

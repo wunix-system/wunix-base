@@ -6,10 +6,10 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libwunix::{close, mkdir, open, println, read, t, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
+use libwunix::{close, geteuid, getuid, mkdir, open, println, read, t, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 use libpackwunix::sources::{parse_repo_sources, RepoSection};
 
-use crate::display::{print_error, print_info, COLOR_GREEN, COLOR_RESET};
+use crate::display::{print_access_denied, print_error, print_info, COLOR_BOLD, COLOR_DIM, COLOR_GREEN, COLOR_RESET};
 
 pub const SOURCES_CONF_PATH: &[u8] = b"/etc/wpm/sources.conf\0";
 
@@ -18,6 +18,12 @@ pub fn run_repo_cmd(args: &[&str]) -> i32 {
     match sub {
         "list" | "ls" => list_repos(),
         "add" => {
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                print_access_denied("repo add", uid);
+                return 1;
+            }
             if args.len() < 3 {
                 print_error(t(
                     "использование: wpm repo add <имя> <URL>",
@@ -29,6 +35,12 @@ pub fn run_repo_cmd(args: &[&str]) -> i32 {
             }
         }
         "remove" | "rm" => {
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                print_access_denied("repo remove", uid);
+                return 1;
+            }
             if args.len() < 2 {
                 print_error(t(
                     "использование: wpm repo remove <имя>",
@@ -107,13 +119,18 @@ fn save_sources(repos: &[RepoSection]) -> bool {
 
 fn list_repos() -> i32 {
     let repos = load_sources();
-    println!("{}", t("Источники репозиториев WPM (/etc/wpm/sources.conf):", "WPM repository sources (/etc/wpm/sources.conf):"));
+    println!();
+    println!("  {}{}◆ WPM ── Источники репозиториев (/etc/wpm/sources.conf){}", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
     for r in &repos {
-        println!("  [{}]", r.name);
+        println!("  {}● [{}] {}", COLOR_BOLD, r.name, COLOR_RESET);
         for s in &r.servers {
-            println!("    Server = {}", s);
+            println!("    {}URL:{} {}", COLOR_DIM, COLOR_RESET, s);
         }
     }
+    println!("  {}────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+    println!("  {}: sudo wpm repo add <имя> <URL>", t("Добавление источника", "Add new repository"));
+    println!();
     0
 }
 
