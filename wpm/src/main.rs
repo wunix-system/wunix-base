@@ -65,6 +65,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let mut flag_ignore_unsafe = false;
     let mut flag_quiet = false;
     let mut flag_verbose = false;
+    let mut flag_reinstall = false;
 
     let mut positional: Vec<&str> = Vec::new();
 
@@ -89,6 +90,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             "-y" | "--yes" => flag_yes = true,
             "-q" | "--quiet" => flag_quiet = true,
             "--purge" => flag_purge = true,
+            "--reinstall" => flag_reinstall = true,
             "--ignore-critical-unsafe" => flag_ignore_unsafe = true,
             _ => {
                 if !a.is_empty() {
@@ -137,7 +139,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             search::run_search(q)
         }
         "install" => {
-            install::run_install(rest, flag_yes, flag_ignore_unsafe, flag_verbose)
+            install::run_install(rest, flag_yes, flag_ignore_unsafe, flag_verbose, flag_reinstall)
         }
         "remove" | "rm" => {
             install::run_remove(rest, flag_purge, flag_yes)

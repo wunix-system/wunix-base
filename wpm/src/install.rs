@@ -167,20 +167,29 @@ fn locate_package_file(pkg: &str) -> Option<String> {
     }
 
     let canonical = match pkg {
-        "tcc" => "tinycc",
+        "tcc" | "cc" => "tinycc",
+        "ssh" | "sshd" | "scp" => "openssh",
+        "unzip" => "zip",
+        "gunzip" => "gzip",
         other => other,
     };
 
     let candidates = [
         format!("/var/cache/wpm/{}.wp", canonical),
         format!("/var/cache/wpm/{}-0.9.27.wp", canonical),
+        format!("/var/cache/wpm/{}-1.0.0.wp", canonical),
+        format!("/var/cache/wpm/{}-7.2.0.wp", canonical),
+        format!("/var/cache/wpm/{}-8.6.0.wp", canonical),
+        format!("/var/cache/wpm/{}-9.8.0.wp", canonical),
+        format!("/var/cache/wpm/{}-1.0.1.wp", canonical),
+        format!("/var/cache/wsp/{}.wp", canonical),
+        format!("/var/cache/wsp/{}-1.0.0.wp", canonical),
+        format!("/var/cache/wsp/{}-1.0.1.wp", canonical),
+        format!("/var/cache/wsp/{}-0.4.2.wp", canonical),
         format!("/var/lib/wpm/repo/apps/x86_64/{}.wp", canonical),
-        format!("/var/lib/wpm/repo/apps/x86_64/{}-0.9.27.wp", canonical),
         format!("/repo/apps/x86_64/{}.wp", canonical),
-        format!("/repo/apps/x86_64/{}-0.9.27.wp", canonical),
         format!("/usr/share/wpm/packages/{}.wp", canonical),
         format!("/var/cache/wpm/{}.wp", pkg),
-        format!("/var/cache/wpm/{}-0.9.27.wp", pkg),
         format!("/var/cache/wpm/{}.wsp", pkg),
     ];
 
@@ -210,7 +219,7 @@ struct PackageTarget {
     installed_size: u64,
 }
 
-pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, verbose: bool) -> i32 {
+pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, verbose: bool, reinstall: bool) -> i32 {
     if packages.is_empty() {
         print_error(t(
             "укажите имя программы для установки: wpm install <пакет>",
@@ -230,6 +239,7 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
         return 1;
     }
 
+    let installed_list = load_installed_apps();
     let mut targets: Vec<PackageTarget> = Vec::new();
     let mut total_download: u64 = 0;
     let mut total_installed_space: u64 = 0;
@@ -277,6 +287,17 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
             }
         };
 
+        let already_installed = installed_list.iter().find(|a| a.name == name || a.name == pkg);
+        if let Some(inst) = already_installed {
+            if !reinstall && inst.version == version {
+                println!("wpm: программа '{}' (v{}) уже установлена в системе.", name, inst.version);
+                println!("  Для переустановки выполните: wpm install --reinstall {}", pkg);
+                continue;
+            } else if inst.version != version {
+                println!("wpm: обновление программы '{}': v{} -> v{}", name, inst.version, version);
+            }
+        }
+
         total_download += d_size;
         total_installed_space += i_size;
 
@@ -288,6 +309,11 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
             download_size: d_size,
             installed_size: i_size,
         });
+    }
+
+    if targets.is_empty() {
+        println!("{}", t("wpm: нет программ, требующих установки или обновления.", "wpm: no packages require installation or upgrade."));
+        return 0;
     }
 
     println!("{}", t("Будут установлены следующие программы:", "The following packages will be installed:"));

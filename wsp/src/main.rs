@@ -68,6 +68,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let mut flag_json = false;
     let mut flag_files = false;
     let mut flag_quiet = false;
+    let mut flag_reinstall = false;
 
     let mut positional: Vec<&str> = Vec::new();
 
@@ -90,6 +91,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             "-c" | "--critical" | "--critical-only" => flag_critical = true,
             "-y" | "--yes" => flag_yes = true,
             "-q" | "--quiet" => flag_quiet = true,
+            "--reinstall" => flag_reinstall = true,
             "--dry-run" => flag_dry_run = true,
             "--json" => flag_json = true,
             "-f" | "--files" => flag_files = true,
@@ -181,21 +183,60 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
 
                             match parsed {
                                 Ok((manifest_name, manifest_ver, manifest_tier, d_size, i_size)) => {
-                                    println!("{}:", t("Будет установлен системный компонент", "The following system component will be installed"));
-                                    println!("  {} (v{}) [{}]", manifest_name, manifest_ver, manifest_tier);
-
-                                    display::print_disk_space_change(d_size, i_size, true);
-
-                                    if !flag_yes {
-                                        let prompt_text = t("Продолжить установку системного компонента? [Y/n] ", "Continue with installation? [Y/n] ");
-                                        if !display::confirm_prompt(prompt_text, true) {
-                                            println!("{}", t("wsp: установка отменена пользователем.", "wsp: installation aborted by user."));
+                                    let installed_pkgs = db::load_installed_packages();
+                                    let is_already = installed_pkgs.iter().find(|p| p.name == manifest_name);
+                                    if let Some(inst) = is_already {
+                                        if !flag_reinstall && inst.version == manifest_ver {
+                                            println!(
+                                                "wsp: системный компонент '{}' (v{}) уже установлен в системе.",
+                                                manifest_name, inst.version
+                                            );
+                                            println!(
+                                                "  Для принудительной переустановки выполните: wsp install --reinstall {}",
+                                                pkg_file
+                                            );
                                             0
+                                        } else {
+                                            if inst.version != manifest_ver {
+                                                println!(
+                                                    "wsp: найдено обновление системного компонента '{}': v{} -> v{}",
+                                                    manifest_name, inst.version, manifest_ver
+                                                );
+                                            }
+                                            println!("{}:", t("Будет установлен системный компонент", "The following system component will be installed"));
+                                            println!("  {} (v{}) [{}]", manifest_name, manifest_ver, manifest_tier);
+
+                                            display::print_disk_space_change(d_size, i_size, true);
+
+                                            if !flag_yes {
+                                                let prompt_text = t("Продолжить установку системного компонента? [Y/n] ", "Continue with installation? [Y/n] ");
+                                                if !display::confirm_prompt(prompt_text, true) {
+                                                    println!("{}", t("wsp: установка отменена пользователем.", "wsp: installation aborted by user."));
+                                                    0
+                                                } else {
+                                                    install_wsp_component(&data, pkg_file, flag_verify)
+                                                }
+                                            } else {
+                                                install_wsp_component(&data, pkg_file, flag_verify)
+                                            }
+                                        }
+                                    } else {
+                                        println!("{}:", t("Будет установлен системный компонент", "The following system component will be installed"));
+                                        println!("  {} (v{}) [{}]", manifest_name, manifest_ver, manifest_tier);
+
+                                        display::print_disk_space_change(d_size, i_size, true);
+
+                                        if !flag_yes {
+                                            let prompt_text = t("Продолжить установку системного компонента? [Y/n] ", "Continue with installation? [Y/n] ");
+                                            if !display::confirm_prompt(prompt_text, true) {
+                                                println!("{}", t("wsp: установка отменена пользователем.", "wsp: installation aborted by user."));
+                                                0
+                                            } else {
+                                                install_wsp_component(&data, pkg_file, flag_verify)
+                                            }
                                         } else {
                                             install_wsp_component(&data, pkg_file, flag_verify)
                                         }
-                                    } else {
-                                        install_wsp_component(&data, pkg_file, flag_verify)
                                     }
                                 }
                                 Err(code) => code,
@@ -246,6 +287,18 @@ fn install_wsp_component(data: &[u8], pkg_file: &str, flag_verify: bool) -> i32 
         Ok((manifest, files)) => {
             display::print_step(1, 2, t("Проверка сигнатуры и манифеста", "Verifying signature"), true);
             display::print_step(2, 2, t("Установка системных файлов", "Installing system files"), true);
+
+            let mut installed = db::load_installed_packages();
+            installed.retain(|p| p.name != manifest.name);
+            installed.push(db::SystemPackageEntry {
+                name: manifest.name.clone(),
+                version: manifest.version.to_string(),
+                tier: alloc::format!("{:?}", manifest.tier),
+                description: manifest.description.clone(),
+                files: files.clone(),
+            });
+            db::save_installed_packages(&installed);
+
             println!("wsp: системный компонент '{}' успешно установлен (файлов: {}).", manifest.name, files.len());
             0
         }

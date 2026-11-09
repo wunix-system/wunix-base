@@ -26,7 +26,45 @@ pub fn format_size(bytes: u64) -> String {
     }
 }
 
+#[repr(C)]
+struct Statfs {
+    f_type: u64,
+    f_bsize: u64,
+    f_blocks: u64,
+    f_bfree: u64,
+    f_bavail: u64,
+    f_files: u64,
+    f_ffree: u64,
+    f_fsid: [u64; 2],
+    f_namelen: u64,
+    f_frsize: u64,
+    f_flags: u64,
+    f_spare: [u64; 4],
+}
+
+pub fn get_system_used_bytes() -> u64 {
+    let mut stat = core::mem::MaybeUninit::<Statfs>::uninit();
+    let ret = libwunix::statfs(b"/\0", stat.as_mut_ptr() as *mut u8);
+    if ret >= 0 {
+        let s = unsafe { stat.assume_init() };
+        if s.f_bsize > 0 && s.f_blocks >= s.f_bfree {
+            let used = (s.f_blocks - s.f_bfree) * s.f_bsize;
+            if used > 0 {
+                return used;
+            }
+        }
+    }
+    65_000_000
+}
+
 pub fn print_disk_space_change(download_size: u64, installed_size: u64, is_install: bool) {
+    let current_bytes = get_system_used_bytes();
+    let final_bytes = if is_install {
+        current_bytes.saturating_add(installed_size)
+    } else {
+        current_bytes.saturating_sub(installed_size)
+    };
+
     println!("\n{}:", t("Изменение дискового пространства", "Disk space summary"));
     if is_install {
         println!("  {:<26} {}", t("Размер пакетов:", "Download size:"), format_size(download_size));
@@ -34,6 +72,8 @@ pub fn print_disk_space_change(download_size: u64, installed_size: u64, is_insta
     } else {
         println!("  {:<26} -{}", t("Будет освобождено на диске:", "Space freed:"), format_size(installed_size));
     }
+    println!("  {:<26} {}", t("Текущий объем системы:", "Current system size:"), format_size(current_bytes));
+    println!("  {:<26} {}", t("Итоговый объем системы:", "Final system size:"), format_size(final_bytes));
     println!();
 }
 
