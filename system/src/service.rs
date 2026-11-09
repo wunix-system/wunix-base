@@ -253,23 +253,72 @@ pub fn start_service(name: &str) -> Result<i32, &'static str> {
         close(old_stderr as u64);
     }
 
+    let daemon_pid = read_daemon_pid(clean_name);
     let end_log_fd = open(&null_log[..lb.len() + 1], (O_WRONLY | O_CREAT | O_APPEND) as u64, 0o644);
-    if end_log_fd >= 0 {
-        let end_banner = format!("=== [Wunix System] Служба {} завершилась с кодом {} ===\n", clean_name, exit_code);
-        write(end_log_fd as u64, end_banner.as_bytes());
-        close(end_log_fd as u64);
-    }
 
-    current_status.exit_code = exit_code;
-    if exit_code == 0 {
-        // Успешно выполненная или активная служба для пользователя — это "работает"
+    if let Some(pid) = daemon_pid {
+        if end_log_fd >= 0 {
+            let banner = format!("=== [Wunix System] Служба {} перешла в фоновый режим (PID: {}) ===\n", clean_name, pid);
+            write(end_log_fd as u64, banner.as_bytes());
+            close(end_log_fd as u64);
+        }
         current_status.state = ServiceState::Running;
+        current_status.pid = pid;
+        current_status.exit_code = 0;
     } else {
-        current_status.state = ServiceState::Failed(exit_code);
+        if end_log_fd >= 0 {
+            let end_banner = format!("=== [Wunix System] Служба {} завершилась с кодом {} ===\n", clean_name, exit_code);
+            write(end_log_fd as u64, end_banner.as_bytes());
+            close(end_log_fd as u64);
+        }
+
+        current_status.exit_code = exit_code;
+        if exit_code == 0 {
+            current_status.state = ServiceState::Finished(0);
+            current_status.pid = 0;
+        } else {
+            current_status.state = ServiceState::Failed(exit_code);
+        }
     }
     save_runtime_status(clean_name, &current_status);
 
     Ok(exit_code)
+}
+
+fn read_daemon_pid(name: &str) -> Option<u64> {
+    let clean = name.strip_suffix(".conf").unwrap_or(name);
+    let candidates = [
+        format!("/var/run/{}.pid", clean),
+        format!("/run/{}.pid", clean),
+        format!("/run/services/{}.pid", clean),
+    ];
+
+    for path in &candidates {
+        let mut null_path = [0u8; 256];
+        let b = path.as_bytes();
+        if b.len() >= null_path.len() {
+            continue;
+        }
+        null_path[..b.len()].copy_from_slice(b);
+        null_path[b.len()] = 0;
+
+        let fd = open(&null_path[..b.len() + 1], O_RDONLY as u64, 0);
+        if fd >= 0 {
+            let mut buf = [0u8; 64];
+            let n = read(fd as u64, &mut buf);
+            close(fd as u64);
+            if n > 0 {
+                if let Ok(text) = core::str::from_utf8(&buf[..n as usize]) {
+                    if let Ok(pid) = text.trim().parse::<u64>() {
+                        if pid > 0 {
+                            return Some(pid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn stop_service(name: &str) -> Result<(), &'static str> {
@@ -280,8 +329,23 @@ pub fn stop_service(name: &str) -> Result<(), &'static str> {
         return Ok(());
     }
 
+    let pid_paths = [
+        format!("/var/run/{}.pid", clean_name),
+        format!("/run/{}.pid", clean_name),
+    ];
+    for p in &pid_paths {
+        let mut null_p = [0u8; 256];
+        let b = p.as_bytes();
+        if b.len() < null_p.len() {
+            null_p[..b.len()].copy_from_slice(b);
+            null_p[b.len()] = 0;
+            let _ = unlink(&null_p[..b.len() + 1]);
+        }
+    }
+
     // Обновляем состояние супервизора в stopped:
     status.state = ServiceState::Stopped;
+    status.pid = 0;
     save_runtime_status(clean_name, &status);
 
     let log_path = get_log_path(clean_name);

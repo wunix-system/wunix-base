@@ -16,7 +16,12 @@ pub fn get_cwd() -> String {
             return String::from(s);
         }
     }
-    String::from("/")
+    let euid = libwunix::geteuid();
+    if euid == 0 {
+        String::from("/root")
+    } else {
+        String::from("/home")
+    }
 }
 
 pub fn set_cwd(path: &str) -> Result<(), String> {

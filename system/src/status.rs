@@ -35,7 +35,7 @@ pub fn show_service_status(name: &str) {
             if code == 0 {
                 (
                     "\x1b[1;32m●\x1b[0m",
-                    t("\x1b[1;32mработает\x1b[0m", "\x1b[1;32mrunning\x1b[0m"),
+                    t("\x1b[1;32mвыполнена\x1b[0m", "\x1b[1;32mfinished\x1b[0m"),
                 )
             } else {
                 (
@@ -76,7 +76,11 @@ pub fn show_service_status(name: &str) {
     println!("  • Команда:     {}", config.command);
     println!("  • Файл логов:  {}", get_log_path(clean_name));
 
-    if let ServiceState::Failed(code) = runtime.state {
+    if runtime.state == ServiceState::Running && runtime.pid > 0 {
+        println!("  • PID:         {}", runtime.pid);
+    } else if let ServiceState::Finished(code) = runtime.state {
+        println!("  • Код возврата: {}", code);
+    } else if let ServiceState::Failed(code) = runtime.state {
         println!("  • Код ошибки:  {}", code);
     }
 
@@ -154,9 +158,9 @@ pub fn list_all_services() {
             ServiceState::Running => ("\x1b[1;32m●\x1b[0m", "\x1b[32mработает\x1b[0m   "),
             ServiceState::Finished(code) => {
                 if code == 0 {
-                    ("\x1b[1;32m●\x1b[0m", "\x1b[32mработает\x1b[0m   ")
+                    ("\x1b[1;32m●\x1b[0m", "\x1b[32mвыполнена\x1b[0m   ")
                 } else {
-                    ("\x1b[1;31m×\x1b[0m", "\x1b[31mошибка\x1b[0m     ")
+                    ("\x1b[1;31m×\x1b[0m", "\x1b[31mошибка\x1b[0m      ")
                 }
             }
             ServiceState::Failed(_) => ("\x1b[1;31m×\x1b[0m", "\x1b[31mошибка\x1b[0m     "),

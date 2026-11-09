@@ -34,6 +34,7 @@ pub fn init_services() {
     let _ = mkdir(b"/run\0", 0o755);
     let _ = mkdir(b"/run/services\0", 0o755);
     let _ = mkdir(b"/var\0", 0o755);
+    let _ = mkdir(b"/var/run\0", 0o755);
     let _ = mkdir(b"/var/log\0", 0o755);
     let _ = mkdir(b"/var/log/services\0", 0o755);
     let _ = mkdir(b"/var/empty\0", 0o755);
