@@ -6,7 +6,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use libwunix::{close, geteuid, getuid, mkdir, open, println, read, t, unlink, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 
-use crate::display::{format_size, print_access_denied, print_error, print_step, COLOR_BOLD, COLOR_RESET};
+use libpackwunix::format::PackageContainer;
+
+use crate::display::{confirm_prompt, format_size, print_access_denied, print_disk_space_change, print_error, print_step, COLOR_BOLD, COLOR_RESET};
 use crate::guard::ensure_wsp_system_safe;
 use crate::unpack::{read_file_to_vec, unpack_wpm_package};
 
@@ -198,7 +200,17 @@ fn locate_package_file(pkg: &str) -> Option<String> {
     None
 }
 
-pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, verbose: bool) -> i32 {
+#[allow(dead_code)]
+struct PackageTarget {
+    file_path: String,
+    data: Vec<u8>,
+    name: String,
+    version: String,
+    download_size: u64,
+    installed_size: u64,
+}
+
+pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, verbose: bool) -> i32 {
     if packages.is_empty() {
         print_error(t(
             "укажите имя программы для установки: wpm install <пакет>",
@@ -218,8 +230,9 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
         return 1;
     }
 
-    let mut installed_list = load_installed_apps();
-    let mut total_installed = 0;
+    let mut targets: Vec<PackageTarget> = Vec::new();
+    let mut total_download: u64 = 0;
+    let mut total_installed_space: u64 = 0;
 
     for &pkg in packages {
         let pkg_file_path = match locate_package_file(pkg) {
@@ -242,18 +255,72 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
             }
         };
 
-        println!("wpm: подготовка к установке программы '{}'", pkg);
+        let (name, version, d_size, i_size) = match PackageContainer::parse(&pkg_data) {
+            Ok(c) => {
+                let d = pkg_data.len() as u64;
+                let p_len = c.payload.len();
+                let i = if p_len >= 4 && c.payload[0] == 0x1f && c.payload[1] == 0x8b {
+                    u32::from_le_bytes([
+                        c.payload[p_len - 4],
+                        c.payload[p_len - 3],
+                        c.payload[p_len - 2],
+                        c.payload[p_len - 1],
+                    ]) as u64
+                } else {
+                    p_len as u64
+                };
+                (c.manifest.name.clone(), c.manifest.version.to_string(), d, i)
+            }
+            Err(e) => {
+                print_error(e);
+                return 1;
+            }
+        };
+
+        total_download += d_size;
+        total_installed_space += i_size;
+
+        targets.push(PackageTarget {
+            file_path: pkg_file_path,
+            data: pkg_data,
+            name,
+            version,
+            download_size: d_size,
+            installed_size: i_size,
+        });
+    }
+
+    println!("{}", t("Будут установлены следующие программы:", "The following packages will be installed:"));
+    for target in &targets {
+        println!("  {} (v{})", target.name, target.version);
+    }
+
+    print_disk_space_change(total_download, total_installed_space, true);
+
+    if !assume_yes {
+        let prompt_text = t("Продолжить установку? [Y/n] ", "Do you want to continue? [Y/n] ");
+        if !confirm_prompt(prompt_text, true) {
+            println!("{}", t("wpm: установка отменена пользователем.", "wpm: installation aborted by user."));
+            return 0;
+        }
+    }
+
+    let mut installed_list = load_installed_apps();
+    let mut total_installed = 0;
+
+    for target in targets {
+        println!("wpm: подготовка к установке программы '{}'", target.name);
 
         // Шаг 1: Проверка прав
         print_step(1, 4, t("Проверка прав администратора и барьера WSP", "Checking permissions and WSP security"), true);
 
         // Шаг 2: Проверка целостности
-        let size_str = format_size(pkg_data.len() as u64);
-        let step2_msg = format!("{} {} ({})", t("Проверка контейнера", "Verifying package"), pkg_file_path, size_str);
+        let size_str = format_size(target.download_size);
+        let step2_msg = format!("{} {} ({})", t("Проверка контейнера", "Verifying package"), target.file_path, size_str);
         print_step(2, 4, &step2_msg, true);
 
         // Шаг 3: Распаковка
-        let (manifest, files) = match unpack_wpm_package(&pkg_data, verbose) {
+        let (manifest, files) = match unpack_wpm_package(&target.data, verbose) {
             Ok(res) => res,
             Err(e) => {
                 print_step(3, 4, t("Распаковка файлов в систему", "Extracting package files"), false);
@@ -279,7 +346,7 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
             COLOR_BOLD, manifest.name, COLOR_RESET, manifest.version
         );
 
-        if manifest.name == "tinycc" || pkg == "tcc" {
+        if manifest.name == "tinycc" {
             println!("  Команда для запуска: tcc -v");
         }
 
@@ -289,7 +356,7 @@ pub fn run_install(packages: &[&str], _assume_yes: bool, ignore_unsafe: bool, ve
     if total_installed > 0 { 0 } else { 1 }
 }
 
-pub fn run_remove(packages: &[&str], purge: bool) -> i32 {
+pub fn run_remove(packages: &[&str], purge: bool, assume_yes: bool) -> i32 {
     if packages.is_empty() {
         print_error(t(
             "укажите имя программы для удаления: wpm remove <пакет>",
@@ -308,7 +375,8 @@ pub fn run_remove(packages: &[&str], purge: bool) -> i32 {
     let mut installed_list = load_installed_apps();
     let initial_count = installed_list.len();
 
-    println!("wpm: удаление программ...");
+    let mut targets_to_remove: Vec<InstalledApp> = Vec::new();
+    let mut total_freed_space: u64 = 0;
 
     for &pkg in packages {
         let canonical = match pkg {
@@ -316,32 +384,57 @@ pub fn run_remove(packages: &[&str], purge: bool) -> i32 {
             other => other,
         };
 
-        if let Some(pos) = installed_list.iter().position(|a| a.name == canonical || a.name == pkg) {
-            let app = installed_list.remove(pos);
-            let mut removed_count = 0;
-
-            for file_path in &app.files {
-                let mut null_p = [0u8; 512];
-                let b = file_path.as_bytes();
-                let l = b.len().min(511);
-                null_p[..l].copy_from_slice(&b[..l]);
-                null_p[l] = 0;
-
-                let res = unlink(&null_p);
-                if res >= 0 {
-                    removed_count += 1;
-                }
-            }
-
-            println!(
-                "  удалено: {} (файлов: {}{})",
-                app.name,
-                removed_count,
-                if purge { t(", конфигурации очищены", ", configs purged") } else { "" }
-            );
+        if let Some(app) = installed_list.iter().find(|a| a.name == canonical || a.name == pkg) {
+            let freed = (app.files.len() as u64 * 32 * 1024).max(520 * 1024);
+            total_freed_space += freed;
+            targets_to_remove.push(app.clone());
         } else {
             print_error(&format!("{} '{}' {}", t("программа", "application"), pkg, t("не найдена среди установленных", "is not installed")));
+            return 1;
         }
+    }
+
+    println!("{}", t("Будут удалены следующие программы:", "The following packages will be removed:"));
+    for target in &targets_to_remove {
+        println!("  {} (v{}) — {}: {}", target.name, target.version, t("файлов", "files"), target.files.len());
+    }
+
+    print_disk_space_change(0, total_freed_space, false);
+
+    if !assume_yes {
+        let prompt_text = t("Продолжить удаление? [Y/n] ", "Do you want to continue? [Y/n] ");
+        if !confirm_prompt(prompt_text, true) {
+            println!("{}", t("wpm: удаление отменено пользователем.", "wpm: removal aborted by user."));
+            return 0;
+        }
+    }
+
+    println!("wpm: удаление программ...");
+
+    for app in targets_to_remove {
+        let mut removed_count = 0;
+
+        for file_path in &app.files {
+            let mut null_p = [0u8; 512];
+            let b = file_path.as_bytes();
+            let l = b.len().min(511);
+            null_p[..l].copy_from_slice(&b[..l]);
+            null_p[l] = 0;
+
+            let res = unlink(&null_p);
+            if res >= 0 {
+                removed_count += 1;
+            }
+        }
+
+        installed_list.retain(|a| a.name != app.name);
+
+        println!(
+            "  удалено: {} (файлов: {}{})",
+            app.name,
+            removed_count,
+            if purge { t(", конфигурации очищены", ", configs purged") } else { "" }
+        );
     }
 
     if installed_list.len() < initial_count {

@@ -18,6 +18,7 @@ mod unpack;
 mod upgrade;
 
 use alloc::format;
+use alloc::string::ToString;
 use alloc::vec::Vec;
 use libwunix::{exit, geteuid, getuid, println, t};
 
@@ -156,18 +157,48 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 if pkg_file.ends_with(".wp") || pkg_file.ends_with(".wsp") {
                     match unpack::read_file_to_vec(pkg_file) {
                         Ok(data) => {
-                            println!("wsp: установка системного пакета '{}'", pkg_file);
-                            match unpack::unpack_wsp_package(&data, flag_verify) {
-                                Ok((manifest, files)) => {
-                                    display::print_step(1, 2, t("Проверка сигнатуры и манифеста", "Verifying signature"), true);
-                                    display::print_step(2, 2, t("Установка системных файлов", "Installing system files"), true);
-                                    println!("wsp: системный компонент '{}' успешно установлен (файлов: {}).", manifest.name, files.len());
-                                    0
+                            let parsed = match libpackwunix::format::PackageContainer::parse(&data) {
+                                Ok(c) => {
+                                    let d = data.len() as u64;
+                                    let p_len = c.payload.len();
+                                    let i = if p_len >= 4 && c.payload[0] == 0x1f && c.payload[1] == 0x8b {
+                                        u32::from_le_bytes([
+                                            c.payload[p_len - 4],
+                                            c.payload[p_len - 3],
+                                            c.payload[p_len - 2],
+                                            c.payload[p_len - 1],
+                                        ]) as u64
+                                    } else {
+                                        p_len as u64
+                                    };
+                                    Ok((c.manifest.name.clone(), c.manifest.version.to_string(), alloc::format!("{:?}", c.manifest.tier), d, i))
                                 }
                                 Err(e) => {
                                     display::print_error(e);
-                                    1
+                                    Err(1)
                                 }
+                            };
+
+                            match parsed {
+                                Ok((manifest_name, manifest_ver, manifest_tier, d_size, i_size)) => {
+                                    println!("{}:", t("Будет установлен системный компонент", "The following system component will be installed"));
+                                    println!("  {} (v{}) [{}]", manifest_name, manifest_ver, manifest_tier);
+
+                                    display::print_disk_space_change(d_size, i_size, true);
+
+                                    if !flag_yes {
+                                        let prompt_text = t("Продолжить установку системного компонента? [Y/n] ", "Continue with installation? [Y/n] ");
+                                        if !display::confirm_prompt(prompt_text, true) {
+                                            println!("{}", t("wsp: установка отменена пользователем.", "wsp: installation aborted by user."));
+                                            0
+                                        } else {
+                                            install_wsp_component(&data, pkg_file, flag_verify)
+                                        }
+                                    } else {
+                                        install_wsp_component(&data, pkg_file, flag_verify)
+                                    }
+                                }
+                                Err(code) => code,
                             }
                         }
                         Err(e) => {
@@ -207,4 +238,20 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     };
 
     exit(code as u64);
+}
+
+fn install_wsp_component(data: &[u8], pkg_file: &str, flag_verify: bool) -> i32 {
+    println!("wsp: установка системного пакета '{}'", pkg_file);
+    match unpack::unpack_wsp_package(data, flag_verify) {
+        Ok((manifest, files)) => {
+            display::print_step(1, 2, t("Проверка сигнатуры и манифеста", "Verifying signature"), true);
+            display::print_step(2, 2, t("Установка системных файлов", "Installing system files"), true);
+            println!("wsp: системный компонент '{}' успешно установлен (файлов: {}).", manifest.name, files.len());
+            0
+        }
+        Err(e) => {
+            display::print_error(e);
+            1
+        }
+    }
 }

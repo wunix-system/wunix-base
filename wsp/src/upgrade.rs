@@ -6,7 +6,7 @@ use libpackwunix::kernel::{generate_limine_conf, KernelEntry};
 use libpackwunix::version::Version;
 
 use crate::db::{has_critical_alert, log_transaction, WSP_ALERT_PATH};
-use crate::display::{print_access_denied, print_step, COLOR_GREEN, COLOR_RED, COLOR_RESET};
+use crate::display::{confirm_prompt, print_access_denied, print_disk_space_change, print_step, COLOR_GREEN, COLOR_RED, COLOR_RESET};
 
 pub fn run_upgrade(critical_only: bool, assume_yes: bool, dry_run: bool) -> i32 {
     let uid = getuid();
@@ -31,9 +31,10 @@ pub fn run_upgrade(critical_only: bool, assume_yes: bool, dry_run: bool) -> i32 
         println!("    - {:<16} 1.0.0 -> 1.0.1  {}[базовый]{}     48.0 КиБ", "wunix-base", COLOR_GREEN, COLOR_RESET);
     }
 
-    let count = if critical_only { 2 } else { 3 };
-    let total_size = if critical_only { "4.48 МиБ" } else { "4.53 МиБ" };
-    println!("  Всего пакетов: {} | Объем данных: {}", count, total_size);
+    let download_bytes: u64 = if critical_only { 4_700_000 } else { 4_750_000 };
+    let installed_bytes: u64 = if critical_only { 12_500_000 } else { 12_650_000 };
+
+    print_disk_space_change(download_bytes, installed_bytes, true);
 
     if dry_run {
         println!("  Режим симуляции (--dry-run). Файлы ядра не изменялись.");
@@ -41,7 +42,11 @@ pub fn run_upgrade(critical_only: bool, assume_yes: bool, dry_run: bool) -> i32 
     }
 
     if !assume_yes {
-        println!("  Применить системное обновление ядра прямо сейчас? [Y/n]");
+        let prompt_text = t("Применить системное обновление ядра? [Y/n] ", "Apply system kernel upgrade? [Y/n] ");
+        if !confirm_prompt(prompt_text, true) {
+            println!("{}", t("wsp: системное обновление отменено пользователем.", "wsp: upgrade aborted by user."));
+            return 0;
+        }
     }
 
     print_step(1, 3, t("Обновление библиотек системных вызовов Ring 3 (libwunix)", "Upgrading Ring 3 runtime libraries (libwunix)"), true);

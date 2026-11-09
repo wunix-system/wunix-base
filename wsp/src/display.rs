@@ -4,7 +4,8 @@
 
 extern crate alloc;
 use alloc::format;
-use libwunix::{println, t};
+use alloc::string::String;
+use libwunix::{print, println, read_line, t};
 use libpackwunix::sources::get_wsp_system_repo;
 
 pub const COLOR_RESET: &str = "\x1b[0m";
@@ -12,6 +13,49 @@ pub const COLOR_BOLD: &str = "\x1b[1m";
 pub const COLOR_RED: &str = "\x1b[31m";
 pub const COLOR_GREEN: &str = "\x1b[32m";
 pub const COLOR_YELLOW: &str = "\x1b[33m";
+
+pub fn format_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} {}", bytes, t("Б", "B"))
+    } else if bytes < 1024 * 1024 {
+        let kb = (bytes as f64) / 1024.0;
+        format!("{:.1} {}", kb, t("КиБ", "KiB"))
+    } else {
+        let mb = (bytes as f64) / (1024.0 * 1024.0);
+        format!("{:.2} {}", mb, t("МиБ", "MiB"))
+    }
+}
+
+pub fn print_disk_space_change(download_size: u64, installed_size: u64, is_install: bool) {
+    println!("\n{}:", t("Изменение дискового пространства", "Disk space summary"));
+    if is_install {
+        println!("  {:<26} {}", t("Размер пакетов:", "Download size:"), format_size(download_size));
+        println!("  {:<26} +{}", t("Будет занято на диске:", "Space required:"), format_size(installed_size));
+    } else {
+        println!("  {:<26} -{}", t("Будет освобождено на диске:", "Space freed:"), format_size(installed_size));
+    }
+    println!();
+}
+
+pub fn confirm_prompt(prompt: &str, default_yes: bool) -> bool {
+    print!("{}", prompt);
+    let mut buf = [0u8; 64];
+    match read_line(&mut buf) {
+        Some(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                default_yes
+            } else {
+                trimmed.eq_ignore_ascii_case("y")
+                    || trimmed.eq_ignore_ascii_case("yes")
+                    || trimmed == "д"
+                    || trimmed == "Д"
+                    || trimmed.eq_ignore_ascii_case("да")
+            }
+        }
+        None => false,
+    }
+}
 
 pub fn print_version() {
     println!("wsp (Wunix System Package) 1.1.0 (x86_64)");
