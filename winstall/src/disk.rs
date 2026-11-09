@@ -255,14 +255,14 @@ pub fn write_mbr_table(disk_path: &[u8], plans: &[PartitionPlan], count: usize) 
 
         pe[4] = if p.fstype == "swap" || p.mount_point == "swap" {
             0x82 // Linux swap
-        } else if p.mount_point == "/boot" {
-            0x0C // FAT32 LBA — загрузчик всегда на FAT
+        } else if p.mount_point == "/boot" || p.fstype == "fat32" || p.fstype == "fat" {
+            0x0C // FAT32 LBA — загрузочный раздел Limine
         } else if p.fstype == "ext4" {
             0x83 // Linux native (ext2/3/4)
         } else if p.fstype == "ufs" || p.fstype == "ufs2" {
             0xA5 // BSD/UFS — стандартный тип раздела для UFS
         } else {
-            0x83 // По умолчанию Linux native
+            0xA5 // По умолчанию UFS для разделов Wunix
         };
 
         pe[5] = 0xFE; pe[6] = 0xFF; pe[7] = 0xFF; // CHS end
@@ -367,49 +367,275 @@ pub fn format_fat32(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> boo
     ok
 }
 
-/// Форматирует раздел как Ext4, записывая минимальный суперблок со стандартной сигнатурой 0xEF53.
+/// Форматирует раздел как журналируемую файловую систему Ext4 (JBD2).
 ///
-/// Суперблок Ext4 начинается по смещению 1024 байт (2 сектора по 512) от начала раздела.
-/// Это позволяет ядру опознать раздел через `Ext4FileSystem::open()` при монтировании.
-pub fn format_ext4(disk_path: &[u8], lba_offset: u64, _part_sectors: u64) -> bool {
+/// Записывает стандартную структуру Ext4:
+/// - Суперблок (0xEF53) с поддержкой EXTENTS, FILETYPE и журнала JBD2
+/// - Дескрипторы групп блоков и битовые карты аллокации
+/// - Таблицу инодов с корневым каталогом (inode 2) и инодом журнала (inode 8)
+/// - Начальный блок корневого каталога с записями '.' и '..'
+/// - Суперблок журнала JBD2 (0xC036390C)
+pub fn format_ext4(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> bool {
     let fd = open(disk_path, O_RDWR as u64, 0);
-    if fd < 0 { return false; }
+    if fd < 0 {
+        return false;
+    }
 
-    // Суперблок занимает байты 1024-2047 от начала раздела = LBA 2 от lba_offset
-    let sb_offset = (lba_offset + 2) * 512;
+    let block_size = 4096u64;
+    let total_blocks = (part_sectors / 8).max(1024) as u32;
+    let inodes_count = 2048u32;
+    let blocks_per_group = 32768u32.min(total_blocks);
+    let inodes_per_group = inodes_count;
+
+    // 1. Суперблок Ext4 (LBA lba_offset + 2, байтовое смещение 1024 от начала раздела)
     let mut sb = [0u8; 1024];
+    sb[0..4].copy_from_slice(&inodes_count.to_le_bytes());
+    sb[4..8].copy_from_slice(&total_blocks.to_le_bytes());
+    sb[12..16].copy_from_slice(&(total_blocks.saturating_sub(1150)).to_le_bytes()); // free blocks
+    sb[16..20].copy_from_slice(&(inodes_count - 11).to_le_bytes());                 // free inodes
+    sb[20..24].copy_from_slice(&0u32.to_le_bytes());                                // first data block (0 для 4K)
+    sb[24..28].copy_from_slice(&2u32.to_le_bytes());                                // log_block_size = 2 (4096)
+    sb[32..36].copy_from_slice(&blocks_per_group.to_le_bytes());
+    sb[40..44].copy_from_slice(&inodes_per_group.to_le_bytes());
+    sb[56..58].copy_from_slice(&0xEF53u16.to_le_bytes());                           // s_magic
+    sb[58..60].copy_from_slice(&1u16.to_le_bytes());                                // s_state = clean
+    sb[84..88].copy_from_slice(&11u32.to_le_bytes());                               // s_first_ino = 11
+    sb[88..90].copy_from_slice(&256u16.to_le_bytes());                              // s_inode_size = 256
+    // s_feature_compat: HAS_JOURNAL (0x04) | DIR_INDEX (0x20)
+    sb[92..96].copy_from_slice(&0x0024u32.to_le_bytes());
+    // s_feature_incompat: FILETYPE (0x02) | EXTENTS (0x40)
+    sb[96..100].copy_from_slice(&0x0042u32.to_le_bytes());
+    // s_feature_ro_compat: SPARSE_SUPER (0x01) | LARGE_FILE (0x02)
+    sb[100..104].copy_from_slice(&0x0003u32.to_le_bytes());
+    sb[224..228].copy_from_slice(&8u32.to_le_bytes());                              // s_journal_inum = 8
 
-    sb[0..4].copy_from_slice(&1024u32.to_le_bytes());   // s_inodes_count
-    sb[4..8].copy_from_slice(&4096u32.to_le_bytes());   // s_blocks_count_lo
-    // s_log_block_size = 0 → размер блока 1 KiB (по умолчанию для небольших разделов)
-    sb[24..28].copy_from_slice(&0u32.to_le_bytes());
-    sb[56..58].copy_from_slice(&0xEF53u16.to_le_bytes()); // s_magic
-    sb[58..60].copy_from_slice(&1u16.to_le_bytes());     // s_state = 1 (clean)
+    let sb_byte_offset = lba_offset * 512 + 1024;
+    if pwrite64(fd as u64, &sb, sb_byte_offset) != 1024 {
+        close(fd as u64);
+        return false;
+    }
 
-    let ok = pwrite64(fd as u64, &sb, sb_offset) == 1024;
+    // 2. Дескриптор группы блоков (блок 1, смещение 4096)
+    let mut bg_desc = [0u8; 32];
+    bg_desc[0..4].copy_from_slice(&2u32.to_le_bytes());  // block_bitmap = block 2
+    bg_desc[4..8].copy_from_slice(&3u32.to_le_bytes());  // inode_bitmap = block 3
+    bg_desc[8..12].copy_from_slice(&4u32.to_le_bytes()); // inode_table = block 4
+    bg_desc[12..14].copy_from_slice(&(total_blocks.saturating_sub(1150) as u16).to_le_bytes());
+    bg_desc[14..16].copy_from_slice(&((inodes_count - 11) as u16).to_le_bytes());
+    bg_desc[16..18].copy_from_slice(&2u16.to_le_bytes()); // used_dirs = 2
+
+    let mut bg_buf = [0u8; 4096];
+    bg_buf[0..32].copy_from_slice(&bg_desc);
+    let bg_offset = lba_offset * 512 + block_size;
+    let _ = pwrite64(fd as u64, &bg_buf, bg_offset);
+
+    // 3. Битовая карта блоков (блок 2)
+    // Занято 1150 блоков: 0..131 (метаданные), 132 (root dir), 133..1132 (журнал)
+    let mut block_bitmap = [0u8; 4096];
+    for i in 0..144 {
+        block_bitmap[i] = 0xFF; // 144 * 8 = 1152 бита занято
+    }
+    let bb_offset = lba_offset * 512 + 2 * block_size;
+    let _ = pwrite64(fd as u64, &block_bitmap, bb_offset);
+
+    // 4. Битовая карта инодов (блок 3)
+    // Заняты иноды 1..11 (биты 0..10)
+    let mut inode_bitmap = [0u8; 4096];
+    inode_bitmap[0] = 0xFF;
+    inode_bitmap[1] = 0x07; // 8 + 3 = 11 инодов
+    let ib_offset = lba_offset * 512 + 3 * block_size;
+    let _ = pwrite64(fd as u64, &inode_bitmap, ib_offset);
+
+    // 5. Инициализация таблицы инодов (блок 4..131)
+    let mut itbl_buf = [0u8; 4096];
+
+    // Инод 2: Корневой каталог (смещение в первом блоке таблицы = 1 * 256 = 256)
+    let root_off = 256;
+    itbl_buf[root_off..root_off + 2].copy_from_slice(&0o040755u16.to_le_bytes()); // mode: dir 0755
+    itbl_buf[root_off + 4..root_off + 8].copy_from_slice(&4096u32.to_le_bytes()); // size: 4096
+    itbl_buf[root_off + 26..root_off + 28].copy_from_slice(&2u16.to_le_bytes());   // links: 2
+    itbl_buf[root_off + 28..root_off + 32].copy_from_slice(&8u32.to_le_bytes());   // blocks_512: 8
+    itbl_buf[root_off + 32..root_off + 36].copy_from_slice(&0x0008_0000u32.to_le_bytes()); // EXTENTS_FL
+
+    // Дерево экстентов корневого каталога: ExtentHeader (12 байт) + ExtentLeaf (12 байт)
+    let ext_off = root_off + 40;
+    itbl_buf[ext_off..ext_off + 2].copy_from_slice(&0xF30Au16.to_le_bytes()); // magic
+    itbl_buf[ext_off + 2..ext_off + 4].copy_from_slice(&1u16.to_le_bytes());   // entries = 1
+    itbl_buf[ext_off + 4..ext_off + 6].copy_from_slice(&4u16.to_le_bytes());   // max = 4
+    // ExtentLeaf: логический блок 0, длина 1, физический блок 132
+    itbl_buf[ext_off + 12..ext_off + 16].copy_from_slice(&0u32.to_le_bytes());   // ee_block = 0
+    itbl_buf[ext_off + 16..ext_off + 18].copy_from_slice(&1u16.to_le_bytes());   // ee_len = 1
+    itbl_buf[ext_off + 20..ext_off + 24].copy_from_slice(&132u32.to_le_bytes()); // ee_start = block 132
+
+    // Инод 8: Инод журнала JBD2 (смещение = 7 * 256 = 1792)
+    let j_off = 1792;
+    itbl_buf[j_off..j_off + 2].copy_from_slice(&0o100600u16.to_le_bytes()); // mode: reg 0600
+    itbl_buf[j_off + 4..j_off + 8].copy_from_slice(&(1000 * 4096u32).to_le_bytes()); // size = 4 МБ
+    itbl_buf[j_off + 26..j_off + 28].copy_from_slice(&1u16.to_le_bytes());   // links = 1
+    itbl_buf[j_off + 28..j_off + 32].copy_from_slice(&(1000 * 8u32).to_le_bytes()); // blocks_512
+    itbl_buf[j_off + 32..j_off + 36].copy_from_slice(&0x0008_0000u32.to_le_bytes()); // EXTENTS_FL
+
+    let j_ext_off = j_off + 40;
+    itbl_buf[j_ext_off..j_ext_off + 2].copy_from_slice(&0xF30Au16.to_le_bytes());
+    itbl_buf[j_ext_off + 2..j_ext_off + 4].copy_from_slice(&1u16.to_le_bytes());
+    itbl_buf[j_ext_off + 4..j_ext_off + 6].copy_from_slice(&4u16.to_le_bytes());
+    itbl_buf[j_ext_off + 12..j_ext_off + 16].copy_from_slice(&0u32.to_le_bytes());
+    itbl_buf[j_ext_off + 16..j_ext_off + 18].copy_from_slice(&1000u16.to_le_bytes()); // ee_len = 1000
+    itbl_buf[j_ext_off + 20..j_ext_off + 24].copy_from_slice(&133u32.to_le_bytes()); // ee_start = block 133
+
+    let itbl_offset = lba_offset * 512 + 4 * block_size;
+    let _ = pwrite64(fd as u64, &itbl_buf, itbl_offset);
+
+    // 6. Блок корневого каталога (блок 132)
+    let mut dir_buf = [0u8; 4096];
+    // Запись 1: '.' (12 байт)
+    dir_buf[0..4].copy_from_slice(&2u32.to_le_bytes());  // inode = 2
+    dir_buf[4..6].copy_from_slice(&12u16.to_le_bytes()); // rec_len = 12
+    dir_buf[6] = 1;                                     // name_len = 1
+    dir_buf[7] = 2;                                     // file_type = EXT4_FT_DIR
+    dir_buf[8] = b'.';
+
+    // Запись 2: '..' (4084 байта, забирает весь оставшийся блок)
+    dir_buf[12..16].copy_from_slice(&2u32.to_le_bytes());   // inode = 2
+    dir_buf[16..18].copy_from_slice(&4084u16.to_le_bytes()); // rec_len = 4084
+    dir_buf[18] = 2;                                        // name_len = 2
+    dir_buf[19] = 2;                                        // file_type = EXT4_FT_DIR
+    dir_buf[20] = b'.';
+    dir_buf[21] = b'.';
+
+    let dir_offset = lba_offset * 512 + 132 * block_size;
+    let _ = pwrite64(fd as u64, &dir_buf, dir_offset);
+
+    // 7. Суперблок журнала JBD2 (блок 133)
+    let mut j_sb = [0u8; 4096];
+    j_sb[0..4].copy_from_slice(&0xC036390Cu32.to_be_bytes()); // h_magic = 0xC036390C
+    j_sb[4..8].copy_from_slice(&4u32.to_be_bytes());          // h_blocktype = JBD2_SUPERBLOCK_V2 (4)
+    j_sb[8..12].copy_from_slice(&1u32.to_be_bytes());         // h_sequence = 1
+    j_sb[12..16].copy_from_slice(&4096u32.to_be_bytes());     // s_blocksize = 4096
+    j_sb[16..20].copy_from_slice(&1000u32.to_be_bytes());     // s_maxlen = 1000
+    j_sb[20..24].copy_from_slice(&1u32.to_be_bytes());        // s_first = 1
+    j_sb[24..28].copy_from_slice(&1u32.to_be_bytes());        // s_sequence = 1
+    j_sb[28..32].copy_from_slice(&0u32.to_be_bytes());        // s_start = 0 (журнал чист)
+
+    let j_sb_offset = lba_offset * 512 + 133 * block_size;
+    let ok = pwrite64(fd as u64, &j_sb, j_sb_offset) == 4096;
+
     close(fd as u64);
     ok
 }
 
-/// Форматирует раздел как UFS2, записывая минимальный суперблок.
+/// Форматирует раздел как журналируемую файловую систему UFS2 (Soft Updates Journaling).
 ///
-/// Суперблок UFS2 записывается по стандартному смещению 65536 байт (128 секторов по 512)
-/// от начала раздела. Содержит магическое число 0x19540119 (FS_UFS2_MAGIC) по смещению 1372.
+/// Записывает стандартную структуру BSD UFS2:
+/// - Суперблок UFS2 (0x19540119) по смещению LBA 128 (64 КиБ) с флагом FS_SUJ
+/// - Заголовок группы цилиндров (CG 0, 0x090255) с битовыми картами
+/// - Таблицу инодов с корневым каталогом (inode 2)
+/// - Блок корневого каталога с записями '.' и '..'
+/// - Заголовок журнала SUJ (0x53554A31)
 pub fn format_ufs(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> bool {
     let fd = open(disk_path, O_RDWR as u64, 0);
-    if fd < 0 { return false; }
+    if fd < 0 {
+        return false;
+    }
 
-    // LBA 128 от начала раздела = байтовое смещение 65536
-    let sb_offset = (lba_offset + 128) * 512;
+    let total_frags = (part_sectors / 8).max(1024) as i64;
+    let journal_lba = 1200u64;  // Смещение журнала относительно раздела (сектор 1200)
+    let root_dir_sec = 2200u64; // Блок данных корневого каталога (сектор 2200 = блок 275)
+    let reserved_blocks = 276i64; // Метаданные (блоки 0..275)
+
+    // 1. Суперблок UFS2 (LBA 128 = 65536 байт от начала раздела)
     let mut sb = [0u8; 2048];
-
-    let total_frags = (part_sectors / 8) as i64; // 1 фрагмент = 4096 байт = 8 секторов
-    sb[0..4].copy_from_slice(&128i32.to_le_bytes());           // fs_sblkno
+    sb[0..4].copy_from_slice(&128i32.to_le_bytes());           // fs_sblkno = 128
+    sb[4..8].copy_from_slice(&0i32.to_le_bytes());             // fs_cblkno = 0
+    sb[8..12].copy_from_slice(&132i32.to_le_bytes());          // fs_iblkno = 132
+    sb[12..16].copy_from_slice(&(root_dir_sec as i32).to_le_bytes()); // fs_dblkno = 2200
     sb[32..40].copy_from_slice(&total_frags.to_le_bytes());    // fs_size (int64)
-    // FS_UFS2_MAGIC = 0x19540119, смещение 1372 в суперблоке
-    sb[1372..1376].copy_from_slice(&0x19540119u32.to_le_bytes());
+    sb[48..52].copy_from_slice(&4096i32.to_le_bytes());        // fs_bsize = 4096
+    sb[52..56].copy_from_slice(&4096i32.to_le_bytes());        // fs_fsize = 4096
+    sb[56..60].copy_from_slice(&1i32.to_le_bytes());           // fs_frag = 1
+    sb[64..72].copy_from_slice(&(total_frags - reserved_blocks).to_le_bytes()); // fs_dsize
+    sb[196..200].copy_from_slice(&1i32.to_le_bytes());         // fs_ncg = 1
+    sb[204..208].copy_from_slice(&(total_frags as i32).to_le_bytes()); // fs_fpg
+    sb[208..212].copy_from_slice(&2048i32.to_le_bytes());      // fs_ipg = 2048
+    sb[1360..1368].copy_from_slice(&(journal_lba as i64).to_le_bytes()); // fs_sujfree
+    sb[1368..1372].copy_from_slice(&0x0040i32.to_le_bytes());  // fs_flags = FS_SUJ
+    sb[1372..1376].copy_from_slice(&0x19540119u32.to_le_bytes()); // fs_magic
 
-    let ok = pwrite64(fd as u64, &sb, sb_offset) == 2048;
+    let sb_offset = (lba_offset + 128) * 512;
+    if pwrite64(fd as u64, &sb, sb_offset) != 2048 {
+        close(fd as u64);
+        return false;
+    }
+
+    // 2. Заголовок группы цилиндров (CG 0, сектор 0)
+    let mut cg = [0u8; 512];
+    cg[4..8].copy_from_slice(&0i32.to_le_bytes());              // cgx = 0
+    cg[16..20].copy_from_slice(&(total_frags as i32).to_le_bytes()); // ndblk
+    cg[20..24].copy_from_slice(&64i32.to_le_bytes());          // niblk = 64 блока инодов
+    cg[24..28].copy_from_slice(&0x090255i32.to_le_bytes());     // cg_magic = 0x090255
+    cg[40..44].copy_from_slice(&((total_frags - reserved_blocks) as i32).to_le_bytes()); // nfree
+    cg[44..48].copy_from_slice(&(2048 - 11i32).to_le_bytes()); // nifree
+
+    let cg_offset = lba_offset * 512;
+    let _ = pwrite64(fd as u64, &cg, cg_offset);
+
+    // 3. Битовая карта инодов (CG + сектор 1)
+    let mut imap = [0u8; 512];
+    imap[0] = 0xFF;
+    imap[1] = 0x07; // Заняты первые 11 инодов
+    let _ = pwrite64(fd as u64, &imap, (lba_offset + 1) * 512);
+
+    // 4. Битовая карта блоков (CG + секторы 2..127)
+    // Резервируем первые 276 блоков под метаданные (секторы 0..2207)
+    let mut bmap = [0u8; 512];
+    for i in 0..34 {
+        bmap[i] = 0xFF; // 34 * 8 = 272 блока
+    }
+    bmap[34] = 0x0F;    // еще 4 блока: 272 + 4 = 276 блоков занято
+    let _ = pwrite64(fd as u64, &bmap, (lba_offset + 2) * 512);
+
+    let zero = [0u8; 512];
+    for s in 3..128 {
+        let _ = pwrite64(fd as u64, &zero, (lba_offset + s) * 512);
+    }
+
+    // 5. Инод 2: Корневой каталог (LBA lba_offset + 132, смещение 256 байт)
+    let mut root_dinode = [0u8; 256];
+    root_dinode[0..2].copy_from_slice(&0o040755u16.to_le_bytes()); // mode: dir 0755
+    root_dinode[2..4].copy_from_slice(&2i16.to_le_bytes());        // nlink: 2
+    root_dinode[12..16].copy_from_slice(&4096u32.to_le_bytes());   // blksize = 4096
+    root_dinode[16..24].copy_from_slice(&4096u64.to_le_bytes());   // size = 4096
+    root_dinode[24..32].copy_from_slice(&4096u64.to_le_bytes());   // bytes = 4096
+    root_dinode[112..120].copy_from_slice(&(root_dir_sec as i64).to_le_bytes()); // di_db[0]
+
+    let inode_offset = (lba_offset + 132) * 512 + 256;
+    let _ = pwrite64(fd as u64, &root_dinode, inode_offset);
+
+    // 6. Блок данных корневого каталога (LBA root_dir_sec = 2200)
+    let mut dir_buf = [0u8; 4096];
+    // Запись 1: '.'
+    dir_buf[0..4].copy_from_slice(&2u32.to_le_bytes());  // d_ino = 2
+    dir_buf[4..6].copy_from_slice(&12u16.to_le_bytes()); // d_reclen = 12
+    dir_buf[6] = 4;                                     // d_type = DT_DIR (4)
+    dir_buf[7] = 1;                                     // d_namlen = 1
+    dir_buf[8] = b'.';
+
+    // Запись 2: '..'
+    dir_buf[12..16].copy_from_slice(&2u32.to_le_bytes());   // d_ino = 2
+    dir_buf[16..18].copy_from_slice(&4084u16.to_le_bytes()); // d_reclen = 4084
+    dir_buf[18] = 4;                                        // d_type = DT_DIR (4)
+    dir_buf[19] = 2;                                        // d_namlen = 2
+    dir_buf[20] = b'.';
+    dir_buf[21] = b'.';
+
+    let _ = pwrite64(fd as u64, &dir_buf, (lba_offset + root_dir_sec) * 512);
+
+    // 7. Заголовок журнала SUJ (LBA journal_lba = 1200)
+    let mut j_hdr = [0u8; 512];
+    j_hdr[0..4].copy_from_slice(&0x53554A31u32.to_le_bytes()); // magic = "SUJ1"
+    j_hdr[4..8].copy_from_slice(&1u32.to_le_bytes());          // seq = 1
+    let ok = pwrite64(fd as u64, &j_hdr, (lba_offset + journal_lba) * 512) == 512;
+
     close(fd as u64);
     ok
 }
@@ -435,8 +661,12 @@ pub fn install_limine_bootloader(disk_path: &[u8]) -> bool {
         return false;
     }
 
-    let mut orig_part_table = [0u8; 70];
-    let _ = pread64(fd_disk as u64, &mut orig_part_table, 440);
+    // Считываем текущий сектор 0 (MBR) с диска целиком для гарантированного сохранения таблицы разделов
+    let mut current_mbr = [0u8; 512];
+    let r = pread64(fd_disk as u64, &mut current_mbr, 0);
+    if r == 512 {
+        boot_sector[440..510].copy_from_slice(&current_mbr[440..510]);
+    }
 
     let stage2_size_a: u16 = 10752;
     let stage2_size_b: u16 = 10752;
@@ -448,7 +678,6 @@ pub fn install_limine_bootloader(disk_path: &[u8]) -> bool {
     boot_sector[424..432].copy_from_slice(&stage2_loc_a.to_le_bytes());
     boot_sector[432..440].copy_from_slice(&stage2_loc_b.to_le_bytes());
 
-    boot_sector[440..510].copy_from_slice(&orig_part_table);
     boot_sector[510] = 0x55;
     boot_sector[511] = 0xAA;
 

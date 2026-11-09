@@ -30,7 +30,7 @@ fn do_check_installed() -> bool {
         return true;
     }
 
-    // Проверяем доступные дисковые разделы (только UFS и EXT4)
+    // Проверяем доступные дисковые разделы (UFS, EXT4, FAT32)
     let candidate_devs: &[&[u8]] = &[
         b"/dev/vda3\0",
         b"/dev/sda3\0",
@@ -45,7 +45,7 @@ fn do_check_installed() -> bool {
     let _ = mkdir(b"/mnt\0", 0o755);
 
     for dev in candidate_devs {
-        for fstype in &[b"ufs\0".as_ref(), b"ext4\0"] {
+        for fstype in &[b"ufs\0".as_ref(), b"ext4\0", b"fat32\0"] {
             if mount(*dev, b"/mnt\0", *fstype, 0, b"\0") >= 0 {
                 let inst_fd = open(b"/mnt/etc/installed\0", O_RDONLY as u64, 0);
                 if inst_fd >= 0 {

@@ -106,7 +106,14 @@ fn load_config<'a>(buf: &'a mut [u8; 1024]) -> (bool, [&'a str; 8], usize) {
                             || val.eq_ignore_ascii_case("off")
                         {
                             enabled = false;
+                        } else if val.eq_ignore_ascii_case("yes")
+                            || val.eq_ignore_ascii_case("true")
+                            || val == "1"
+                            || val.eq_ignore_ascii_case("on")
+                        {
+                            enabled = true;
                         } else {
+                            enabled = true;
                             for part in val.split_ascii_whitespace() {
                                 if !part.is_empty() && count < servers.len() {
                                     servers[count] = part;

@@ -15,11 +15,11 @@ pub fn screen_select_fs() -> Option<&'static str> {
 
     let items = [
         MenuItem {
-            label: "1. UFS   — Unix File System 2 (Рекомендуется)                     ",
+            label: "1. UFS   — Unix File System 2 [Рекомендуется]                         ",
             disabled: false,
         },
         MenuItem {
-            label: "2. Ext4  — Журналируемая файловая система Linux                    ",
+            label: "2. Ext4  — Журналируемая файловая система Linux                       ",
             disabled: false,
         },
     ];
@@ -27,7 +27,7 @@ pub fn screen_select_fs() -> Option<&'static str> {
     draw_separator();
     draw_footer(" Enter Подтвердить    ↑↓ Навигация    Esc Назад ");
 
-    let menu_w = 68;
+    let menu_w = 70;
     let col = center_col(menu_w);
     let sel = run_menu(12, col, &items, menu_w)?;
     match sel {
