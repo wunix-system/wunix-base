@@ -152,6 +152,24 @@ pub fn save_installed_apps(apps: &[InstalledApp]) {
     close(fd as u64);
 }
 
+pub fn is_system_package(pkg: &str) -> bool {
+    let canonical = match pkg {
+        "cc" => "tinycc",
+        "ssh" | "sshd" | "scp" => "openssh",
+        "unzip" => "zip",
+        "gunzip" => "gzip",
+        other => other,
+    };
+    matches!(
+        canonical,
+        "nano" | "curl" | "tar" | "zip" | "gzip" | "openssh"
+            | "openssl" | "ncurses" | "zlib" | "wunix-kernel" | "wunix-base"
+            | "libwunix" | "libpackwunix" | "libcwunix" | "coreutils" | "netutils"
+            | "sysutils" | "authutils" | "archiveutils" | "wspd" | "wsp" | "wsh"
+            | "init" | "system" | "winstall"
+    )
+}
+
 fn locate_package_file(pkg: &str) -> Option<String> {
     if pkg.ends_with(".wp") || pkg.ends_with(".wsp") || pkg.contains('/') {
         let mut null_p = [0u8; 256];
@@ -168,29 +186,16 @@ fn locate_package_file(pkg: &str) -> Option<String> {
 
     let canonical = match pkg {
         "tcc" | "cc" => "tinycc",
-        "ssh" | "sshd" | "scp" => "openssh",
-        "unzip" => "zip",
-        "gunzip" => "gzip",
         other => other,
     };
 
     let candidates = [
         format!("/var/cache/wpm/{}.wp", canonical),
         format!("/var/cache/wpm/{}-0.9.27.wp", canonical),
-        format!("/var/cache/wpm/{}-1.0.0.wp", canonical),
-        format!("/var/cache/wpm/{}-7.2.0.wp", canonical),
-        format!("/var/cache/wpm/{}-8.6.0.wp", canonical),
-        format!("/var/cache/wpm/{}-9.8.0.wp", canonical),
-        format!("/var/cache/wpm/{}-1.0.1.wp", canonical),
-        format!("/var/cache/wsp/{}.wp", canonical),
-        format!("/var/cache/wsp/{}-1.0.0.wp", canonical),
-        format!("/var/cache/wsp/{}-1.0.1.wp", canonical),
-        format!("/var/cache/wsp/{}-0.4.2.wp", canonical),
         format!("/var/lib/wpm/repo/apps/x86_64/{}.wp", canonical),
         format!("/repo/apps/x86_64/{}.wp", canonical),
         format!("/usr/share/wpm/packages/{}.wp", canonical),
         format!("/var/cache/wpm/{}.wp", pkg),
-        format!("/var/cache/wpm/{}.wsp", pkg),
     ];
 
     for path in &candidates {
@@ -245,14 +250,21 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
     let mut total_installed_space: u64 = 0;
 
     for &pkg in packages {
+        if is_system_package(pkg) {
+            println!("{}wpm: ошибка:{} '{}' является системным компонентом Wunix.", COLOR_BOLD, COLOR_RESET, pkg);
+            println!("  Для управления системными пакетами ядра и базовой ОС используйте WSP:");
+            println!("  sudo wsp install {}", pkg);
+            return 1;
+        }
+
         let pkg_file_path = match locate_package_file(pkg) {
             Some(p) => p,
             None => {
                 print_error(&format!(
-                    "пакет '{}' не найден в доступных репозиториях и локальном кэше /var/cache/wpm.",
+                    "пакет '{}' не найден в каталоге прикладных программ WPM и локальном кэше /var/cache/wpm.",
                     pkg
                 ));
-                println!("  Используйте 'wpm search <запрос>' для поиска программ.");
+                println!("  Используйте 'wpm search <запрос>' для поиска доступных программ.");
                 return 1;
             }
         };

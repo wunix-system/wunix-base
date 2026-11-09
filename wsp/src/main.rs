@@ -41,6 +41,49 @@ fn cstr_to_str(ptr: *const u8) -> &'static str {
     }
 }
 
+fn locate_system_package(pkg: &str) -> Option<alloc::string::String> {
+    if pkg.ends_with(".wp") || pkg.ends_with(".wsp") || pkg.contains('/') {
+        let mut null_p = [0u8; 256];
+        let b = pkg.as_bytes();
+        let l = b.len().min(255);
+        null_p[..l].copy_from_slice(&b[..l]);
+        null_p[l] = 0;
+        let fd = libwunix::open(&null_p, libwunix::O_RDONLY as u64, 0);
+        if fd >= 0 {
+            libwunix::close(fd as u64);
+            return Some(pkg.to_string());
+        }
+    }
+
+    let candidates = [
+        alloc::format!("/var/cache/wsp/{}.wp", pkg),
+        alloc::format!("/var/cache/wsp/{}-1.0.0.wp", pkg),
+        alloc::format!("/var/cache/wsp/{}-7.2.0.wp", pkg),
+        alloc::format!("/var/cache/wsp/{}-8.6.0.wp", pkg),
+        alloc::format!("/var/cache/wsp/{}-9.8.0.wp", pkg),
+        alloc::format!("/var/cache/wsp/{}-3.4.0.wp", pkg),
+        alloc::format!("/var/cache/wsp/{}-6.4.0.wp", pkg),
+        alloc::format!("/var/cache/wsp/{}-1.3.1.wp", pkg),
+        alloc::format!("/var/lib/wsp/repo/system/x86_64/{}.wp", pkg),
+        alloc::format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.0.wp", pkg),
+    ];
+
+    for path in &candidates {
+        let mut null_p = [0u8; 256];
+        let b = path.as_bytes();
+        let l = b.len().min(255);
+        null_p[..l].copy_from_slice(&b[..l]);
+        null_p[l] = 0;
+        let fd = libwunix::open(&null_p, libwunix::O_RDONLY as u64, 0);
+        if fd >= 0 {
+            libwunix::close(fd as u64);
+            return Some(path.clone());
+        }
+    }
+
+    None
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     if argc > 0 {
@@ -155,8 +198,9 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             if uid != 0 && euid != 0 {
                 display::print_access_denied("install", uid);
                 1
-            } else if let Some(pkg_file) = extra_arg {
-                if pkg_file.ends_with(".wp") || pkg_file.ends_with(".wsp") {
+            } else if let Some(target) = extra_arg {
+                let resolved = locate_system_package(target);
+                if let Some(pkg_file) = resolved.as_deref() {
                     match unpack::read_file_to_vec(pkg_file) {
                         Ok(data) => {
                             let parsed = match libpackwunix::format::PackageContainer::parse(&data) {
@@ -248,12 +292,12 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                         }
                     }
                 } else {
-                    println!("wsp: проверка системного компонента '{}'", pkg_file);
-                    println!("  компонент уже входит в базовый образ Wunix.");
-                    0
+                    display::print_error(&alloc::format!("системный пакет '{}' не найден в кэше /var/cache/wsp.", target));
+                    println!("  Используйте 'wsp list' или 'wsp check' для просмотра доступных компонентов.");
+                    1
                 }
             } else {
-                display::print_error(t("укажите имя пакета для установки: wsp install <пакет.wp>", "missing package file: wsp install <package.wp>"));
+                display::print_error(t("укажите имя пакета для установки: wsp install <пакет>", "missing package: wsp install <package>"));
                 1
             }
         }

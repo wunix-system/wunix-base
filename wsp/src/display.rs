@@ -98,7 +98,7 @@ pub fn confirm_prompt(prompt: &str, default_yes: bool) -> bool {
 }
 
 pub fn print_version() {
-    println!("wsp (Wunix System Package) 1.1.0 (x86_64)");
+    println!("wsp (Wunix System Package) 1.0.0 (x86_64)");
     println!("  {:<18} {}", t("Платформа:", "Platform:"), "Wunix OS (Long Mode)");
     println!("  {:<18} {}", t("Назначение:", "Scope:"), t("Ядро и базовые системные библиотеки Ring 3", "Monolithic kernel and base runtime"));
     println!("  {:<18} {}", t("Формат пакетов:", "Format:"), "Wunix Package (.wp)");

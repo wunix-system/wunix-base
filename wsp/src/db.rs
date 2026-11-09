@@ -113,9 +113,9 @@ pub fn get_default_base_packages() -> Vec<SystemPackageEntry> {
     vec![
         SystemPackageEntry {
             name: "wunix-kernel".to_string(),
-            version: "0.4.2".to_string(),
+            version: "1.0.0".to_string(),
             tier: "critical".to_string(),
-            description: "Монолитное ядро Wunix с VFS и вытесняющим планировщиком".to_string(),
+            description: "Монолитное ядро Wunix с VFS и вытесняющим планировщиком процессов".to_string(),
             files: vec![
                 "/boot/wunix-kernel".to_string(),
                 "/boot/limine.conf".to_string(),
@@ -123,26 +123,42 @@ pub fn get_default_base_packages() -> Vec<SystemPackageEntry> {
         },
         SystemPackageEntry {
             name: "libwunix".to_string(),
-            version: "0.2.0".to_string(),
+            version: "1.0.0".to_string(),
             tier: "critical".to_string(),
-            description: "Системная библиотека системных вызовов Ring 3".to_string(),
+            description: "Базовый системный рантайм и API системных вызовов Ring 3".to_string(),
             files: vec![
-                "/lib/libwunix.a".to_string(),
+                "/usr/lib/libwunix.a".to_string(),
+            ],
+        },
+        SystemPackageEntry {
+            name: "libpackwunix".to_string(),
+            version: "1.0.0".to_string(),
+            tier: "critical".to_string(),
+            description: "Библиотека контейнеров .wp и управления пакетами WSP/WPM".to_string(),
+            files: vec![
+                "/usr/lib/libpackwunix.a".to_string(),
+            ],
+        },
+        SystemPackageEntry {
+            name: "libcwunix".to_string(),
+            version: "1.0.0".to_string(),
+            tier: "base".to_string(),
+            description: "Стандартная библиотека Си libc для программ Wunix".to_string(),
+            files: vec![
+                "/usr/lib/libc.a".to_string(),
             ],
         },
         SystemPackageEntry {
             name: "wunix-base".to_string(),
-            version: "1.0.1".to_string(),
+            version: "1.0.0".to_string(),
             tier: "base".to_string(),
-            description: "Базовый набор системных утилит ядра и окружения Wunix".to_string(),
+            description: "Базовый системный образ Wunix OS (init, wsh, wsp, wpm, wspd, shell)".to_string(),
             files: vec![
                 "/bin/init".to_string(),
                 "/bin/wsh".to_string(),
-                "/bin/ls".to_string(),
-                "/bin/cat".to_string(),
-                "/bin/ip".to_string(),
-                "/bin/curl".to_string(),
+                "/bin/system".to_string(),
                 "/bin/wsp".to_string(),
+                "/bin/wspd".to_string(),
                 "/bin/wpm".to_string(),
             ],
         },

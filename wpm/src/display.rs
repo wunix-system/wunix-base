@@ -98,7 +98,7 @@ pub fn confirm_prompt(prompt: &str, default_yes: bool) -> bool {
 }
 
 pub fn print_version() {
-    println!("wpm (Wunix Package Manager) 1.1.0 (x86_64)");
+    println!("wpm (Wunix Package Manager) 1.0.0 (x86_64)");
     println!("  {:<18} {}", t("Платформа:", "Platform:"), "Wunix OS");
     println!("  {:<18} {}", t("Назначение:", "Scope:"), t("Пользовательские программы и утилиты", "User applications and tools"));
     println!("  {:<18} {}", t("Формат пакетов:", "Format:"), "Wunix Package (.wp)");

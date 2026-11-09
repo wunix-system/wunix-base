@@ -28,78 +28,6 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             description: "Быстрый и легковесный компилятор Си (tcc) для Wunix".to_string(),
             size: "244.5 KiB".to_string(),
         },
-        CatalogPackage {
-            name: "curl".to_string(),
-            aliases: alloc::vec!["http".to_string()],
-            version: "8.6.0".to_string(),
-            category: "network".to_string(),
-            description: "Сетевой клиент HTTP/HTTPS для передачи файлов и API".to_string(),
-            size: "7.20 MiB".to_string(),
-        },
-        CatalogPackage {
-            name: "nano".to_string(),
-            aliases: alloc::vec!["editor".to_string()],
-            version: "7.2.0".to_string(),
-            category: "editors".to_string(),
-            description: "Удобный консольный текстовый редактор GNU nano".to_string(),
-            size: "830.0 KiB".to_string(),
-        },
-        CatalogPackage {
-            name: "openssh".to_string(),
-            aliases: alloc::vec!["ssh".to_string(), "sshd".to_string(), "scp".to_string()],
-            version: "9.8.0".to_string(),
-            category: "network".to_string(),
-            description: "Комплекс сетевого безопасного доступа OpenSSH".to_string(),
-            size: "2.10 MiB".to_string(),
-        },
-        CatalogPackage {
-            name: "tar".to_string(),
-            aliases: alloc::vec![],
-            version: "1.0.0".to_string(),
-            category: "archivers".to_string(),
-            description: "Утилита работы со стандартными архивами tar".to_string(),
-            size: "18.0 KiB".to_string(),
-        },
-        CatalogPackage {
-            name: "zip".to_string(),
-            aliases: alloc::vec!["unzip".to_string()],
-            version: "1.0.0".to_string(),
-            category: "archivers".to_string(),
-            description: "Утилиты сжатия и распаковки ZIP архивов (zip, unzip)".to_string(),
-            size: "35.0 KiB".to_string(),
-        },
-        CatalogPackage {
-            name: "gzip".to_string(),
-            aliases: alloc::vec!["gunzip".to_string()],
-            version: "1.0.0".to_string(),
-            category: "archivers".to_string(),
-            description: "Утилиты потокового сжатия и распаковки gzip (gzip, gunzip)".to_string(),
-            size: "33.0 KiB".to_string(),
-        },
-        CatalogPackage {
-            name: "make".to_string(),
-            aliases: alloc::vec![],
-            version: "4.4.1".to_string(),
-            category: "programs-dev".to_string(),
-            description: "Классическая утилита автоматизации сборки проектов".to_string(),
-            size: "410.0 KiB".to_string(),
-        },
-        CatalogPackage {
-            name: "git".to_string(),
-            aliases: alloc::vec![],
-            version: "2.44.0".to_string(),
-            category: "programs-dev".to_string(),
-            description: "Распределенная система управления версиями исходного кода".to_string(),
-            size: "6.80 MiB".to_string(),
-        },
-        CatalogPackage {
-            name: "doom".to_string(),
-            aliases: alloc::vec![],
-            version: "1.1.0".to_string(),
-            category: "applications".to_string(),
-            description: "Легендарный шутер DOOM для графического буфера кадра Wunix".to_string(),
-            size: "4.50 MiB".to_string(),
-        },
     ]
 }
 
@@ -152,7 +80,13 @@ pub fn run_search(query: &str) -> i32 {
     }
 
     if found == 0 {
-        println!("  Совпадений в каталоге программ не найдено.");
+        if crate::install::is_system_package(query) {
+            println!("  '{}' является системным компонентом Wunix (WSP).", query);
+            println!("  Для просмотра системного компонента используйте: wsp info {}", query);
+            println!("  Для установки: sudo wsp install {}", query);
+        } else {
+            println!("  Совпадений в каталоге программ не найдено.");
+        }
     } else {
         println!("Найдено программ: {} (для установки выполните: sudo wpm install <имя>)", found);
     }
