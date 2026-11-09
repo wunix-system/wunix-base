@@ -27,7 +27,7 @@ impl LineEditor {
         let mut line_chars: Vec<char> = Vec::new();
         let mut cursor: usize = 0;
         let mut selection_anchor: Option<usize> = None;
-        let mut consecutive_tabs: usize = 0;
+        let mut completion_state = crate::completion::CompletionState::new();
 
         loop {
             let b = match platform::read_stdin_byte() {
@@ -42,8 +42,10 @@ impl LineEditor {
                 }
             };
 
-            if b != b'\t' {
-                consecutive_tabs = 0;
+            if b != b'\t' && b != 0x1B {
+                if completion_state.is_active {
+                    completion_state.reset();
+                }
             }
 
             match b {
@@ -58,11 +60,10 @@ impl LineEditor {
                     let res: String = line_chars.into_iter().collect();
                     return Some(res);
                 }
-                // Tab (Автодополнение команд и путей)
+                // Tab (Автодополнение команд, путей, переменных и циклический перебор вариантов)
                 b'\t' => {
                     selection_anchor = None;
-                    consecutive_tabs += 1;
-                    handle_tab_completion(prompt, &mut line_chars, &mut cursor, consecutive_tabs);
+                    handle_tab_press(prompt, &mut line_chars, &mut cursor, &mut completion_state, false);
                 }
                 // Ctrl+C
                 0x03 => {
@@ -216,7 +217,14 @@ impl LineEditor {
                         match next1 {
                             b'[' => {
                                 let action = parse_csi();
+                                if action != CsiAction::BackTab && completion_state.is_active {
+                                    completion_state.reset();
+                                }
                                 match action {
+                                    CsiAction::BackTab => {
+                                        selection_anchor = None;
+                                        handle_tab_press(prompt, &mut line_chars, &mut cursor, &mut completion_state, true);
+                                    }
                                     CsiAction::Up => {
                                         selection_anchor = None;
                                         if let Some(prev) = history.prev() {
@@ -519,279 +527,123 @@ impl LineEditor {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EntryKind {
-    File,
-    Dir,
-    Symlink,
-}
+pub use crate::completion::{
+    apply_completion_to_line, collect_candidates, detect_completion_context,
+    find_common_prefix, format_candidate_for_display, format_candidates_grid,
+    read_dir_entries, CompletionContext, CompletionItem, CompletionKind, CompletionState,
+};
+pub use crate::completion::CompletionKind as EntryKind;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum TabCompletionAction {
-    CompletedOne { suffix: String, kind: EntryKind },
-    CompletedPrefix { suffix: String },
-    ShowMatches { matches: Vec<(String, EntryKind)> },
-    WaitNextTab,
-    None,
-}
-
-pub fn compute_tab_completion(
-    matches: &[(String, EntryKind)],
-    prefix_to_complete: &str,
-    tab_count: usize,
-) -> TabCompletionAction {
-    if matches.is_empty() {
-        return TabCompletionAction::None;
-    }
-
-    if matches.len() == 1 {
-        let (name, kind) = &matches[0];
-        let suffix = if prefix_to_complete.len() <= name.len() {
-            name[prefix_to_complete.len()..].to_string()
+/// Обрабатывает нажатие клавиши Tab (или Shift+Tab для обратного хода),
+/// выполняя контекстное автодополнение (команды, файлы, переменные) или циклический перебор кандидатов.
+pub fn handle_tab_press(
+    prompt: &str,
+    line: &mut Vec<char>,
+    cursor: &mut usize,
+    state: &mut CompletionState,
+    is_back_tab: bool,
+) {
+    if state.is_active {
+        let token_start = state.token_start;
+        let cand = if is_back_tab {
+            state.cycle_prev().cloned()
         } else {
-            String::new()
+            state.cycle_next().cloned()
         };
-        return TabCompletionAction::CompletedOne {
-            suffix,
-            kind: *kind,
-        };
+        if let Some(candidate) = cand {
+            let current_len = cursor.saturating_sub(token_start);
+            *cursor = apply_completion_to_line(
+                line,
+                token_start,
+                current_len,
+                &candidate,
+            );
+            redraw_line(prompt, line, *cursor, None);
+        }
+        return;
     }
 
-    let match_names: Vec<String> = matches.iter().map(|(n, _)| n.clone()).collect();
-    let lcp = find_common_prefix(&match_names);
-
-    if lcp.len() > prefix_to_complete.len() {
-        let suffix = lcp[prefix_to_complete.len()..].to_string();
-        TabCompletionAction::CompletedPrefix { suffix }
-    } else if tab_count >= 2 {
-        TabCompletionAction::ShowMatches {
-            matches: matches.to_vec(),
-        }
-    } else {
-        TabCompletionAction::WaitNextTab
-    }
-}
-
-pub fn collect_command_completions(current_token: &str) -> Vec<(String, EntryKind)> {
-    let mut matches: Vec<(String, EntryKind)> = Vec::new();
-
-    for &cmd in crate::highlight::BUILTINS {
-        if cmd.starts_with(current_token) {
-            matches.push((cmd.to_string(), EntryKind::File));
-        }
+    if is_back_tab {
+        return;
     }
 
-    #[cfg(test)]
-    let bin_entries: Vec<(String, EntryKind)> = Vec::new();
-    #[cfg(not(test))]
-    let bin_entries = read_dir_entries("/bin");
-
-    if !bin_entries.is_empty() {
-        for (name, kind) in bin_entries {
-            if name.starts_with(current_token) && !matches.iter().any(|(m, _)| m == &name) {
-                matches.push((name, kind));
-            }
-        }
-    } else {
-        // Fallback: если /bin пуст или в тестовом окружении хоста,
-        // используем список стандартных доступных утилит
-        for &cmd in crate::highlight::COMMON_COMMANDS {
-            if cmd.starts_with(current_token) && !matches.iter().any(|(m, _)| m == cmd) {
-                matches.push((cmd.to_string(), EntryKind::File));
-            }
-        }
-    }
-
-    matches
-}
-
-fn collect_path_completions(current_token: &str) -> Vec<(String, EntryKind)> {
-    let mut matches = Vec::new();
-    let (dir_path, file_prefix) = if let Some(last_slash) = current_token.rfind('/') {
-        let d = if last_slash == 0 { "/" } else { &current_token[..last_slash] };
-        let p = &current_token[last_slash + 1..];
-        (d, p)
-    } else {
-        (".", current_token)
-    };
-
-    let entries = read_dir_entries(dir_path);
-    for (name, kind) in entries {
-        if (name == "." || name == "..") && !file_prefix.starts_with('.') {
-            continue;
-        }
-        if name.starts_with(file_prefix) {
-            matches.push((name, kind));
-        }
-    }
-
-    matches
-}
-
-fn handle_tab_completion(prompt: &str, line: &mut Vec<char>, cursor: &mut usize, tab_count: usize) {
     let text_before: String = line[..*cursor].iter().collect();
     let token_start = text_before.rfind(' ').map(|i| i + 1).unwrap_or(0);
     let current_token = &text_before[token_start..];
 
-    let is_command = text_before[..token_start].trim().is_empty();
+    let home = platform::get_env("HOME").unwrap_or_else(|| String::from("/root"));
+    let env_vars = platform::get_all_env();
 
-    let matches = if is_command {
-        collect_command_completions(current_token)
-    } else {
-        collect_path_completions(current_token)
-    };
+    let candidates = collect_candidates(&text_before, current_token, &home, &env_vars);
 
-    if matches.is_empty() {
+    if candidates.is_empty() {
         return;
     }
 
-    let prefix_to_complete = if !is_command && current_token.contains('/') {
-        let last_slash = current_token.rfind('/').unwrap();
-        &current_token[last_slash + 1..]
+    if candidates.len() == 1 {
+        let cand = &candidates[0];
+        let token_len = cursor.saturating_sub(token_start);
+        *cursor = apply_completion_to_line(line, token_start, token_len, cand);
+        redraw_line(prompt, line, *cursor, None);
+        return;
+    }
+
+    let candidate_texts: Vec<String> = candidates.iter().map(|c| c.text.clone()).collect();
+    let lcp = find_common_prefix(&candidate_texts);
+
+    print_raw("\n");
+    let grid_lines = format_candidates_grid(&candidates, 80);
+    for gl in &grid_lines {
+        print_raw(gl);
+        print_raw("\n");
+    }
+
+    if lcp.len() > current_token.len() {
+        let token_len = cursor.saturating_sub(token_start);
+        for _ in 0..token_len {
+            if token_start < line.len() {
+                line.remove(token_start);
+            }
+        }
+        let mut pos = token_start;
+        for c in lcp.chars() {
+            line.insert(pos, c);
+            pos += 1;
+        }
+        *cursor = pos;
+
+        state.is_active = true;
+        state.token_start = token_start;
+        state.original_token = lcp;
+        state.candidates = candidates;
+        state.current_index = None;
     } else {
-        current_token
-    };
+        state.is_active = true;
+        state.token_start = token_start;
+        state.original_token = current_token.to_string();
+        state.candidates = candidates;
+        state.current_index = None;
 
-    match compute_tab_completion(&matches, prefix_to_complete, tab_count) {
-        TabCompletionAction::CompletedOne { suffix, kind } => {
-            for c in suffix.chars() {
-                line.insert(*cursor, c);
-                *cursor += 1;
-            }
-            if kind == EntryKind::Dir {
-                line.insert(*cursor, '/');
-                *cursor += 1;
-            } else {
-                line.insert(*cursor, ' ');
-                *cursor += 1;
-            }
-            redraw_line(prompt, line, *cursor, None);
+        let token_start = state.token_start;
+        if let Some(first_cand) = state.cycle_next().cloned() {
+            let token_len = cursor.saturating_sub(token_start);
+            *cursor = apply_completion_to_line(line, token_start, token_len, &first_cand);
         }
-        TabCompletionAction::CompletedPrefix { suffix } => {
-            for c in suffix.chars() {
-                line.insert(*cursor, c);
-                *cursor += 1;
-            }
-            redraw_line(prompt, line, *cursor, None);
-        }
-        TabCompletionAction::ShowMatches { matches } => {
-            print_raw("\n");
-            for (name, kind) in &matches {
-                match kind {
-                    EntryKind::Dir => {
-                        print_raw("\x1b[1;34m");
-                        print_raw(name);
-                        print_raw("/\x1b[0m  ");
-                    }
-                    EntryKind::Symlink => {
-                        print_raw("\x1b[1;36m");
-                        print_raw(name);
-                        print_raw("@\x1b[0m  ");
-                    }
-                    EntryKind::File => {
-                        print_raw(name);
-                        print_raw("  ");
-                    }
-                }
-            }
-            print_raw("\n");
-            redraw_line(prompt, line, *cursor, None);
-        }
-        TabCompletionAction::WaitNextTab | TabCompletionAction::None => {}
     }
+
+    redraw_line(prompt, line, *cursor, None);
 }
 
-pub fn find_common_prefix(words: &[String]) -> String {
-    if words.is_empty() {
-        return String::new();
-    }
-    let first = &words[0];
-    let mut prefix_len = 0;
-    for (i, c) in first.chars().enumerate() {
-        if words.iter().all(|w| w.chars().nth(i) == Some(c)) {
-            prefix_len += c.len_utf8();
-        } else {
-            break;
-        }
-    }
-    first[..prefix_len].to_string()
+#[cfg(test)]
+pub fn collect_command_completions(token: &str) -> Vec<(String, EntryKind)> {
+    let candidates = collect_candidates(token, token, "/root", &[]);
+    candidates.into_iter().map(|c| (c.text, c.kind)).collect()
 }
 
-fn read_dir_entries(dir_path: &str) -> Vec<(String, EntryKind)> {
-    let mut entries = Vec::new();
-
-    #[cfg(feature = "std")]
-    {
-        if let Ok(read_dir) = std::fs::read_dir(dir_path) {
-            for entry in read_dir.flatten() {
-                if let Ok(name) = entry.file_name().into_string() {
-                    let kind = if let Ok(ft) = entry.file_type() {
-                        if ft.is_dir() {
-                            EntryKind::Dir
-                        } else if ft.is_symlink() {
-                            EntryKind::Symlink
-                        } else {
-                            EntryKind::File
-                        }
-                    } else {
-                        EntryKind::File
-                    };
-                    entries.push((name, kind));
-                }
-            }
-        }
-    }
-
-    #[cfg(not(feature = "std"))]
-    {
-        let mut null_term = [0u8; 256];
-        let bytes = dir_path.as_bytes();
-        if bytes.len() < null_term.len() {
-            null_term[..bytes.len()].copy_from_slice(bytes);
-            null_term[bytes.len()] = 0;
-
-            let fd = libwunix::open(&null_term[..bytes.len() + 1], 0, 0);
-            if fd >= 0 {
-                let mut buf = [0u8; 4096];
-                loop {
-                    let n = libwunix::getdents64(fd as u64, &mut buf);
-                    if n <= 0 {
-                        break;
-                    }
-                    let total = (n as usize).min(buf.len());
-                    let mut pos = 0;
-                    while pos + 19 <= total {
-                        let reclen = u16::from_ne_bytes([buf[pos + 16], buf[pos + 17]]) as usize;
-                        if reclen == 0 || pos + reclen > total {
-                            break;
-                        }
-                        let dtype = buf[pos + 18];
-                        let kind = match dtype {
-                            4 => EntryKind::Dir,
-                            10 => EntryKind::Symlink,
-                            _ => EntryKind::File,
-                        };
-
-                        let name_start = pos + 19;
-                        let mut name_end = name_start;
-                        let max_end = pos + reclen;
-                        while name_end < max_end && buf[name_end] != 0 {
-                            name_end += 1;
-                        }
-                        if name_end > name_start {
-                            if let Ok(name_str) = core::str::from_utf8(&buf[name_start..name_end]) {
-                                entries.push((String::from(name_str), kind));
-                            }
-                        }
-                        pos += reclen;
-                    }
-                }
-                let _ = libwunix::close(fd as u64);
-            }
-        }
-    }
-
-    entries
+#[cfg(test)]
+pub fn handle_tab_completion(prompt: &str, line: &mut Vec<char>, cursor: &mut usize, _tab_count: usize) {
+    let mut state = CompletionState::new();
+    handle_tab_press(prompt, line, cursor, &mut state, false);
 }
 
 fn insert_char(prompt: &str, line: &mut Vec<char>, cursor: &mut usize, c: char) {
@@ -1165,6 +1017,7 @@ pub enum CsiAction {
     Home,
     End,
     Delete,
+    BackTab,
     WordBackward,
     WordForward,
     SelectLeft,
@@ -1180,6 +1033,7 @@ pub fn decode_csi(final_byte: u8, p1: usize, p2: usize, p3: usize) -> CsiAction 
     match final_byte {
         b'A' => CsiAction::Up,
         b'B' => CsiAction::Down,
+        b'Z' => CsiAction::BackTab,
         b'C' => {
             if p2 == 5 || p1 == 5 {
                 CsiAction::WordForward
@@ -1539,53 +1393,58 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_tab_completion_single() {
-        let matches = vec![("echo".to_string(), EntryKind::File)];
-        let action = compute_tab_completion(&matches, "ec", 1);
-        assert_eq!(
-            action,
-            TabCompletionAction::CompletedOne {
-                suffix: "ho".to_string(),
-                kind: EntryKind::File,
-            }
-        );
+    fn test_handle_tab_press_single_candidate() {
+        let mut line: Vec<char> = "ec".chars().collect();
+        let mut cursor = 2;
+        let mut state = CompletionState::new();
+        handle_tab_press("", &mut line, &mut cursor, &mut state, false);
+        let completed: String = line.iter().collect();
+        assert_eq!(completed, "echo ");
+        assert_eq!(cursor, 5);
+        assert!(!state.is_active);
     }
 
     #[test]
-    fn test_compute_tab_completion_lcp_first_tab() {
-        let matches = vec![
-            ("clear".to_string(), EntryKind::File),
-            ("clean".to_string(), EntryKind::File),
-        ];
-        // Префикс "c" дополняется до "clea" на первом табе
-        let action = compute_tab_completion(&matches, "c", 1);
-        assert_eq!(
-            action,
-            TabCompletionAction::CompletedPrefix {
-                suffix: "lea".to_string(),
-            }
-        );
+    fn test_handle_tab_press_multiple_candidates_cycling() {
+        let mut line: Vec<char> = "cl".chars().collect();
+        let mut cursor = 2;
+        let mut state = CompletionState::new();
+
+        // 1-й таб: находит "clear" и "cls", показывает варианты и выбирает первого кандидата
+        handle_tab_press("", &mut line, &mut cursor, &mut state, false);
+        assert!(state.is_active);
+        let first_text: String = line.iter().collect();
+        assert!(first_text == "clear " || first_text == "cls ");
+
+        // 2-й таб: циклически переключает на следующего кандидата
+        handle_tab_press("", &mut line, &mut cursor, &mut state, false);
+        let second_text: String = line.iter().collect();
+        assert_ne!(first_text, second_text);
+        assert!(second_text == "clear " || second_text == "cls ");
+
+        // Shift+Tab: обратный переход
+        handle_tab_press("", &mut line, &mut cursor, &mut state, true);
+        let back_text: String = line.iter().collect();
+        assert_eq!(first_text, back_text);
     }
 
     #[test]
-    fn test_compute_tab_completion_double_tab_requirement() {
-        let matches = vec![
-            ("clear".to_string(), EntryKind::File),
-            ("clean".to_string(), EntryKind::File),
-        ];
-        // Уже достигли общего префикса "clea".
-        // 1-й таб: не показывает подсказки, ждет второго таба!
-        let action1 = compute_tab_completion(&matches, "clea", 1);
-        assert_eq!(action1, TabCompletionAction::WaitNextTab);
+    fn test_handle_tab_press_sudo_and_pipe() {
+        // Дополнение команды после sudo
+        let mut line: Vec<char> = "sudo reb".chars().collect();
+        let mut cursor = line.len();
+        let mut state = CompletionState::new();
+        handle_tab_press("", &mut line, &mut cursor, &mut state, false);
+        let completed: String = line.iter().collect();
+        assert_eq!(completed, "sudo reboot ");
 
-        // 2-й таб: выводит подсказки!
-        let action2 = compute_tab_completion(&matches, "clea", 2);
-        assert_eq!(
-            action2,
-            TabCompletionAction::ShowMatches {
-                matches: matches.clone(),
-            }
-        );
+        // Дополнение команды после конвейера
+        let mut line2: Vec<char> = "cat test | reb".chars().collect();
+        let mut cursor2 = line2.len();
+        let mut state2 = CompletionState::new();
+        handle_tab_press("", &mut line2, &mut cursor2, &mut state2, false);
+        let completed2: String = line2.iter().collect();
+        assert_eq!(completed2, "cat test | reboot ");
     }
 
     #[test]
