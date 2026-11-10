@@ -45,26 +45,11 @@ pub extern "C" fn _start() -> ! {
         }
     }
 
-    // 3. Маршрутизация целевого режима: при наличии установленной системы на диске запускаем экран входа (login)
-    if is_disk_mode || check_installed() {
-        let login_argv = [b"/bin/login\0".as_ptr(), core::ptr::null()];
-        loop {
-            let _ = libwunix::setgid(0);
-            let _ = libwunix::setuid(0);
-            let _ = chdir(b"/\0");
-            let ret = execve(b"/bin/login\0", login_argv.as_ptr() as u64, 0);
-            if ret < 0 {
-                let wsh_argv = [b"/bin/wsh\0".as_ptr(), core::ptr::null()];
-                let _ = execve(b"/bin/wsh\0", wsh_argv.as_ptr() as u64, 0);
-                let req = [1u64, 0u64];
-                libwunix::nanosleep(req.as_ptr() as *const u8, core::ptr::null_mut());
-            }
-            libwunix::yield_now();
-        }
-    } else if is_install_mode {
-        let winstall_argv = [b"/bin/winstall\0".as_ptr(), core::ptr::null()];
-        let _ = execve(b"/bin/winstall\0", winstall_argv.as_ptr() as u64, 0);
-    } else if is_live_mode {
+    // 3. Маршрутизация целевого режима:
+    // Если в cmdline явно указан mode=live — запускаем Live-сессию (интерактивный wsh).
+    // Если mode=install — графический инсталлятор winstall.
+    // Если mode=disk или на диске найдена установленная Wunix — экран входа (login).
+    if is_live_mode {
         write(
             STDOUT_FILENO,
             t(
@@ -82,18 +67,36 @@ pub extern "C" fn _start() -> ! {
                 b"[init] \x1b[1;31m\xd0\x9e\xd1\x88\xd0\xb8\xd0\xb1\xd0\xba\xd0\xb0 \xd0\xb7\xd0\xb0\xd0\xbf\xd1\x83\xd1\x81\xd0\xba\xd0\xb0 /bin/wsh\x1b[0m\n",
             );
         }
+    } else if is_install_mode {
+        let winstall_argv = [b"/bin/winstall\0".as_ptr(), core::ptr::null()];
+        let _ = execve(b"/bin/winstall\0", winstall_argv.as_ptr() as u64, 0);
+    } else if is_disk_mode || check_installed() {
+        let login_argv = [b"/bin/login\0".as_ptr(), core::ptr::null()];
+        loop {
+            let _ = libwunix::setgid(0);
+            let _ = libwunix::setuid(0);
+            let _ = chdir(b"/\0");
+            let ret = execve(b"/bin/login\0", login_argv.as_ptr() as u64, 0);
+            if ret < 0 {
+                let wsh_argv = [b"/bin/wsh\0".as_ptr(), core::ptr::null()];
+                let _ = execve(b"/bin/wsh\0", wsh_argv.as_ptr() as u64, 0);
+                let req = [1u64, 0u64];
+                libwunix::nanosleep(req.as_ptr() as *const u8, core::ptr::null_mut());
+            }
+            libwunix::yield_now();
+        }
     } else {
         // По умолчанию на установочном ISO запускаем TUI загрузочное меню (winstall)
         let winstall_argv = [b"/bin/winstall\0".as_ptr(), core::ptr::null()];
         let _ = execve(b"/bin/winstall\0", winstall_argv.as_ptr() as u64, 0);
     }
 
-    // 4. Если основной процесс завершился, супервизор удерживает систему через login (на диске) или wsh (в Live)
+    // 4. Если пользователь вышел из сессии (exit), супервизор перезапускает экран входа (login)
     loop {
         let _ = libwunix::setgid(0);
         let _ = libwunix::setuid(0);
         let _ = chdir(b"/\0");
-        let target_bin: &[u8] = if check_installed() { b"/bin/login\0" } else { b"/bin/wsh\0" };
+        let target_bin: &[u8] = b"/bin/login\0";
         let argv = [target_bin.as_ptr(), core::ptr::null()];
         let ret = execve(target_bin, argv.as_ptr() as u64, 0);
         if ret < 0 {
