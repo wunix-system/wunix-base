@@ -53,7 +53,7 @@ fn main() {
 }
 
 #[cfg(not(feature = "std"))]
-const WSH_HEAP_SIZE: usize = 1024 * 1024; // 1 МиБ кучи для строк, истории и парсера шелла
+const WSH_HEAP_SIZE: usize = 2 * 1024 * 1024; // 2 МиБ кучи для строк, истории и парсера шелла
 
 #[cfg(all(not(feature = "std"), not(test)))]
 struct SimpleBumpAllocator {
@@ -108,8 +108,50 @@ pub extern "C" fn _start() -> ! {
     libwunix::exit(0);
 }
 
+fn get_history_file_path() -> String {
+    if let Some(histfile) = platform::get_env("HISTFILE") {
+        let trimmed = histfile.trim();
+        if !trimmed.is_empty() {
+            return String::from(trimmed);
+        }
+    }
+
+    if let Some(home) = platform::get_env("HOME") {
+        let trimmed = home.trim();
+        if !trimmed.is_empty() {
+            if trimmed == "/" {
+                return String::from("/.wsh_history");
+            } else if trimmed.ends_with('/') {
+                let mut p = String::from(trimmed);
+                p.push_str(".wsh_history");
+                return p;
+            } else {
+                let mut p = String::from(trimmed);
+                p.push_str("/.wsh_history");
+                return p;
+            }
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    let is_root = libwunix::geteuid() == 0;
+    #[cfg(feature = "std")]
+    let is_root = false;
+
+    if is_root {
+        String::from("/root/.wsh_history")
+    } else {
+        String::from("/home/.wsh_history")
+    }
+}
+
 fn run_interactive_shell() {
-    let mut history = History::new(500);
+    let hist_capacity = platform::get_env("HISTSIZE")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(1000);
+    let hist_path = get_history_file_path();
+    let mut history = History::with_file(hist_capacity, Some(hist_path));
+    history.load_default_file();
     let mut last_status = 0;
     let mut should_exit = false;
 
@@ -174,23 +216,29 @@ fn run_interactive_shell() {
         };
 
         if line == "\x03" {
+            history.reset_cursor();
             last_status = 130;
             continue;
         }
 
         let trimmed = line.trim();
         if trimmed.is_empty() {
+            history.reset_cursor();
             last_status = 0;
             continue;
         }
 
-        history.add(trimmed);
+        if history.add(trimmed) {
+            history.append_default_file(trimmed);
+        }
         last_status = run_command_line(trimmed, &mut history, last_status, &mut should_exit);
 
         if should_exit {
             break;
         }
     }
+
+    history.save_default_file();
 
     #[cfg(feature = "std")]
     std::process::exit(last_status);

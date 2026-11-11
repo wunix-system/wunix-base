@@ -217,3 +217,72 @@ pub fn execute_pipeline(pipeline: &Pipeline) -> i32 {
         ret as i32
     }
 }
+
+pub fn read_file(path: &str) -> Option<String> {
+    let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
+    let bytes = path.as_bytes();
+    if bytes.len() >= null_path.len() {
+        return None;
+    }
+    null_path[..bytes.len()].copy_from_slice(bytes);
+    null_path[bytes.len()] = 0;
+
+    let fd = libwunix::open(&null_path[..bytes.len() + 1], libwunix::O_RDONLY as u64, 0);
+    if fd < 0 {
+        return None;
+    }
+
+    let mut bytes_vec = Vec::new();
+    let mut buf = [0u8; 512];
+    loop {
+        let n = libwunix::read(fd as u64, &mut buf);
+        if n == 0 {
+            break;
+        }
+        bytes_vec.extend_from_slice(&buf[..n as usize]);
+    }
+    let _ = libwunix::close(fd as u64);
+    String::from_utf8(bytes_vec).ok()
+}
+
+pub fn append_file_line(path: &str, line: &str) -> bool {
+    let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
+    let bytes = path.as_bytes();
+    if bytes.len() >= null_path.len() {
+        return false;
+    }
+    null_path[..bytes.len()].copy_from_slice(bytes);
+    null_path[bytes.len()] = 0;
+
+    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_APPEND) as u64;
+    let fd = libwunix::open(&null_path[..bytes.len() + 1], flags, 0o600);
+    if fd < 0 {
+        return false;
+    }
+
+    let _ = libwunix::write(fd as u64, line.as_bytes());
+    let _ = libwunix::write(fd as u64, b"
+");
+    let _ = libwunix::close(fd as u64);
+    true
+}
+
+pub fn write_file(path: &str, content: &str) -> bool {
+    let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
+    let bytes = path.as_bytes();
+    if bytes.len() >= null_path.len() {
+        return false;
+    }
+    null_path[..bytes.len()].copy_from_slice(bytes);
+    null_path[bytes.len()] = 0;
+
+    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_TRUNC) as u64;
+    let fd = libwunix::open(&null_path[..bytes.len() + 1], flags, 0o600);
+    if fd < 0 {
+        return false;
+    }
+
+    let _ = libwunix::write(fd as u64, content.as_bytes());
+    let _ = libwunix::close(fd as u64);
+    true
+}

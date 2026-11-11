@@ -24,7 +24,7 @@ impl Builtins {
     /// Возвращает Some(exit_code), если команда была встроенной, или None, если это внешняя программа.
     pub fn execute(
         cmd: &SimpleCommand,
-        history: &History,
+        history: &mut History,
         last_status: i32,
         should_exit: &mut bool,
     ) -> Option<i32> {
@@ -44,7 +44,7 @@ impl Builtins {
             "export" => Some(Self::builtin_export(&cmd.args)),
             "unset" => Some(Self::builtin_unset(&cmd.args)),
             "env" => Some(Self::builtin_env()),
-            "history" => Some(Self::builtin_history(history)),
+            "history" => Some(Self::builtin_history(history, &cmd.args)),
             "clear" | "cls" => {
                 print_out("\x1b[2J\x1b[H");
                 Some(0)
@@ -158,10 +158,116 @@ impl Builtins {
         0
     }
 
-    fn builtin_history(history: &History) -> i32 {
+    fn builtin_history(history: &mut History, args: &[String]) -> i32 {
+        if let Some(arg) = args.first() {
+            match arg.as_str() {
+                "--help" | "-h" => {
+                    let msg = t(
+                        "Использование: history [N] | history [-c] [-d СМЕЩЕНИЕ] [-w [ФАЙЛ]] [-r [ФАЙЛ]] [-a [ФАЙЛ]]\n\
+                         Управление историей команд Wunix Shell.\n\n\
+                         Опции:\n\
+                           N           Показать последние N команд\n\
+                           -c          Очистить историю команд\n\
+                           -d СМЕЩ    Удалить запись по номеру\n\
+                           -w [ФАЙЛ]   Сохранить историю в файл\n\
+                           -r [ФАЙЛ]   Загрузить историю из файла\n\
+                           -a [ФАЙЛ]   Добавить историю в файл\n\
+                           --help      Показать эту справку\n",
+                        "Usage: history [N] | history [-c] [-d OFFSET] [-w [FILE]] [-r [FILE]] [-a [FILE]]\n\
+                         Display or manipulate the command history list.\n\n\
+                         Options:\n\
+                           N           Display last N commands\n\
+                           -c          Clear the history list\n\
+                           -d OFFSET   Delete history entry at OFFSET\n\
+                           -w [FILE]   Write current history to file\n\
+                           -r [FILE]   Read history from file\n\
+                           -a [FILE]   Append history to file\n\
+                           --help      Display this help\n",
+                    );
+                    print_out(msg);
+                    return 0;
+                }
+                "-c" => {
+                    history.clear();
+                    let _ = history.save_default_file();
+                    return 0;
+                }
+                "-d" => {
+                    if let Some(offset_str) = args.get(1) {
+                        if let Ok(idx) = offset_str.parse::<usize>() {
+                            if idx >= 1 && idx <= history.len() {
+                                history.remove_at(idx - 1);
+                                let _ = history.save_default_file();
+                                return 0;
+                            }
+                        }
+                    }
+                    print_err(t(
+                        "history: неверный номер записи\n",
+                        "history: invalid entry number\n",
+                    ));
+                    return 1;
+                }
+                "-w" => {
+                    let path = args.get(1).map(|s| s.as_str());
+                    let ok = if let Some(p) = path {
+                        history.save_file(p)
+                    } else {
+                        history.save_default_file()
+                    };
+                    if !ok {
+                        print_err(t(
+                            "history: ошибка записи в файл\n",
+                            "history: failed to write to file\n",
+                        ));
+                        return 1;
+                    }
+                    return 0;
+                }
+                "-r" => {
+                    let path = args.get(1).map(|s| s.as_str());
+                    let ok = if let Some(p) = path {
+                        history.load_file(p)
+                    } else {
+                        history.load_default_file()
+                    };
+                    if !ok {
+                        print_err(t(
+                            "history: ошибка чтения из файла\n",
+                            "history: failed to read from file\n",
+                        ));
+                        return 1;
+                    }
+                    return 0;
+                }
+                "-a" => {
+                    let path = args.get(1).map(|s| s.as_str());
+                    if let Some(p) = path {
+                        for entry in history.entries() {
+                            let _ = history.append_entry_to_file(entry, p);
+                        }
+                    } else {
+                        for entry in history.entries() {
+                            let _ = history.append_default_file(entry);
+                        }
+                    }
+                    return 0;
+                }
+                _ => {}
+            }
+        }
+
+        let count_filter = args.first().and_then(|s| s.parse::<usize>().ok());
         let entries = history.entries();
-        for (i, entry) in entries.iter().enumerate() {
-            print_out(&format!(" {:4}  {}\n", i + 1, entry));
+        let total = entries.len();
+        let start_idx = match count_filter {
+            Some(n) if n < total => total - n,
+            _ => 0,
+        };
+
+        for (idx, entry) in entries[start_idx..].iter().enumerate() {
+            let num = start_idx + idx + 1;
+            print_out(&format!(" {:5}  {}\n", num, entry));
         }
         0
     }
@@ -288,5 +394,65 @@ fn print_err(s: &str) {
     #[cfg(not(feature = "std"))]
     {
         libwunix::write(libwunix::STDERR_FILENO, s.as_bytes());
+    }
+}
+
+fn t(ru: &'static str, en: &'static str) -> &'static str {
+    #[cfg(not(feature = "std"))]
+    {
+        libwunix::t(ru, en)
+    }
+    #[cfg(feature = "std")]
+    {
+        ru
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::SimpleCommand;
+
+    #[test]
+    fn test_builtin_history_execution() {
+        let mut history = History::new(10);
+        history.add("echo one");
+        history.add("echo two");
+        history.add("echo three");
+
+        let mut should_exit = false;
+        let cmd = SimpleCommand {
+            name: String::from("history"),
+            args: vec![],
+            redirects: vec![],
+        };
+        let res = Builtins::execute(&cmd, &mut history, 0, &mut should_exit);
+        assert_eq!(res, Some(0));
+
+        let cmd_n = SimpleCommand {
+            name: String::from("history"),
+            args: vec![String::from("2")],
+            redirects: vec![],
+        };
+        let res_n = Builtins::execute(&cmd_n, &mut history, 0, &mut should_exit);
+        assert_eq!(res_n, Some(0));
+
+        let cmd_d = SimpleCommand {
+            name: String::from("history"),
+            args: vec![String::from("-d"), String::from("2")],
+            redirects: vec![],
+        };
+        let res_d = Builtins::execute(&cmd_d, &mut history, 0, &mut should_exit);
+        assert_eq!(res_d, Some(0));
+        assert_eq!(history.entries(), &["echo one", "echo three"]);
+
+        let cmd_c = SimpleCommand {
+            name: String::from("history"),
+            args: vec![String::from("-c")],
+            redirects: vec![],
+        };
+        let res_c = Builtins::execute(&cmd_c, &mut history, 0, &mut should_exit);
+        assert_eq!(res_c, Some(0));
+        assert!(history.is_empty());
     }
 }

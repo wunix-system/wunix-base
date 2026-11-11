@@ -19,6 +19,7 @@ pub struct LineEditor;
 impl LineEditor {
     /// Считывает одну строку команды от пользователя в интерактивном режиме с правкой, историей и курсором
     pub fn read_line(prompt: &str, history: &mut History) -> Option<String> {
+        history.reset_cursor();
         print_raw(prompt);
         flush_raw();
 

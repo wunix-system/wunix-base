@@ -246,3 +246,23 @@ fn execute_single_command(cmd: &SimpleCommand, default_in: Stdio, default_out: S
         }
     }
 }
+
+pub fn read_file(path: &str) -> Option<String> {
+    std::fs::read_to_string(path).ok()
+}
+
+pub fn append_file_line(path: &str, line: &str) -> bool {
+    use std::io::Write;
+    let mut file = match OpenOptions::new().create(true).append(true).open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    if writeln!(file, "{}", line).is_err() {
+        return false;
+    }
+    true
+}
+
+pub fn write_file(path: &str, content: &str) -> bool {
+    std::fs::write(path, content).is_ok()
+}
