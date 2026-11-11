@@ -316,8 +316,8 @@ Exit the current shell session.
 \fBexport\fR \fIVAR\fR=\fIVAL\fR
 Set environment variable.
 .TP
-\fBhistory\fR
-Display command history.
+\fBhistory\fR [\fIN\fR] [\fB-c\fR] [\fB-d\fR \fIoffset\fR] [\fB-w\fR] [\fB-r\fR] [\fB-a\fR]
+Display or manipulate command history list. Commands are preserved across user sessions in ~/.wsh_history.
 .SH "SEE ALSO"
 \fBman\fR(1), \fBinit\fR(8)
 "#,
@@ -342,8 +342,8 @@ wsh \- командная оболочка Wunix
 \fBexport\fR \fIПЕРЕМЕННАЯ\fR=\fIЗНАЧЕНИЕ\fR
 Установить переменную окружения.
 .TP
-\fBhistory\fR
-Показать список выполненных команд.
+\fBhistory\fR [\fIN\fR] [\fB-c\fR] [\fB-d\fR \fIсмещение\fR] [\fB-w\fR] [\fB-r\fR] [\fB-a\fR]
+Показать или изменить историю команд. Команды сохраняются между сессиями пользователя в ~/.wsh_history.
 .SH "СМ. ТАКЖЕ"
 \fBman\fR(1), \fBinit\fR(8)
 "#,
