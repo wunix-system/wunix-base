@@ -54,6 +54,44 @@ pub fn parse_url(url: &[u8]) -> Option<ParsedUrl<'_>> {
     })
 }
 
+#[derive(Clone, Copy)]
+pub struct ParsedProxy<'a> {
+    pub host: &'a [u8],
+    pub port: u16,
+}
+
+/// Разбирает строку прокси формата `[http://]host[:port]`
+pub fn parse_proxy(proxy: &[u8]) -> Option<ParsedProxy<'_>> {
+    let raw = if proxy.starts_with(b"http://") {
+        &proxy[7..]
+    } else if proxy.starts_with(b"https://") {
+        &proxy[8..]
+    } else {
+        proxy
+    };
+
+    // Отрезаем завершающий слэш или путь, если указан: http://10.0.2.2:10809/ -> 10.0.2.2:10809
+    let host_port = match raw.iter().position(|&b| b == b'/') {
+        Some(idx) => &raw[..idx],
+        None => raw,
+    };
+
+    if host_port.is_empty() {
+        return None;
+    }
+
+    let (host, port) = match host_port.iter().position(|&b| b == b':') {
+        Some(idx) => {
+            let h = &host_port[..idx];
+            let p = parse_u16(&host_port[idx + 1..])?;
+            (h, p)
+        }
+        None => (host_port, 1080),
+    };
+
+    Some(ParsedProxy { host, port })
+}
+
 pub fn extract_remote_filename(path: &[u8]) -> &[u8] {
     let clean = match path.iter().position(|&b| b == b'?') {
         Some(idx) => &path[..idx],
@@ -70,9 +108,9 @@ pub fn extract_remote_filename(path: &[u8]) -> &[u8] {
     }
 }
 
-/// Распознает назначение вывода для флага -o: дефис '-' означает stdout (None)
+/// Распознает назначение вывода для флага -o: дефис '-' означает явный вывод в stdout
 pub fn parse_output_destination(dest: &[u8]) -> Option<&[u8]> {
-    if dest == b"-" {
+    if dest.is_empty() {
         None
     } else {
         Some(dest)
@@ -162,8 +200,24 @@ mod tests {
 
     #[test]
     fn test_parse_output_destination() {
-        assert_eq!(parse_output_destination(b"-"), None);
+        assert_eq!(parse_output_destination(b"-"), Some(&b"-"[..]));
         assert_eq!(parse_output_destination(b"output.txt"), Some(&b"output.txt"[..]));
         assert_eq!(parse_output_destination(b"-o"), Some(&b"-o"[..]));
+        assert_eq!(parse_output_destination(b""), None);
+    }
+
+    #[test]
+    fn test_parse_proxy() {
+        let p1 = parse_proxy(b"http://10.0.2.2:10809").unwrap();
+        assert_eq!(p1.host, b"10.0.2.2");
+        assert_eq!(p1.port, 10809);
+
+        let p2 = parse_proxy(b"127.0.0.1:8080/").unwrap();
+        assert_eq!(p2.host, b"127.0.0.1");
+        assert_eq!(p2.port, 8080);
+
+        let p3 = parse_proxy(b"proxy.local").unwrap();
+        assert_eq!(p3.host, b"proxy.local");
+        assert_eq!(p3.port, 1080);
     }
 }

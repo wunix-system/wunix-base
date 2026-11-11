@@ -16,7 +16,7 @@ impl Builtins {
     pub fn is_builtin(name: &str) -> bool {
         matches!(
             name,
-            "cd" | "pwd" | "exit" | "echo" | "export" | "unset" | "env" | "history" | "clear" | "cls" | "help" | "type" | "which" | "whoami" | "hostname"
+            "cd" | "pwd" | "exit" | "echo" | "export" | "unset" | "env" | "history" | "clear" | "cls" | "help" | "type" | "which" | "whoami" | "hostname" | "true" | ":" | "false" | "command"
         )
     }
 
@@ -53,6 +53,17 @@ impl Builtins {
             "hostname" => Some(Self::builtin_hostname()),
             "help" => Some(Self::builtin_help()),
             "type" | "which" => Some(Self::builtin_type(&cmd.args)),
+            "true" | ":" => Some(0),
+            "false" => Some(1),
+            "command" => {
+                if cmd.args.is_empty() {
+                    Some(0)
+                } else if cmd.args[0] == "-v" || cmd.args[0] == "-V" {
+                    Some(Self::builtin_type(&cmd.args[1..]))
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }

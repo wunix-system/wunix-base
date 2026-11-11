@@ -1,16 +1,25 @@
 use libwunix::{
-    close, connect, current_language, exit, open, println, read, socket, t, write, Language,
+    close, connect, current_language, eprintln, exit, open, read, socket, t, write, Language,
     SockAddrIn, AF_INET, SOCK_STREAM, STDOUT_FILENO,
 };
 
-use crate::url::{parse_content_length, ParsedUrl};
+use crate::url::{parse_content_length, ParsedProxy, ParsedUrl};
 
 unsafe extern "C" {
+    fn wunix_tls_init_session(
+        hostname: *const u8,
+        ca_file: *const u8,
+        insecure: i32,
+        verbose: i32,
+    ) -> *mut core::ffi::c_void;
+    fn wunix_tls_handshake(handle: *mut core::ffi::c_void, fd: i32, verbose: i32) -> i32;
+    #[allow(dead_code)]
     fn wunix_tls_connect(
         fd: i32,
         hostname: *const u8,
         ca_file: *const u8,
         insecure: i32,
+        verbose: i32,
     ) -> *mut core::ffi::c_void;
     fn wunix_tls_write(handle: *mut core::ffi::c_void, buf: *const u8, len: i32) -> i32;
     fn wunix_tls_read(handle: *mut core::ffi::c_void, buf: *mut u8, len: i32) -> i32;
@@ -30,68 +39,108 @@ pub struct RequestConfig<'a> {
     pub verbose: bool,
     pub insecure: bool,
     pub ca_file: Option<&'a [u8]>,
+    pub proxy: Option<ParsedProxy<'a>>,
+}
+
+fn append_u16_digits(buf: &mut [u8], len: &mut usize, mut val: u16) {
+    if val == 0 {
+        if *len < buf.len() {
+            buf[*len] = b'0';
+            *len += 1;
+        }
+        return;
+    }
+    let mut digits = [0u8; 6];
+    let mut idx = 0;
+    while val > 0 {
+        digits[idx] = (val % 10) as u8 + b'0';
+        val /= 10;
+        idx += 1;
+    }
+    while idx > 0 {
+        idx -= 1;
+        if *len < buf.len() {
+            buf[*len] = digits[idx];
+            *len += 1;
+        }
+    }
+}
+
+/// Устанавливает HTTP CONNECT туннель через прокси для защищенного TLS-трафика
+fn establish_http_tunnel(fd: i32, host: &[u8], port: u16, verbose: bool) -> bool {
+    let mut req = [0u8; 512];
+    let mut len = 0;
+    macro_rules! append {
+        ($s:expr) => {
+            let slice = $s;
+            if len + slice.len() <= req.len() {
+                req[len..len + slice.len()].copy_from_slice(slice);
+                len += slice.len();
+            }
+        };
+    }
+
+    append!(b"CONNECT ");
+    append!(host);
+    append!(b":");
+    append_u16_digits(&mut req, &mut len, port);
+    append!(b" HTTP/1.1\r\nHost: ");
+    append!(host);
+    append!(b":");
+    append_u16_digits(&mut req, &mut len, port);
+    append!(b"\r\nUser-Agent: curl/8.5.0 (Wunix)\r\nProxy-Connection: Keep-Alive\r\n\r\n");
+
+    if verbose {
+        eprintln!(
+            "* Establish HTTP proxy CONNECT tunnel to {}:{}...",
+            core::str::from_utf8(host).unwrap_or(""),
+            port
+        );
+    }
+
+    let w = write(fd as u64, &req[..len]);
+    if w <= 0 {
+        return false;
+    }
+
+    let mut resp = [0u8; 1024];
+    let mut resp_len = 0;
+    while resp_len < resp.len() {
+        let n = read(fd as u64, &mut resp[resp_len..]);
+        if n <= 0 {
+            return false;
+        }
+        resp_len += n as usize;
+        if resp_len >= 4 && resp[..resp_len].windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
+    }
+
+    let status_bytes = &resp[..resp_len];
+    let is_ok = status_bytes.windows(4).any(|w| w == b" 200" || w == b" 200 ");
+    if is_ok {
+        if verbose {
+            eprintln!("* Proxy CONNECT tunnel established successfully");
+        }
+        true
+    } else {
+        if verbose {
+            eprintln!(
+                "* Proxy CONNECT tunnel rejected: {}",
+                core::str::from_utf8(status_bytes).unwrap_or("")
+            );
+        }
+        false
+    }
 }
 
 pub fn execute_http_request(cfg: &RequestConfig) -> usize {
     let host_s = core::str::from_utf8(cfg.parsed.host).unwrap_or("");
-    let host_ip = match libwunix::resolve_host(host_s) {
-        Ok(ip) => ip,
-        Err(_) => {
-            if !cfg.silent || cfg.show_error {
-                println!(
-                    "{}: {}",
-                    t(
-                        "curl: (6) Не удалось разрешить имя хоста",
-                        "curl: (6) Could not resolve host"
-                    ),
-                    host_s
-                );
-            }
-            exit(6);
-        }
-    };
 
-    if cfg.verbose {
-        println!("*   Trying {}:{}...", host_s, cfg.parsed.port);
-    }
-
-    let fd = socket(AF_INET, SOCK_STREAM, 0);
-    if fd < 0 {
-        if !cfg.silent || cfg.show_error {
-            println!("{}: {}", t("curl: ошибка сокета", "curl: socket error"), fd);
-        }
-        exit(7);
-    }
-
-    let sockaddr = SockAddrIn::new_v4(host_ip, cfg.parsed.port);
-    let conn_res = connect(fd as u64, &sockaddr);
-    if conn_res < 0 {
-        if !cfg.silent || cfg.show_error {
-            println!(
-                "{}: {} {}:{}",
-                t(
-                    "curl: (7) Не удалось подключиться к хосту",
-                    "curl: (7) Failed to connect to"
-                ),
-                host_s,
-                cfg.parsed.port,
-                conn_res
-            );
-        }
-        close(fd as u64);
-        exit(7);
-    }
-
-    if cfg.verbose {
-        println!("* Connected to {} ({}) port {}", host_s, host_s, cfg.parsed.port);
-    }
-
-    // Инициализация OpenSSL TLS соединения при HTTPS
-    let tls_handle: *mut core::ffi::c_void = if cfg.parsed.is_https {
-        if cfg.verbose {
-            println!("* Initializing OpenSSL TLS handshake with {}...", host_s);
-        }
-
+    // Заранее инициализируем контекст OpenSSL TLS до установки соединения с сетью.
+    // Это исключает задержку на чтение и парсинг корневых сертификатов CA из файловой системы
+    // после открытия HTTP CONNECT туннеля, из-за которой прокси-сервер сбрасывает соединение по idle таймауту.
+    let pre_tls: *mut core::ffi::c_void = if cfg.parsed.is_https {
         let mut host_null = [0u8; 256];
         let h_len = cfg.parsed.host.len().min(255);
         host_null[..h_len].copy_from_slice(&cfg.parsed.host[..h_len]);
@@ -108,17 +157,148 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
         };
 
         let handle = unsafe {
-            wunix_tls_connect(
-                fd as i32,
+            wunix_tls_init_session(
                 host_null.as_ptr(),
                 ca_ptr,
                 if cfg.insecure { 1 } else { 0 },
+                if cfg.verbose { 1 } else { 0 },
+            )
+        };
+        if handle.is_null() {
+            if !cfg.silent || cfg.show_error {
+                eprintln!(
+                    "{}",
+                    t(
+                        "curl: (35) Не удалось инициализировать контекст OpenSSL TLS",
+                        "curl: (35) Failed to initialize OpenSSL TLS context"
+                    )
+                );
+            }
+            exit(35);
+        }
+        handle
+    } else {
+        core::ptr::null_mut()
+    };
+
+    // Определяем адрес подключения: либо указанный прокси, либо целевой сервер напрямую
+    let (connect_ip, connect_port, is_proxied) = if let Some(p) = cfg.proxy {
+        let p_host_s = core::str::from_utf8(p.host).unwrap_or("");
+        let p_ip = match libwunix::resolve_host(p_host_s) {
+            Ok(ip) => ip,
+            Err(_) => {
+                if !cfg.silent || cfg.show_error {
+                    eprintln!(
+                        "{}: {}",
+                        t("curl: (5) Не удалось разрешить адрес прокси", "curl: (5) Could not resolve proxy"),
+                        p_host_s
+                    );
+                }
+                exit(5);
+            }
+        };
+        (p_ip, p.port, true)
+    } else {
+        let host_ip = match libwunix::resolve_host(host_s) {
+            Ok(ip) => ip,
+            Err(_) => {
+                if !cfg.silent || cfg.show_error {
+                    eprintln!(
+                        "{}: {}",
+                        t(
+                            "curl: (6) Не удалось разрешить имя хоста",
+                            "curl: (6) Could not resolve host"
+                        ),
+                        host_s
+                    );
+                }
+                exit(6);
+            }
+        };
+        (host_ip, cfg.parsed.port, false)
+    };
+
+    if cfg.verbose {
+        if is_proxied {
+            eprintln!(
+                "*   Trying proxy {}.{}.{}.{}:{}...",
+                connect_ip[0], connect_ip[1], connect_ip[2], connect_ip[3], connect_port
+            );
+        } else {
+            eprintln!("*   Trying {}:{}...", host_s, connect_port);
+        }
+    }
+
+    let fd = socket(AF_INET, SOCK_STREAM, 0);
+    if fd < 0 {
+        if !cfg.silent || cfg.show_error {
+            eprintln!("{}: {}", t("curl: ошибка сокета", "curl: socket error"), fd);
+        }
+        exit(7);
+    }
+
+    let sockaddr = SockAddrIn::new_v4(connect_ip, connect_port);
+    let conn_res = connect(fd as u64, &sockaddr);
+    if conn_res < 0 {
+        if !cfg.silent || cfg.show_error {
+            eprintln!(
+                "{}: {} {}:{}",
+                t(
+                    "curl: (7) Не удалось подключиться к хосту",
+                    "curl: (7) Failed to connect to"
+                ),
+                if is_proxied { "proxy" } else { host_s },
+                connect_port,
+                conn_res
+            );
+        }
+        close(fd as u64);
+        exit(7);
+    }
+
+    if cfg.verbose {
+        eprintln!(
+            "* Connected to {} port {}",
+            if is_proxied { "proxy" } else { host_s },
+            connect_port
+        );
+    }
+
+    // Если соединение через прокси и целевой протокол HTTPS — поднимаем HTTP CONNECT туннель
+    if is_proxied && cfg.parsed.is_https {
+        if !establish_http_tunnel(fd as i32, cfg.parsed.host, cfg.parsed.port, cfg.verbose) {
+            if !cfg.silent || cfg.show_error {
+                eprintln!(
+                    "{}",
+                    t(
+                        "curl: (56) Не удалось установить HTTP CONNECT туннель через прокси",
+                        "curl: (56) Received HTTP code 5xx/4xx from proxy during CONNECT"
+                    )
+                );
+            }
+            close(fd as u64);
+            exit(56);
+        }
+    }
+
+    // Выполняем OpenSSL TLS рукопожатие на подготовленном контексте
+    let tls_handle: *mut core::ffi::c_void = if cfg.parsed.is_https {
+        if cfg.verbose {
+            eprintln!("* Initializing OpenSSL TLS handshake with {}...", host_s);
+        }
+
+        let hs_ok = unsafe {
+            wunix_tls_handshake(
+                pre_tls,
+                fd as i32,
+                if cfg.verbose { 1 } else { 0 },
             )
         };
 
-        if handle.is_null() {
+        if hs_ok <= 0 {
+            unsafe { wunix_tls_close(pre_tls) };
             if !cfg.silent || cfg.show_error {
-                println!(
+                eprintln!(
                     "{}",
                     t(
                         "curl: (35) Ошибка TLS/SSL рукопожатия или верификации сертификата OpenSSL",
@@ -131,9 +311,9 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
         }
 
         if cfg.verbose {
-            println!("* OpenSSL TLS handshake completed successfully");
+            eprintln!("* OpenSSL TLS handshake completed successfully");
         }
-        handle
+        pre_tls
     } else {
         core::ptr::null_mut()
     };
@@ -155,7 +335,19 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
     let eff_method = cfg.method.unwrap_or(b"GET");
     append_bytes!(eff_method);
     append_bytes!(b" ");
-    append_bytes!(cfg.parsed.path);
+
+    if is_proxied && !cfg.parsed.is_https {
+        append_bytes!(b"http://");
+        append_bytes!(cfg.parsed.host);
+        if cfg.parsed.port != 80 {
+            append_bytes!(b":");
+            append_u16_digits(&mut req_buf, &mut req_len, cfg.parsed.port);
+        }
+        append_bytes!(cfg.parsed.path);
+    } else {
+        append_bytes!(cfg.parsed.path);
+    }
+
     append_bytes!(b" HTTP/1.0\r\nHost: ");
     append_bytes!(cfg.parsed.host);
     append_bytes!(b"\r\nUser-Agent: curl/8.5.0 (Wunix; OpenSSL)\r\nAccept: */*\r\nConnection: close\r\n");
@@ -194,9 +386,9 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
     if cfg.verbose {
         if let Ok(req_str) = core::str::from_utf8(&req_buf[..req_len]) {
             for line in req_str.lines() {
-                println!("> {}", line);
+                eprintln!("> {}", line);
             }
-            println!(">");
+            eprintln!(">");
         }
     }
 
@@ -218,7 +410,7 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
             let opened = open(&null_term[..copy_len + 1], 0x40 | 0x200 | 0x01, 0o644);
             if opened < 0 {
                 if !cfg.silent || cfg.show_error {
-                    println!(
+                    eprintln!(
                         "{}: {}",
                         t("curl: ошибка открытия файла для записи", "curl: cannot open output file"),
                         core::str::from_utf8(path).unwrap_or("")
@@ -282,9 +474,9 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
                 if cfg.verbose && !verbose_headers_printed {
                     if let Ok(hdr_str) = core::str::from_utf8(&accumulated[..acc_len]) {
                         for line in hdr_str.lines() {
-                            println!("< {}", line);
+                            eprintln!("< {}", line);
                         }
-                        println!("<");
+                        eprintln!("<");
                     }
                 }
                 break;
@@ -328,9 +520,9 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
                     if cfg.verbose && !verbose_headers_printed {
                         if let Ok(hdr_str) = core::str::from_utf8(&accumulated[..pos]) {
                             for line in hdr_str.lines() {
-                                println!("< {}", line);
+                                eprintln!("< {}", line);
                             }
-                            println!("<");
+                            eprintln!("<");
                         }
                         verbose_headers_printed = true;
                     }
@@ -372,7 +564,7 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
     }
 
     if cfg.verbose {
-        println!("* Closing connection 0");
+        eprintln!("* Closing connection 0");
     }
 
     if let Some(path) = cfg.output_file {
@@ -380,9 +572,9 @@ pub fn execute_http_request(cfg: &RequestConfig) -> usize {
             let path_str = core::str::from_utf8(path).unwrap_or("");
             let is_ru = current_language() == Language::Russian;
             if is_ru {
-                println!("curl: сохранено {} байт в '{}'", total_bytes_written, path_str);
+                eprintln!("curl: сохранено {} байт в '{}'", total_bytes_written, path_str);
             } else {
-                println!("curl: saved {} bytes to '{}'", total_bytes_written, path_str);
+                eprintln!("curl: saved {} bytes to '{}'", total_bytes_written, path_str);
             }
         }
     }

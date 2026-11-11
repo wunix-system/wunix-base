@@ -103,9 +103,136 @@ static ALLOCATOR: SimpleBumpAllocator = SimpleBumpAllocator {
 
 #[cfg(all(not(feature = "std"), not(test)))]
 #[unsafe(no_mangle)]
-pub extern "C" fn _start() -> ! {
+pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
+    let mut args: alloc::vec::Vec<String> = alloc::vec::Vec::new();
+    if argc > 0 && !argv.is_null() {
+        for i in 0..argc {
+            let p = unsafe { *argv.add(i as usize) };
+            if !p.is_null() {
+                let mut len = 0;
+                unsafe {
+                    while *p.add(len) != 0 && len < 4096 {
+                        len += 1;
+                    }
+                    if let Ok(s) = core::str::from_utf8(core::slice::from_raw_parts(p, len)) {
+                        args.push(String::from(s));
+                    }
+                }
+            }
+        }
+    }
+
+    let prog_name = args.first().map(|s| s.as_str()).unwrap_or("wsh");
+    let is_env_app = prog_name.ends_with("env");
+
+    if is_env_app && args.len() > 1 {
+        // Эмуляция /usr/bin/env: исполнение следующей утилиты с аргументами
+        let mut history = History::new(10);
+        let mut should_exit = false;
+        let mut cmd_line = String::new();
+        for (i, arg) in args[1..].iter().enumerate() {
+            if i > 0 {
+                cmd_line.push(' ');
+            }
+            cmd_line.push_str(arg);
+        }
+        let code = run_command_line(&cmd_line, &mut history, 0, &mut should_exit);
+        libwunix::exit(code as u64);
+    }
+
+    // Обработка запуска команды через -c: wsh -c "команда"
+    if args.len() >= 3 && args[1] == "-c" {
+        let cmd_str = &args[2];
+        let mut history = History::new(10);
+        let mut should_exit = false;
+        let exit_code = run_command_line(cmd_str, &mut history, 0, &mut should_exit);
+        libwunix::exit(exit_code as u64);
+    }
+
+    // Обработка запуска файла скрипта: wsh script.sh [args...]
+    if args.len() >= 2 && !args[1].starts_with('-') {
+        if let Some(content) = platform::read_file(&args[1]) {
+            let exit_code = run_script_content(&content);
+            libwunix::exit(exit_code as u64);
+        } else {
+            let not_found_msg = libwunix::t("wsh: не удалось открыть скрипт: ", "wsh: cannot open script: ");
+            libwunix::write(libwunix::STDERR_FILENO, not_found_msg.as_bytes());
+            libwunix::write(libwunix::STDERR_FILENO, args[1].as_bytes());
+            libwunix::write(libwunix::STDERR_FILENO, b"\n");
+            libwunix::exit(1);
+        }
+    }
+
+    // Если stdin не терминал (конвейер или перенаправление файла: curl ... | bash)
+    if !libwunix::isatty(0) {
+        let exit_code = run_from_stdin();
+        libwunix::exit(exit_code as u64);
+    }
+
     run_interactive_shell();
     libwunix::exit(0);
+}
+
+fn run_script_content(content: &str) -> i32 {
+    let mut history = History::new(100);
+    let mut last_status = 0;
+    let mut should_exit = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        last_status = run_command_line(trimmed, &mut history, last_status, &mut should_exit);
+        if should_exit {
+            break;
+        }
+    }
+    last_status
+}
+
+fn is_script_control_or_brace(s: &str) -> bool {
+    matches!(s, "{" | "}" | "(" | ")" | "then" | "else" | "fi" | "do" | "done" | "esac")
+        || s.contains("() {")
+        || (s.ends_with("()") && s.len() > 2)
+}
+
+#[cfg(not(feature = "std"))]
+fn run_from_stdin() -> i32 {
+    let mut history = History::new(100);
+    let mut last_status = 0;
+    let mut should_exit = false;
+    let mut line_buf = String::new();
+    let mut chunk = [0u8; 1024];
+
+    loop {
+        let n = libwunix::read(0, &mut chunk);
+        if n == 0 || (n as i64) < 0 {
+            break;
+        }
+        if let Ok(s) = core::str::from_utf8(&chunk[..n as usize]) {
+            line_buf.push_str(s);
+            while let Some(pos) = line_buf.find('\n') {
+                let line: String = line_buf.drain(..=pos).collect();
+                let trimmed = line.trim();
+                if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                    if is_script_control_or_brace(trimmed) {
+                        continue;
+                    }
+                    last_status = run_command_line(trimmed, &mut history, last_status, &mut should_exit);
+                    if should_exit {
+                        return last_status;
+                    }
+                }
+            }
+        }
+    }
+
+    let trimmed = line_buf.trim();
+    if !trimmed.is_empty() && !trimmed.starts_with('#') && !should_exit && !is_script_control_or_brace(trimmed) {
+        last_status = run_command_line(trimmed, &mut history, last_status, &mut should_exit);
+    }
+
+    last_status
 }
 
 fn get_history_file_path() -> String {
@@ -298,13 +425,85 @@ fn execute_single_pipeline(
     // Если пайплайн состоит из одной команды, проверяем, не является ли она встроенной
     if pipeline.commands.len() == 1 {
         let single_cmd = &pipeline.commands[0];
-        if let Some(code) = Builtins::execute(single_cmd, history, last_status, should_exit) {
-            return code;
+        if Builtins::is_builtin(&single_cmd.name) {
+            #[cfg(not(feature = "std"))]
+            {
+                let saved_in = libwunix::dup(0);
+                let saved_out = libwunix::dup(1);
+                apply_command_redirects(&single_cmd.redirects);
+                let res = Builtins::execute(single_cmd, history, last_status, should_exit);
+                if saved_in >= 0 {
+                    let _ = libwunix::dup2(saved_in as u64, 0);
+                    let _ = libwunix::close(saved_in as u64);
+                }
+                if saved_out >= 0 {
+                    let _ = libwunix::dup2(saved_out as u64, 1);
+                    let _ = libwunix::close(saved_out as u64);
+                }
+                if let Some(code) = res {
+                    return code;
+                }
+            }
+            #[cfg(feature = "std")]
+            {
+                if let Some(code) = Builtins::execute(single_cmd, history, last_status, should_exit) {
+                    return code;
+                }
+            }
         }
     }
 
     // В противном случае запускаем реальный конвейер процессов через платформу
     platform::execute_pipeline(pipeline)
+}
+
+#[cfg(not(feature = "std"))]
+fn apply_command_redirects(redirects: &[wsh::parser::Redirect]) {
+    for red in redirects {
+        match red {
+            wsh::parser::Redirect::Output(path) => {
+                let mut p_buf = [0u8; 256];
+                let b = path.as_bytes();
+                if b.len() < p_buf.len() {
+                    p_buf[..b.len()].copy_from_slice(b);
+                    p_buf[b.len()] = 0;
+                    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_TRUNC) as u64;
+                    let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
+                    if fd >= 0 {
+                        let _ = libwunix::dup2(fd as u64, 1);
+                        let _ = libwunix::close(fd as u64);
+                    }
+                }
+            }
+            wsh::parser::Redirect::AppendOutput(path) => {
+                let mut p_buf = [0u8; 256];
+                let b = path.as_bytes();
+                if b.len() < p_buf.len() {
+                    p_buf[..b.len()].copy_from_slice(b);
+                    p_buf[b.len()] = 0;
+                    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_APPEND) as u64;
+                    let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
+                    if fd >= 0 {
+                        let _ = libwunix::dup2(fd as u64, 1);
+                        let _ = libwunix::close(fd as u64);
+                    }
+                }
+            }
+            wsh::parser::Redirect::Input(path) => {
+                let mut p_buf = [0u8; 256];
+                let b = path.as_bytes();
+                if b.len() < p_buf.len() {
+                    p_buf[..b.len()].copy_from_slice(b);
+                    p_buf[b.len()] = 0;
+                    let fd = libwunix::open(&p_buf[..b.len() + 1], libwunix::O_RDONLY as u64, 0);
+                    if fd >= 0 {
+                        let _ = libwunix::dup2(fd as u64, 0);
+                        let _ = libwunix::close(fd as u64);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn print_out(s: &str) {

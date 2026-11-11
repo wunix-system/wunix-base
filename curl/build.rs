@@ -2,7 +2,14 @@ fn main() {
     let target = std::env::var("TARGET").unwrap_or_default();
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
 
-    let status = std::process::Command::new("wunix-cc")
+    let wunix_cc = std::path::Path::new(&manifest_dir).join("../../wunix/libs/libcwunix/wunix-cc");
+    let cc_bin = if wunix_cc.exists() {
+        wunix_cc.to_str().unwrap().to_string()
+    } else {
+        "wunix-cc".to_string()
+    };
+
+    let status = std::process::Command::new(cc_bin)
         .args(&["-fno-stack-protector", "-c", "src/tls.c", "-o", "src/tls.o"])
         .current_dir(&manifest_dir)
         .status();

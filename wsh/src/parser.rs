@@ -90,6 +90,10 @@ impl Parser {
                 '"' if !in_single_quote => {
                     in_double_quote = !in_double_quote;
                 }
+                '#' if !in_single_quote && !in_double_quote && current.is_empty() => {
+                    // Символ '#' в начале слова вне кавычек начинает комментарий до конца строки
+                    break;
+                }
                 ' ' | '\t' if !in_single_quote && !in_double_quote => {
                     if !current.is_empty() {
                         tokens.push(current);
@@ -449,5 +453,14 @@ mod tests {
 
         assert_eq!(chain.pipelines[1].pipeline.commands[0].name, "echo");
         assert_eq!(chain.pipelines[1].op, ChainOp::Always);
+    }
+
+    #[test]
+    fn test_tokenize_comments() {
+        let tokens = Parser::tokenize("echo hello # this is a comment");
+        assert_eq!(tokens, vec!["echo", "hello"]);
+
+        let tokens_quoted = Parser::tokenize("echo \"#not_a_comment\" '#also_not'");
+        assert_eq!(tokens_quoted, vec!["echo", "#not_a_comment", "#also_not"]);
     }
 }
