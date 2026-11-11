@@ -412,6 +412,10 @@ fn t(ru: &'static str, en: &'static str) -> &'static str {
 mod tests {
     use super::*;
     use crate::parser::SimpleCommand;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
+    #[cfg(feature = "std")]
+    use std::vec;
 
     #[test]
     fn test_builtin_history_execution() {

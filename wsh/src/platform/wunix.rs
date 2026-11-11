@@ -133,11 +133,54 @@ pub fn is_tty() -> bool {
     true
 }
 
-pub struct RawModeGuard;
+pub struct RawModeGuard {
+    orig_termios: libwunix::Termios,
+    active: bool,
+}
 
 impl RawModeGuard {
     pub fn enter() -> Option<Self> {
-        Some(Self)
+        let mut orig = libwunix::Termios::default();
+        if libwunix::tcgetattr(STDIN_FILENO, &mut orig) != 0 {
+            return None;
+        }
+
+        let mut raw = orig;
+        // Отключаем эхо, канонический режим и генерацию сигналов ядра (ISIG),
+        // чтобы wsh сам перехватывал Ctrl+C/Ctrl+D, управлял историей и мгновенно вставлял буфер.
+        raw.c_lflag &= !(libwunix::ECHO | libwunix::ICANON | libwunix::ISIG | libwunix::IEXTEN);
+        raw.c_iflag &= !(libwunix::IXON | libwunix::ICRNL);
+        raw.c_cc[libwunix::VMIN] = 1;
+        raw.c_cc[libwunix::VTIME] = 0;
+
+        if libwunix::tcsetattr(STDIN_FILENO, 0, &raw) != 0 {
+            return None;
+        }
+
+        Some(Self {
+            orig_termios: orig,
+            active: true,
+        })
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        if self.active {
+            libwunix::tcsetattr(STDIN_FILENO, 0, &self.orig_termios);
+        }
+    }
+}
+
+pub fn read_stdin_chunk(buf: &mut [u8]) -> usize {
+    if buf.is_empty() {
+        return 0;
+    }
+    let n = libwunix::read(STDIN_FILENO, buf);
+    if n > 0 {
+        n as usize
+    } else {
+        0
     }
 }
 

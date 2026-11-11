@@ -256,6 +256,7 @@ mod tests {
         assert!(h.is_empty());
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn test_history_file_roundtrip() {
         let temp_dir = std::env::temp_dir();

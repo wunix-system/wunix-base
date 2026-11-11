@@ -86,6 +86,16 @@ impl Drop for RawModeGuard {
     }
 }
 
+pub fn read_stdin_chunk(buf: &mut [u8]) -> usize {
+    if buf.is_empty() {
+        return 0;
+    }
+    match io::stdin().read(buf) {
+        Ok(n) => n,
+        Err(_) => 0,
+    }
+}
+
 pub fn read_stdin_byte() -> Option<u8> {
     let mut buf = [0u8; 1];
     let n = io::stdin().read(&mut buf).ok()?;

@@ -14,6 +14,104 @@ use crate::highlight;
 use crate::history::History;
 use crate::platform;
 
+struct BracketedPasteGuard;
+
+impl BracketedPasteGuard {
+    fn enter() -> Self {
+        // Включаем Bracketed Paste Mode терминала (\x1b[?2004h),
+        // чтобы терминал оборачивал вставленный текст в \x1b[200~ ... \x1b[201~.
+        print_raw("\x1b[?2004h");
+        flush_raw();
+        Self
+    }
+}
+
+impl Drop for BracketedPasteGuard {
+    fn drop(&mut self) {
+        // Отключаем Bracketed Paste перед передачей управления внешним программам
+        print_raw("\x1b[?2004l");
+        flush_raw();
+    }
+}
+
+pub struct InputReader {
+    buf: [u8; 1024],
+    len: usize,
+    pos: usize,
+}
+
+impl InputReader {
+    pub const fn new() -> Self {
+        Self {
+            buf: [0u8; 1024],
+            len: 0,
+            pos: 0,
+        }
+    }
+
+    pub fn next_byte(&mut self) -> Option<u8> {
+        if self.pos < self.len {
+            let b = self.buf[self.pos];
+            self.pos += 1;
+            return Some(b);
+        }
+
+        self.pos = 0;
+        self.len = 0;
+        let n = platform::read_stdin_chunk(&mut self.buf);
+        if n > 0 {
+            self.len = n;
+            self.pos = 1;
+            Some(self.buf[0])
+        } else {
+            None
+        }
+    }
+
+    pub fn peek_byte(&self) -> Option<u8> {
+        if self.pos < self.len {
+            Some(self.buf[self.pos])
+        } else {
+            None
+        }
+    }
+
+    pub fn has_buffered_printable(&self) -> bool {
+        if self.pos < self.len {
+            let b = self.buf[self.pos];
+            (0x20..=0x7E).contains(&b) || (0xC0..=0xF7).contains(&b)
+        } else {
+            false
+        }
+    }
+
+    pub fn next_char(&mut self) -> Option<char> {
+        let b = self.next_byte()?;
+        match b {
+            0x00..=0x7F => Some(b as char),
+            0xC0..=0xDF => {
+                let b2 = self.next_byte()?;
+                let bytes = [b, b2];
+                core::str::from_utf8(&bytes).ok().and_then(|s| s.chars().next())
+            }
+            0xE0..=0xEF => {
+                let b2 = self.next_byte()?;
+                let b3 = self.next_byte()?;
+                let bytes = [b, b2, b3];
+                core::str::from_utf8(&bytes).ok().and_then(|s| s.chars().next())
+            }
+            0xF0..=0xF7 => {
+                let b2 = self.next_byte()?;
+                let b3 = self.next_byte()?;
+                let b4 = self.next_byte()?;
+                let bytes = [b, b2, b3, b4];
+                core::str::from_utf8(&bytes).ok().and_then(|s| s.chars().next())
+            }
+            _ => None,
+        }
+    }
+}
+
 pub struct LineEditor;
 
 impl LineEditor {
@@ -24,6 +122,8 @@ impl LineEditor {
         flush_raw();
 
         let _guard = platform::RawModeGuard::enter();
+        let _paste_guard = BracketedPasteGuard::enter();
+        let mut reader = InputReader::new();
 
         let mut line_chars: Vec<char> = Vec::new();
         let mut cursor: usize = 0;
@@ -31,7 +131,7 @@ impl LineEditor {
         let mut completion_state = crate::completion::CompletionState::new();
 
         loop {
-            let b = match platform::read_stdin_byte() {
+            let b = match reader.next_byte() {
                 Some(byte) => byte,
                 None => {
                     if line_chars.is_empty() {
@@ -214,10 +314,10 @@ impl LineEditor {
                 }
                 // Escape-последовательности (стрелки, Home/End, Delete, CSI u Ctrl+Shift+C/V, Alt-хоткеи)
                 0x1B => {
-                    if let Some(next1) = platform::read_stdin_byte() {
+                    if let Some(next1) = reader.next_byte() {
                         match next1 {
                             b'[' => {
-                                let action = parse_csi();
+                                let action = parse_csi(&mut reader);
                                 if action != CsiAction::BackTab && completion_state.is_active {
                                     completion_state.reset();
                                 }
@@ -371,6 +471,64 @@ impl LineEditor {
                                             redraw_line(prompt, &line_chars, cursor, None);
                                         }
                                     }
+                                    CsiAction::BracketedPasteStart => {
+                                        let mut pasted = String::new();
+                                        loop {
+                                            let b = match reader.next_byte() {
+                                                Some(byte) => byte,
+                                                None => break,
+                                            };
+                                            if b == 0x1B {
+                                                if reader.peek_byte() == Some(b'[') {
+                                                    reader.next_byte(); // consume '['
+                                                    let act = parse_csi(&mut reader);
+                                                    if act == CsiAction::BracketedPasteEnd {
+                                                        break;
+                                                    }
+                                                }
+                                            } else {
+                                                match b {
+                                                    0x00..=0x7F => pasted.push(b as char),
+                                                    0xC0..=0xDF => {
+                                                        if let Some(b2) = reader.next_byte() {
+                                                            let bytes = [b, b2];
+                                                            if let Ok(s) = core::str::from_utf8(&bytes) {
+                                                                pasted.push_str(s);
+                                                            }
+                                                        }
+                                                    }
+                                                    0xE0..=0xEF => {
+                                                        if let (Some(b2), Some(b3)) = (reader.next_byte(), reader.next_byte()) {
+                                                            let bytes = [b, b2, b3];
+                                                            if let Ok(s) = core::str::from_utf8(&bytes) {
+                                                                pasted.push_str(s);
+                                                            }
+                                                        }
+                                                    }
+                                                    0xF0..=0xF7 => {
+                                                        if let (Some(b2), Some(b3), Some(b4)) = (
+                                                            reader.next_byte(),
+                                                            reader.next_byte(),
+                                                            reader.next_byte(),
+                                                        ) {
+                                                            let bytes = [b, b2, b3, b4];
+                                                            if let Ok(s) = core::str::from_utf8(&bytes) {
+                                                                pasted.push_str(s);
+                                                            }
+                                                        }
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                        }
+                                        if !pasted.is_empty() {
+                                            let sel = get_selection_range(selection_anchor, cursor);
+                                            paste_text(&mut line_chars, &mut cursor, sel, &pasted);
+                                            selection_anchor = None;
+                                            redraw_line(prompt, &line_chars, cursor, None);
+                                        }
+                                    }
+                                    CsiAction::BracketedPasteEnd => {}
                                     CsiAction::Unknown => {}
                                 }
                             }
@@ -378,7 +536,7 @@ impl LineEditor {
                             b'O' => {
                                 let had_sel = selection_anchor.is_some();
                                 selection_anchor = None;
-                                if let Some(code) = platform::read_stdin_byte() {
+                                if let Some(code) = reader.next_byte() {
                                     match code {
                                         b'H' => {
                                             if cursor > 0 {
@@ -471,11 +629,23 @@ impl LineEditor {
                         cursor = delete_selection(&mut line_chars, sel);
                         selection_anchor = None;
                     }
-                    insert_char(prompt, &mut line_chars, &mut cursor, ch);
+                    line_chars.insert(cursor, ch);
+                    cursor += 1;
+                    // Если в буфере уже ждут следующие печатные символы (вставка текста),
+                    // вычитываем всю пачку без промежуточной перерисовки экрана!
+                    while reader.has_buffered_printable() {
+                        if let Some(next_ch) = reader.next_char() {
+                            line_chars.insert(cursor, next_ch);
+                            cursor += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    redraw_line(prompt, &line_chars, cursor, None);
                 }
                 // Кириллица и 2-байтовый UTF-8 (0xC0..=0xDF)
                 0xC0..=0xDF => {
-                    if let Some(b2) = platform::read_stdin_byte() {
+                    if let Some(b2) = reader.next_byte() {
                         let bytes = [b, b2];
                         if let Ok(s) = core::str::from_utf8(&bytes) {
                             if let Some(c) = s.chars().next() {
@@ -483,14 +653,24 @@ impl LineEditor {
                                     cursor = delete_selection(&mut line_chars, sel);
                                     selection_anchor = None;
                                 }
-                                insert_char(prompt, &mut line_chars, &mut cursor, c);
+                                line_chars.insert(cursor, c);
+                                cursor += 1;
+                                while reader.has_buffered_printable() {
+                                    if let Some(next_ch) = reader.next_char() {
+                                        line_chars.insert(cursor, next_ch);
+                                        cursor += 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                redraw_line(prompt, &line_chars, cursor, None);
                             }
                         }
                     }
                 }
                 // 3-байтовый UTF-8 (0xE0..=0xEF)
                 0xE0..=0xEF => {
-                    if let (Some(b2), Some(b3)) = (platform::read_stdin_byte(), platform::read_stdin_byte()) {
+                    if let (Some(b2), Some(b3)) = (reader.next_byte(), reader.next_byte()) {
                         let bytes = [b, b2, b3];
                         if let Ok(s) = core::str::from_utf8(&bytes) {
                             if let Some(c) = s.chars().next() {
@@ -498,7 +678,17 @@ impl LineEditor {
                                     cursor = delete_selection(&mut line_chars, sel);
                                     selection_anchor = None;
                                 }
-                                insert_char(prompt, &mut line_chars, &mut cursor, c);
+                                line_chars.insert(cursor, c);
+                                cursor += 1;
+                                while reader.has_buffered_printable() {
+                                    if let Some(next_ch) = reader.next_char() {
+                                        line_chars.insert(cursor, next_ch);
+                                        cursor += 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                redraw_line(prompt, &line_chars, cursor, None);
                             }
                         }
                     }
@@ -506,9 +696,9 @@ impl LineEditor {
                 // 4-байтовый UTF-8 (0xF0..=0xF7)
                 0xF0..=0xF7 => {
                     if let (Some(b2), Some(b3), Some(b4)) = (
-                        platform::read_stdin_byte(),
-                        platform::read_stdin_byte(),
-                        platform::read_stdin_byte(),
+                        reader.next_byte(),
+                        reader.next_byte(),
+                        reader.next_byte(),
                     ) {
                         let bytes = [b, b2, b3, b4];
                         if let Ok(s) = core::str::from_utf8(&bytes) {
@@ -517,7 +707,17 @@ impl LineEditor {
                                     cursor = delete_selection(&mut line_chars, sel);
                                     selection_anchor = None;
                                 }
-                                insert_char(prompt, &mut line_chars, &mut cursor, c);
+                                line_chars.insert(cursor, c);
+                                cursor += 1;
+                                while reader.has_buffered_printable() {
+                                    if let Some(next_ch) = reader.next_char() {
+                                        line_chars.insert(cursor, next_ch);
+                                        cursor += 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                redraw_line(prompt, &line_chars, cursor, None);
                             }
                         }
                     }
@@ -645,12 +845,6 @@ pub fn collect_command_completions(token: &str) -> Vec<(String, EntryKind)> {
 pub fn handle_tab_completion(prompt: &str, line: &mut Vec<char>, cursor: &mut usize, _tab_count: usize) {
     let mut state = CompletionState::new();
     handle_tab_press(prompt, line, cursor, &mut state, false);
-}
-
-fn insert_char(prompt: &str, line: &mut Vec<char>, cursor: &mut usize, c: char) {
-    line.insert(*cursor, c);
-    *cursor += 1;
-    redraw_line(prompt, line, *cursor, None);
 }
 
 fn replace_line(prompt: &str, line: &mut Vec<char>, cursor: &mut usize, text: &str) {
@@ -1027,6 +1221,8 @@ pub enum CsiAction {
     SelectEnd,
     Copy,
     Paste,
+    BracketedPasteStart,
+    BracketedPasteEnd,
     Unknown,
 }
 
@@ -1071,6 +1267,8 @@ pub fn decode_csi(final_byte: u8, p1: usize, p2: usize, p3: usize) -> CsiAction 
             1 | 7 => CsiAction::Home,
             4 | 8 => CsiAction::End,
             3 => CsiAction::Delete,
+            200 => CsiAction::BracketedPasteStart,
+            201 => CsiAction::BracketedPasteEnd,
             27 => {
                 if p2 == 6 {
                     if p3 == 99 || p3 == 67 {
@@ -1100,12 +1298,12 @@ pub fn decode_csi(final_byte: u8, p1: usize, p2: usize, p3: usize) -> CsiAction 
     }
 }
 
-fn parse_csi() -> CsiAction {
+fn parse_csi(reader: &mut InputReader) -> CsiAction {
     let mut params = [0usize; 4];
     let mut param_idx = 0;
 
     for _ in 0..16 {
-        let b = match platform::read_stdin_byte() {
+        let b = match reader.next_byte() {
             Some(byte) => byte,
             None => return CsiAction::Unknown,
         };
@@ -1260,6 +1458,10 @@ mod tests {
     fn test_decode_csi() {
         // Delete
         assert_eq!(decode_csi(b'~', 3, 0, 0), CsiAction::Delete);
+
+        // Bracketed Paste Mode (\x1b[200~ и \x1b[201~)
+        assert_eq!(decode_csi(b'~', 200, 0, 0), CsiAction::BracketedPasteStart);
+        assert_eq!(decode_csi(b'~', 201, 0, 0), CsiAction::BracketedPasteEnd);
 
         // CSI u: Ctrl+Shift+C и Ctrl+Shift+V
         assert_eq!(decode_csi(b'u', 99, 6, 0), CsiAction::Copy);
