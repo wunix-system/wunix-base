@@ -1353,6 +1353,80 @@ modinfo \- вывод метаданных драйверов ядра
 "#,
     },
     ManPageEntry {
+        name: "mv",
+        section: 1,
+        desc_en: "move (rename) files",
+        desc_ru: "перемещение и переименование файлов и каталогов",
+        roff_en: r#".TH MV 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+mv \- move (rename) files
+.SH SYNOPSIS
+\fBmv\fR [\fIOPTION\fR]... [\fB\-T\fR] \fISOURCE\fR \fIDEST\fR
+.br
+\fBmv\fR [\fIOPTION\fR]... \fISOURCE\fR... \fIDIRECTORY\fR
+.SH DESCRIPTION
+Rename \fISOURCE\fR to \fIDEST\fR, or move \fISOURCE\fR(s) to \fIDIRECTORY\fR.
+.SH OPTIONS
+.TP
+\fB\-f\fR, \fB\-\-force\fR
+do not prompt before overwriting
+.TP
+\fB\-i\fR, \fB\-\-interactive\fR
+prompt before overwrite
+.TP
+\fB\-n\fR, \fB\-\-no\-clobber\fR
+do not overwrite an existing file
+.TP
+\fB\-T\fR, \fB\-\-no\-target\-directory\fR
+treat \fIDEST\fR as a normal file
+.TP
+\fB\-u\fR, \fB\-\-update\fR
+move only when the \fISOURCE\fR file is newer than the destination
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+explain what is being done
+.TP
+\fB\-\-help\fR
+display this help and exit
+.SH "SEE ALSO"
+\fBrm\fR(1), \fBln\fR(1), \fBls\fR(1)
+"#,
+        roff_ru: r#".TH MV 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+mv \- перемещение и переименование файлов и каталогов
+.SH СИНТАКСИС
+\fBmv\fR [\fIОПЦИЯ\fR]... [\fB\-T\fR] \fIИСТОЧНИК\fR \fIНАЗНАЧЕНИЕ\fR
+.br
+\fBmv\fR [\fIОПЦИЯ\fR]... \fIИСТОЧНИК\fR... \fIКАТАЛОГ\fR
+.SH ОПИСАНИЕ
+Переименовывает \fIИСТОЧНИК\fR в \fIНАЗНАЧЕНИЕ\fR или перемещает \fIИСТОЧНИК\fR(И) в \fIКАТАЛОГ\fR.
+.SH ОПЦИИ
+.TP
+\fB\-f\fR, \fB\-\-force\fR
+не спрашивать перед перезаписью
+.TP
+\fB\-i\fR, \fB\-\-interactive\fR
+спрашивать перед перезаписью
+.TP
+\fB\-n\fR, \fB\-\-no\-clobber\fR
+не перезаписывать существующий файл
+.TP
+\fB\-T\fR, \fB\-\-no\-target\-directory\fR
+считать \fIНАЗНАЧЕНИЕ\fR обычным файлом
+.TP
+\fB\-u\fR, \fB\-\-update\fR
+перемещать только если источник новее назначения
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+пояснять производимые действия
+.TP
+\fB\-\-help\fR
+показать эту справку и выйти
+.SH "СМ. ТАКЖЕ"
+\fBrm\fR(1), \fBln\fR(1), \fBls\fR(1)
+"#,
+    },
+    ManPageEntry {
         name: "pwd",
         section: 1,
         desc_en: "print name of current/working directory",
@@ -3532,7 +3606,7 @@ mod tests {
         let all_progs = [
             "cat", "chmod", "chown", "clear", "curl", "date", "echo", "fbset", "fdisk", "free",
             "host", "hwclock", "id", "init", "ip", "ln", "login", "ls", "lsblk", "lsdev",
-            "lshw", "lsmod", "lspci", "man", "mkdir", "modinfo", "mount", "passwd", "ping", "pwd",
+            "lshw", "lsmod", "lspci", "man", "mkdir", "modinfo", "mount", "mv", "passwd", "ping", "pwd",
             "readlink", "reboot", "rm", "rmdir", "shutdown", "ss", "su", "sudo", "sudoadd", "system", "time",
             "timedatectl", "ntpdate", "timesyncd", "top", "touch", "umount", "uname", "useradd", "userdel", "whoami", "wsh",
         ];
