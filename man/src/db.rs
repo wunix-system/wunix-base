@@ -79,16 +79,16 @@ Look only in the specified section of the manual.
 Display all matching manual pages found across all sections.
 .TP
 \fB\-k\fR, \fB\-\-apropos\fR
-Search the short descriptions and manual page names for keywords (equivalent to apropos).
+Search the short descriptions and manual page names for keywords.
 .TP
 \fB\-f\fR, \fB\-\-whatis\fR
-Display short one-line description of the specified manual pages (equivalent to whatis).
+Display short one-line description of the specified manual pages.
 .TP
 \fB\-w\fR, \fB\-\-where\fR, \fB\-\-path\fR
 Print the physical location of the manual page files, or MANPATH search directories.
 .TP
 \fB\-7\fR, \fB\-\-ascii\fR
-Output plain 7-bit ASCII text without ANSI escape sequences or text styling.
+Output plain 7-bit ASCII text without ANSI escape sequences.
 .TP
 \fB\-\-no-pager\fR
 Do not pipe output to the interactive pager; write directly to stdout.
@@ -209,13 +209,6 @@ display this help and exit
 .TP
 \fB\-\-version\fR
 output version information and exit
-.SH EXAMPLES
-.TP
-\fBcat f \- g\fR
-Output f's contents, then standard input, then g's contents.
-.TP
-\fBcat\fR
-Copy standard input to standard output.
 .SH "SEE ALSO"
 \fBless\fR(1), \fBhead\fR(1), \fBtail\fR(1)
 "#,
@@ -233,13 +226,6 @@ cat \- объединение и вывод содержимого файлов
 .TP
 \fB\-\-version\fR
 вывести версию программы
-.SH ПРИМЕРЫ
-.TP
-\fBcat /etc/hostname\fR
-Вывести сетевое имя компьютера.
-.TP
-\fBcat file1 file2 > out\fR
-Объединить два файла в один.
 .SH "СМ. ТАКЖЕ"
 \fBless\fR(1), \fBhead\fR(1), \fBtail\fR(1)
 "#,
@@ -316,8 +302,8 @@ Exit the current shell session.
 \fBexport\fR \fIVAR\fR=\fIVAL\fR
 Set environment variable.
 .TP
-\fBhistory\fR [\fIN\fR] [\fB-c\fR] [\fB-d\fR \fIoffset\fR] [\fB-w\fR] [\fB-r\fR] [\fB-a\fR]
-Display or manipulate command history list. Commands are preserved across user sessions in ~/.wsh_history.
+\fBhistory\fR
+Display command history.
 .SH "SEE ALSO"
 \fBman\fR(1), \fBinit\fR(8)
 "#,
@@ -342,8 +328,8 @@ wsh \- командная оболочка Wunix
 \fBexport\fR \fIПЕРЕМЕННАЯ\fR=\fIЗНАЧЕНИЕ\fR
 Установить переменную окружения.
 .TP
-\fBhistory\fR [\fIN\fR] [\fB-c\fR] [\fB-d\fR \fIсмещение\fR] [\fB-w\fR] [\fB-r\fR] [\fB-a\fR]
-Показать или изменить историю команд. Команды сохраняются между сессиями пользователя в ~/.wsh_history.
+\fBhistory\fR
+Показать список выполненных команд.
 .SH "СМ. ТАКЖЕ"
 \fBman\fR(1), \fBinit\fR(8)
 "#,
@@ -376,6 +362,18 @@ print the kernel release
 .TP
 \fB\-m\fR, \fB\-\-machine\fR
 print the machine hardware name
+.TP
+\fB\-v\fR, \fB\-\-kernel\-version\fR
+print the kernel version
+.TP
+\fB\-o\fR, \fB\-\-operating\-system\fR
+print the operating system
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+display this help and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+output version information and exit
 .SH "SEE ALSO"
 \fBuname\fR(2)
 "#,
@@ -402,6 +400,18 @@ uname \- вывод информации о системе
 .TP
 \fB\-m\fR, \fB\-\-machine\fR
 вывести архитектуру процессора (x86_64)
+.TP
+\fB\-v\fR, \fB\-\-kernel\-version\fR
+вывести версию ядра
+.TP
+\fB\-o\fR, \fB\-\-operating\-system\fR
+вывести имя операционной системы
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+показать эту справку и выйти
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+вывести информацию о версии и выйти
 .SH "СМ. ТАКЖЕ"
 \fBuname\fR(2)
 "#,
@@ -622,6 +632,12 @@ fdisk \- manipulate disk partition table
 .TP
 \fB\-l\fR, \fB\-\-list\fR
 List the partition tables for the specified devices and exit.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Display this help and exit.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Display version information and exit.
 .SH "SEE ALSO"
 \fBmount\fR(8), \fBumount\fR(8)
 "#,
@@ -636,6 +652,12 @@ fdisk \- управление таблицей разделов диска
 .TP
 \fB\-l\fR, \fB\-\-list\fR
 Вывести таблицу разделов указанного устройства и выйти.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Показать эту справку и выйти.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Показать версию и выйти.
 .SH "СМ. ТАКЖЕ"
 \fBmount\fR(8), \fBumount\fR(8)
 "#,
@@ -649,9 +671,25 @@ fdisk \- управление таблицей разделов диска
 .SH NAME
 mount \- mount a filesystem
 .SH SYNOPSIS
-\fBmount\fR [\fB\-t\fR \fIFSTYPE\fR] \fIDEVICE\fR \fIDIR\fR
+\fBmount\fR [\fIOPTION\fR]... \fIDEVICE\fR \fIDIR\fR
 .SH DESCRIPTION
 All files accessible in a Wunix system are arranged in one big tree, the file hierarchy, rooted at /. These files can be spread out over several devices. The \fBmount\fR command serves to attach the filesystem found on some device to the big file tree.
+.SH OPTIONS
+.TP
+\fB\-t\fR, \fB\-\-types\fR \fIFSTYPE\fR
+Specify the filesystem type (auto, ufs, ext4, fat32).
+.TP
+\fB\-o\fR, \fB\-\-options\fR \fIOPTS\fR
+Specify mount options (ro, rw).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Verbose mode.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Display this help and exit.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Display version information and exit.
 .SH "SEE ALSO"
 \fBumount\fR(8), \fBfdisk\fR(8)
 "#,
@@ -659,9 +697,25 @@ All files accessible in a Wunix system are arranged in one big tree, the file hi
 .SH ИМЯ
 mount \- монтирование файловой системы
 .SH СИНТАКСИС
-\fBmount\fR [\fB\-t\fR \fIТИП_ФС\fR] \fIУСТРОЙСТВО\fR \fIКАТАЛОГ\fR
+\fBmount\fR [\fIОПЦИИ\fR]... \fIУСТРОЙСТВО\fR \fIКАТАЛОГ\fR
 .SH ОПИСАНИЕ
 Подключает файловую систему указанного накопителя к общему дереву каталогов Wunix в точку монтирования \fIКАТАЛОГ\fR.
+.SH ОПЦИИ
+.TP
+\fB\-t\fR, \fB\-\-types\fR \fIТИП_ФС\fR
+Тип файловой системы (auto, ufs, ext4, fat32).
+.TP
+\fB\-o\fR, \fB\-\-options\fR \fIОПЦИИ\fR
+Дополнительные опции монтирования (ro, rw).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Подробный вывод.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Показать эту справку и выйти.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Показать версию и выйти.
 .SH "СМ. ТАКЖЕ"
 \fBumount\fR(8), \fBfdisk\fR(8)
 "#,
@@ -1477,6 +1531,9 @@ Print only summary information in one-line tabular format.
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Show help and exit.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Display version information and exit.
 .SH "SEE ALSO"
 \fBping\fR(8), \fBss\fR(8), \fBcurl\fR(1)
 "#,
@@ -1504,6 +1561,9 @@ ip \- просмотр и настройка сетевых интерфейсо
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Показать справку и выйти.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Показать версию и выйти.
 .SH "СМ. ТАКЖЕ"
 \fBping\fR(8), \fBss\fR(8), \fBcurl\fR(1)
 "#,
@@ -1594,6 +1654,9 @@ Use IPv4 only.
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Display help and exit.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Display version information and exit.
 .SH "SEE ALSO"
 \fBip\fR(8), \fBcurl\fR(1)
 "#,
@@ -1620,6 +1683,9 @@ ping \- проверка доступности сетевых узлов чер
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Показать справку и выйти.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Показать версию и выйти.
 .SH "СМ. ТАКЖЕ"
 \fBip\fR(8), \fBcurl\fR(1)
 "#,
@@ -1756,24 +1822,26 @@ umount \- отключение смонтированных файловых с�
 date \- print or set the system date and time
 .SH SYNOPSIS
 \fBdate\fR [\fIOPTION\fR]... [+\fIFORMAT\fR]
+.br
+\fBdate\fR [\fIOPTION\fR]... [\fIMMDDhhmm\fR[[\fICC\fR]\fIYY\fR][.\fIss\fR]]
 .SH DESCRIPTION
 Display date and time in the given \fIFORMAT\fR, or set the system date and time.
 .SH OPTIONS
 .TP
 \fB\-d\fR, \fB\-\-date\fR=\fISTRING\fR
-Display time described by \fISTRING\fR, not 'now'.
+Display time described by \fISTRING\fR, not 'now'. Supports seconds since epoch (@1793354423), ISO 8601 timestamps (YYYY-MM-DD HH:MM:SS), and time-only specs.
 .TP
 \fB\-s\fR, \fB\-\-set\fR=\fISTRING\fR
-Set time described by \fISTRING\fR.
+Set time described by \fISTRING\fR. Requires root privileges.
 .TP
 \fB\-u\fR, \fB\-\-utc\fR, \fB\-\-universal\fR
 Print or set Coordinated Universal Time (UTC).
 .TP
 \fB\-R\fR, \fB\-\-rfc\-email\fR
-Output date and time in RFC 5322 format.
+Output date and time in RFC 5322 format (e.g., "Fri, 30 Oct 2026 13:00:23 +0300").
 .TP
 \fB\-I\fR[\fIFMT\fR], \fB\-\-iso\-8601\fR[=\fIFMT\fR]
-Output date/time in ISO 8601 format.
+Output date/time in ISO 8601 format. \fIFMT\fR may be 'date' (default), 'hours', 'minutes', 'seconds', or 'ns'.
 .TP
 \fB\-r\fR, \fB\-\-reference\fR=\fIFILE\fR
 Display the last modification time of \fIFILE\fR.
@@ -1783,6 +1851,20 @@ Display this help and exit.
 .TP
 \fB\-V\fR, \fB\-\-version\fR
 Output version information and exit.
+.SH FORMAT
+Controls the output. Common sequences:
+.TP
+\fB%Y\fR year, \fB%m\fR month (01..12), \fB%d\fR day of month (01..31)
+.TP
+\fB%H\fR hour (00..23), \fB%M\fR minute (00..59), \fB%S\fR second (00..59)
+.TP
+\fB%F\fR full date (same as %Y-%m-%d), \fB%T\fR time (same as %H:%M:%S)
+.TP
+\fB%s\fR seconds since 1970-01-01 00:00:00 UTC
+.TP
+\fB%Z\fR alphabetic time zone abbreviation (e.g. MSK, UTC)
+.TP
+\fB%z\fR numeric time zone (e.g. +0300)
 .SH "SEE ALSO"
 \fBhwclock\fR(1), \fBtimedatectl\fR(1), \fBtime\fR(1)
 "#,
@@ -1791,33 +1873,46 @@ Output version information and exit.
 date \- вывод и установка системной даты и времени
 .SH СИНТАКСИС
 \fBdate\fR [\fIОПЦИИ\fR]... [+\fIФОРМАТ\fR]
+.br
+\fBdate\fR [\fIОПЦИИ\fR]... [\fIMMDDhhmm\fR[[\fICC\fR]\fIYY\fR][.\fIss\fR]]
 .SH ОПИСАНИЕ
 \fBdate\fR выводит текущую дату и время в заданном \fIФОРМАТЕ\fR или устанавливает системные часы ядра Wunix.
 .SH ОПЦИИ
 .TP
 \fB\-d\fR, \fB\-\-date\fR=\fIСТРОКА\fR
-Вывести время, описанное СТРОКОЙ вместо текущего момента.
+Вывести время, описанное СТРОКОЙ вместо текущего момента. Поддерживает секунды эпохи (@1793354423), форматы ISO 8601 (YYYY-MM-DD HH:MM:SS) и время (HH:MM:SS).
 .TP
 \fB\-s\fR, \fB\-\-set\fR=\fIСТРОКА\fR
-Установить системное время ядра из заданной СТРОКИ.
+Установить системное время ядра из заданной СТРОКИ. Требует прав администратора (root).
 .TP
 \fB\-u\fR, \fB\-\-utc\fR, \fB\-\-universal\fR
-Использовать всемирное координированное время (UTC).
+Выводить или устанавливать время по всемирной шкале координированного времени (UTC).
 .TP
 \fB\-R\fR, \fB\-\-rfc\-email\fR
-Вывод в стандартном формате RFC 5322.
+Вывод в формате RFC 5322 (например, "Fri, 30 Oct 2026 13:00:23 +0300").
 .TP
 \fB\-I\fR[\fIФОРМАТ\fR], \fB\-\-iso\-8601\fR[=\fIФОРМАТ\fR]
-Вывод в формате стандарта ISO 8601.
+Вывод в формате ISO 8601 (date, hours, minutes, seconds, ns).
 .TP
 \fB\-r\fR, \fB\-\-reference\fR=\fIФАЙЛ\fR
-Вывести время модификации указанного файла.
+Вывести время последней модификации указанного файла.
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Показать эту справку и выйти.
 .TP
 \fB\-V\fR, \fB\-\-version\fR
 Вывести информацию о версии и выйти.
+.SH СПЕЦИФИКАТОРЫ ФОРМАТА
+.TP
+\fB%Y\fR 4-значный год, \fB%m\fR номер месяца (01..12), \fB%d\fR день месяца (01..31)
+.TP
+\fB%H\fR час (00..23), \fB%M\fR минута (00..59), \fB%S\fR секунда (00..59)
+.TP
+\fB%F\fR полная дата (%Y-%m-%d), \fB%T\fR время (%H:%M:%S)
+.TP
+\fB%s\fR секунды с 1970-01-01 00:00:00 UTC
+.TP
+\fB%Z\fR буквенный часовой пояс (MSK, UTC), \fB%z\fR числовой часовой пояс (+0300)
 .SH "СМ. ТАКЖЕ"
 \fBhwclock\fR(1), \fBtimedatectl\fR(1), \fBtime\fR(1)
 "#,
@@ -1833,29 +1928,31 @@ time \- time a simple command or give resource usage
 .SH SYNOPSIS
 \fBtime\fR [\fIOPTIONS\fR]... \fICOMMAND\fR [\fIARGS\fR]...
 .SH DESCRIPTION
-Runs the specified \fICOMMAND\fR and prints timing statistics to standard error.
+The \fBtime\fR command runs the specified \fICOMMAND\fR with the given \fIARGS\fR. When \fICOMMAND\fR finishes, \fBtime\fR writes a message to standard error reporting the elapsed real time and CPU resource usage.
 .SH OPTIONS
 .TP
 \fB\-p\fR, \fB\-\-portability\fR
-Use POSIX standard format (real %e, user %U, sys %S).
+Use the POSIX standard format: real %e\\nuser %U\\nsys %S.
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
-Print detailed summary of execution time and resources.
+Print a detailed summary of system resource usage and wall clock execution time.
 .TP
 \fB\-o\fR \fIFILE\fR, \fB\-\-output\fR=\fIFILE\fR
-Write output to specified file instead of stderr.
+Do not send the results to stderr, but overwrite the specified file.
 .TP
 \fB\-a\fR, \fB\-\-append\fR
-Append output to file instead of overwriting.
+Append the resource usage information to the output file instead of overwriting it (used with \-o).
 .TP
-\fB\-f\fR \fIFMT\fR, \fB\-\-format\fR=\fIFMT\fR
-Custom output format string (%E, %e, %x, %C).
+\fB\-f\fR \fIFORMAT\fR, \fB\-\-format\fR=\fIFORMAT\fR
+Specify output format (%E elapsed time, %e seconds, %x exit status, %C command name).
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-Print help and exit.
+Print a summary of the command-line options and exit.
 .TP
 \fB\-V\fR, \fB\-\-version\fR
-Print version information.
+Print the version number of time and exit.
+.SH "EXIT STATUS"
+The exit status of \fBtime\fR is the exit status of the executed command. If the command was terminated by a signal or failed to execute, standard error codes are returned.
 .SH "SEE ALSO"
 \fBdate\fR(1), \fBtop\fR(1)
 "#,
@@ -1865,29 +1962,31 @@ time \- хронометраж времени выполнения команд�
 .SH СИНТАКСИС
 \fBtime\fR [\fIОПЦИИ\fR]... \fIКОМАНДА\fR [\fIАРГУМЕНТЫ\fR]...
 .SH ОПИСАНИЕ
-\fBtime\fR запускает команду и выводит точное время её выполнения в поток stderr.
+\fBtime\fR запускает указанную \fIКОМАНДУ\fR с заданными \fIАРГУМЕНТАМИ\fR и после её завершения выводит в поток стандартных ошибок (stderr) точные данные об астрономическом времени выполнения и затраченных процессорных ресурсах.
 .SH ОПЦИИ
 .TP
 \fB\-p\fR, \fB\-\-portability\fR
-Стандартный формат POSIX (real %e, user %U, sys %S).
+Использовать стандартный формат POSIX 1003.2 (real %e\\nuser %U\\nsys %S).
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
-Подробный отчет обо всех системных ресурсах процесса.
+Подробный отчет обо всех системных ресурсах процесса, времени выполнения и коде возврата.
 .TP
 \fB\-o\fR \fIФАЙЛ\fR, \fB\-\-output\fR=\fIФАЙЛ\fR
-Перенаправить вывод в указанный файл.
+Перенаправить вывод тайминга в указанный файл вместо потока stderr.
 .TP
 \fB\-a\fR, \fB\-\-append\fR
-Дописывать результаты в конец файла.
+Дописывать результаты в конец файла (используется вместе с опцией \-o).
 .TP
 \fB\-f\fR \fIФОРМАТ\fR, \fB\-\-format\fR=\fIФОРМАТ\fR
-Пользовательский формат вывода (%E, %e, %x, %C).
+Задать пользовательский формат вывода (%E общее время m:ss, %e секунды, %x код возврата, %C имя команды).
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Показать эту справку и выйти.
 .TP
 \fB\-V\fR, \fB\-\-version\fR
-Вывести информацию о версии.
+Вывести информацию о версии программы.
+.SH "КОД ВОЗВРАТА"
+Код возврата \fBtime\fR в точности совпадает с кодом возврата выполненной команды.
 .SH "СМ. ТАКЖЕ"
 \fBdate\fR(1), \fBtop\fR(1)
 "#,
@@ -1903,39 +2002,45 @@ timedatectl \- control the system time and date
 .SH SYNOPSIS
 \fBtimedatectl\fR [\fIOPTIONS\fR]... [\fICOMMAND\fR]
 .SH DESCRIPTION
-Query and change system clock, RTC, and timezone settings.
+\fBtimedatectl\fR may be used to query and change the system clock and its settings, and control the hardware clock RTC.
 .SH COMMANDS
 .TP
 \fBstatus\fR
-Show current time settings and status (default).
+Show current settings of the system clock and RTC (default).
 .TP
 \fBshow\fR
-Show properties in KEY=VALUE format.
+Show properties in machine-readable KEY=VALUE format.
 .TP
 \fBset\-time\fR \fITIME\fR
-Set the system clock ('YYYY-MM-DD HH:MM:SS').
+Set the system clock to the specified time ('YYYY-MM-DD HH:MM:SS').
 .TP
-\fBset\-timezone\fR \fIZONE\fR
-Set the system time zone (persisted in /etc/timezone).
+\fBset\-timezone\fR \fITIMEZONE\fR
+Set the system time zone to the specified value (persisted in /etc/timezone).
 .TP
 \fBlist\-timezones\fR
 List available time zones.
 .TP
 \fBset\-local\-rtc\fR [\fIBOOL\fR]
-Control whether RTC is in local time.
+Control whether the RTC is in local time or UTC.
 .TP
 \fBset\-ntp\fR [\fIBOOL\fR]
-Control whether NTP time synchronization is enabled.
+Control whether network time synchronization is enabled.
 .TP
 \fBtimesync\-status\fR
 Show status of the time synchronization service.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-Show help and exit.
+Print a short help text and exit.
 .TP
 \fB\-\-version\fR
 Print version information.
+.TP
+\fB\-\-no\-pager\fR
+Do not pipe output into a pager.
+.TP
+\fB\-\-adjust\-system\-clock\fR
+Update the system clock when changing the RTC mode.
 .SH "SEE ALSO"
 \fBdate\fR(1), \fBhwclock\fR(1)
 "#,
@@ -1945,41 +2050,47 @@ timedatectl \- управление системным временем, дат�
 .SH СИНТАКСИС
 \fBtimedatectl\fR [\fIОПЦИИ\fR]... [\fIКОМАНДА\fR]
 .SH ОПИСАНИЕ
-\fBtimedatectl\fR управляет системными часами ядра, аппаратными часами RTC и часовыми поясами.
+\fBtimedatectl\fR запрашивает и изменяет системное время операционной системы Wunix, энергонезависимые аппаратные часы RTC и часовые пояса.
 .SH КОМАНДЫ
 .TP
 \fBstatus\fR
-Показать текущие настройки времени и статус (по умолчанию).
+Вывести текущее местное время, UTC, время RTC и часовой пояс (действие по умолчанию).
 .TP
 \fBshow\fR
 Вывести свойства в формате KEY=VALUE.
 .TP
 \fBset\-time\fR \fIВРЕМЯ\fR
-Установить системные часы ядра ('YYYY-MM-DD HH:MM:SS').
+Установить системные часы ядра в формате 'YYYY-MM-DD HH:MM:SS'.
 .TP
 \fBset\-timezone\fR \fIПОЯС\fR
-Установить системный часовой пояс (/etc/timezone).
+Изменить системный часовой пояс (запись в файл /etc/timezone).
 .TP
 \fBlist\-timezones\fR
 Вывести список доступных часовых поясов.
 .TP
 \fBset\-local\-rtc\fR [\fI0|1\fR]
-Управлять хранением местного времени в RTC.
+Включить или отключить хранение местного времени в микросхеме RTC.
 .TP
 \fBset\-ntp\fR [\fI0|1\fR]
-Включить или отключить сетевую синхронизацию NTP.
+Включить или отключить службу сетевой синхронизации NTP.
 .TP
 \fBtimesync\-status\fR
 Показать статус службы синхронизации времени Wunix TimeSync.
 .SH ОПЦИИ
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-Показать эту справку и выйти.
+Показать справку и выйти.
 .TP
 \fB\-\-version\fR
-Вывести информацию о версии программы.
+Вывести версию программы и выйти.
+.TP
+\fB\-\-no\-pager\fR
+Не перенаправлять вывод в пейджер.
+.TP
+\fB\-\-adjust\-system\-clock\fR
+Скорректировать системные часы при изменении режима RTC.
 .SH "СМ. ТАКЖЕ"
-\fBdate\fR(1), \fBhwclock\fR(1), \fBntpdate\fR(1), \fBtimesyncd\fR(8)
+\fBdate\fR(1), \fBhwclock\fR(1)
 "#,
     },
     ManPageEntry {
@@ -2109,7 +2220,7 @@ shutdown \- halt, power-off or reboot the machine
 .SH SYNOPSIS
 \fBshutdown\fR [\fIOPTIONS\fR]... [\fITIME\fR] [\fIWALL\fR...]
 .SH DESCRIPTION
-Brings the system down cleanly, broadcasting warning messages and syncing disks.
+\fBshutdown\fR brings the system down in a secure way. All users are notified via wall messages, running filesystems are synchronized, and the machine is halted, powered off, or rebooted.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-P\fR, \fB\-\-poweroff\fR
@@ -2135,6 +2246,16 @@ Display this help and exit.
 .TP
 \fB\-V\fR, \fB\-\-version\fR
 Print version information.
+.SH "TIME SYNTAX"
+.TP
+\fBnow\fR or \fB+0\fR
+Immediate shutdown.
+.TP
+\fB+\fIm\fR
+Shut down in \fIm\fR minutes from now.
+.TP
+\fBhh:mm\fR
+Shut down at the specified time of day (24-hour format).
 .SH "SEE ALSO"
 \fBreboot\fR(8), \fBinit\fR(8)
 "#,
@@ -2144,7 +2265,7 @@ shutdown \- безопасное завершение работы, выключ
 .SH СИНТАКСИС
 \fBshutdown\fR [\fIОПЦИИ\fR]... [\fIВРЕМЯ\fR] [\fIСООБЩЕНИЕ\fR...]
 .SH ОПИСАНИЕ
-\fBshutdown\fR безопасно переводит операционную систему в состояние остановки или перезапуска.
+\fBshutdown\fR переводит операционную систему в состояние безопасной остановки. Все пользователи оповещаются широковещательными сообщениями, файловые системы синхронизируются, после чего машина выключает питание, перезагружается или останавливается.
 .SH ОПЦИИ
 .TP
 \fB\-h\fR, \fB\-P\fR, \fB\-\-poweroff\fR
@@ -2160,16 +2281,26 @@ shutdown \- безопасное завершение работы, выключ
 Отменить ранее запланированное выключение.
 .TP
 \fB\-k\fR
-Только отправить предупреждения без остановки системы.
+Только отправить широковещательные предупреждения без реальной остановки системы.
 .TP
 \fB\-\-no\-wall\fR
-Не рассылать широковещательное сообщение.
+Не рассылать широковещательное сообщение перед выключением.
 .TP
 \fB\-\-help\fR
 Показать эту справку и выйти.
 .TP
 \fB\-V\fR, \fB\-\-version\fR
 Вывести информацию о версии программы.
+.SH "СПЕЦИФИКАЦИЯ ВРЕМЕНИ"
+.TP
+\fBnow\fR или \fB+0\fR
+Немедленное выключение.
+.TP
+\fB+\fIm\fR
+Выключение через \fIm\fR минут.
+.TP
+\fBhh:mm\fR
+Выключение в указанные часы и минуты сегодня.
 .SH "СМ. ТАКЖЕ"
 \fBreboot\fR(8), \fBinit\fR(8)
 "#,
@@ -2185,7 +2316,7 @@ reboot \- reboot, halt, or power-off the machine
 .SH SYNOPSIS
 \fBreboot\fR [\fIOPTIONS\fR]...
 .SH DESCRIPTION
-Reboots, halts, or powers off the system hardware.
+\fBreboot\fR reboots, halts, or powers off the system hardware.
 .SH OPTIONS
 .TP
 \fB\-f\fR, \fB\-\-force\fR
@@ -2220,11 +2351,11 @@ reboot \- перезагрузка, остановка или отключени
 .SH СИНТАКСИС
 \fBreboot\fR [\fIОПЦИИ\fR]...
 .SH ОПИСАНИЕ
-\fBreboot\fR выполняет аппаратный перезапуск компьютера.
+\fBreboot\fR выполняет аппаратный перезапуск компьютера через контроллер клавиатуры 8042, порт сброса чипсета или тройное исключение CPU.
 .SH ОПЦИИ
 .TP
 \fB\-f\fR, \fB\-\-force\fR
-Немедленный принудительный сброс без вызова init и sync.
+Немедленный принудительный сброс без вызова init и синхронизации дисков.
 .TP
 \fB\-p\fR, \fB\-\-poweroff\fR
 Выключить питание компьютера вместо перезапуска.
@@ -2233,13 +2364,13 @@ reboot \- перезагрузка, остановка или отключени
 Остановить систему вместо перезапуска.
 .TP
 \fB\-w\fR, \fB\-\-wtmp\-only\fR
-Только записать событие в системный журнал wtmp.
+Только записать событие в системный журнал wtmp, не перезагружая машину.
 .TP
 \fB\-n\fR, \fB\-\-no\-sync\fR
 Не синхронизировать файловые системы перед сбросом.
 .TP
 \fB\-\-no\-wall\fR
-Не отправлять широковещательное оповещение.
+Не отправлять широковещательное оповещение перед перезагрузкой.
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Показать эту справку и выйти.
@@ -2647,7 +2778,7 @@ readlink \- print resolved symbolic links or canonical file names
 \fBreadlink\fR prints the value of a symbolic link. With \fB\-f\fR, it canonicalizes by following every symlink recursively.
 .SH OPTIONS
 .TP
-\fB\-f\fR, \fB\-\-canonicalize\fR
+\fB\-f\fR, \fB\-e\fR, \fB\-m\fR, \fB\-\-canonicalize\fR
 Canonicalize by following every symlink in every component of the given name recursively.
 .TP
 \fB\-n\fR, \fB\-\-no-newline\fR
@@ -2673,7 +2804,7 @@ readlink \- печать значения символической ссылк�
 \fBreadlink\fR печатает значение символической ссылки (target). При указании ключа канонизации \fB\-f\fR разрешает все промежуточные символические ссылки и нормализует путь.
 .SH ОПЦИИ
 .TP
-\fB\-f\fR, \fB\-\-canonicalize\fR
+\fB\-f\fR, \fB\-e\fR, \fB\-m\fR, \fB\-\-canonicalize\fR
 Канонизировать путь, разрешая все символические ссылки рекурсивно.
 .TP
 \fB\-n\fR, \fB\-\-no-newline\fR
@@ -2822,8 +2953,32 @@ Enable autostart of the service at system boot.
 \fBdisable\fR \fISERVICE\fR
 Disable autostart of the service.
 .TP
-\fBlogs\fR \fISERVICE\fR [\fB-n\fR \fILINES\fR] [\fB-f\fR]
+\fBlogs\fR \fISERVICE\fR [\fB\-n\fR, \fB\-\-lines\fR \fILINES\fR] [\fB\-\-head\fR \fILINES\fR] [\fB\-f\fR, \fB\-\-follow\fR]
 View stdout/stderr logs of the specified service.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Display this help and exit.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Show version information and exit.
+.SH FILES
+.I /etc/services/<service>.conf
+.RS
+Service configuration files.
+.RE
+.I /etc/services/enabled/
+.RS
+Symlinks for services enabled at boot.
+.RE
+.I /var/run/services/<service>.pid
+.RS
+Runtime PID files.
+.RE
+.I /var/log/services/<service>.log
+.RS
+Service log files.
+.RE
 .SH "SEE ALSO"
 \fBinit\fR(8), \fBtimedatectl\fR(1)
 "#,
@@ -2865,8 +3020,32 @@ system \- управление и супервизия системных слу
 \fBdisable\fR \fIСЛУЖБА\fR
 Отключение автозапуска службы при загрузке.
 .TP
-\fBlogs\fR \fIСЛУЖБА\fR [\fB-n\fR \fIСТРОКИ\fR] [\fB-f\fR]
+\fBlogs\fR \fIСЛУЖБА\fR [\fB\-n\fR, \fB\-\-lines\fR \fIСТРОКИ\fR] [\fB\-\-head\fR \fIСТРОКИ\fR] [\fB\-f\fR, \fB\-\-follow\fR]
 Просмотр журнала вывода службы (stdout/stderr).
+.SH ОПЦИИ
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Показать эту справку и выйти.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Показать версию утилиты и выйти.
+.SH ФАЙЛЫ
+.I /etc/services/<служба>.conf
+.RS
+Конфигурационные файлы служб.
+.RE
+.I /etc/services/enabled/
+.RS
+Символические ссылки автозапуска служб при загрузке.
+.RE
+.I /var/run/services/<служба>.pid
+.RS
+Файлы идентификаторов процессов активных служб.
+.RE
+.I /var/log/services/<служба>.log
+.RS
+Файлы журналов работы служб.
+.RE
 .SH "СМ. ТАКЖЕ"
 \fBinit\fR(8), \fBtimedatectl\fR(1)
 "#,
