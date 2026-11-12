@@ -3718,6 +3718,556 @@ wspd \- системный фоновый демон проверки обнов
 \fBwsp\fR(8), \fBwpm\fR(8), \fBsystem\fR(1)
 "#,
     },
+    ManPageEntry {
+        name: "ar",
+        section: 1,
+        desc_en: "create, modify, and extract from archives",
+        desc_ru: "создание, изменение и извлечение файлов из архивов",
+        roff_en: r#".TH AR 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+ar \- create, modify, and extract from archives
+.SH SYNOPSIS
+\fBar\fR [\fIOPTION\fR] \fIARCHIVE\fR [\fIFILE\fR]...
+.SH DESCRIPTION
+\fBar\fR is the Unix Common Archive utility for \fB.a\fR static libraries and \fB.deb\fR packages.
+.SH COMMANDS
+.TP
+\fBr\fR, \fBrcs\fR
+Insert or replace files in the archive.
+.TP
+\fBt\fR
+Display archive contents table.
+.TP
+\fBx\fR
+Extract members from the archive.
+.SH OPTIONS
+.TP
+\fBv\fR
+Verbose output.
+.TP
+\fB\-\-help\fR
+Display this help and exit.
+.SH "SEE ALSO"
+\fBtar\fR(1), \fBcpio\fR(1)
+"#,
+        roff_ru: r#".TH AR 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+ar \- создание, изменение и извлечение файлов из архивов
+.SH СИНТАКСИС
+\fBar\fR [\fIКЛЮЧ\fR] \fIАРХИВ\fR [\fIФАЙЛ\fR]...
+.SH ОПИСАНИЕ
+\fBar\fR — архиватор Unix Common Archive для статических библиотек \fB.a\fR и пакетов \fB.deb\fR.
+.SH КОМАНДЫ
+.TP
+\fBr\fR, \fBrcs\fR
+Добавить или заменить файлы в архиве.
+.TP
+\fBt\fR
+Показать список файлов в архиве.
+.TP
+\fBx\fR
+Извлечь файлы из архива.
+.SH ОПЦИИ
+.TP
+\fBv\fR
+Подробный вывод.
+.TP
+\fB\-\-help\fR
+Показать эту справку и выйти.
+.SH "СМ. ТАКЖЕ"
+\fBtar\fR(1), \fBcpio\fR(1)
+"#,
+    },
+    ManPageEntry {
+        name: "cpio",
+        section: 1,
+        desc_en: "copy files to and from archives",
+        desc_ru: "копирование файлов в архив и из архива",
+        roff_en: r#".TH CPIO 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+cpio \- copy files to and from archives
+.SH SYNOPSIS
+\fBcpio\fR {\fB\-o\fR|\fB\-\-create\fR | \fB\-i\fR|\fB\-\-extract\fR | \fB\-t\fR|\fB\-\-list\fR} [\fIOPTIONS\fR]...
+.SH DESCRIPTION
+\fBcpio\fR is an SVR4 portable cpio (\fBnewc\fR) archive utility for Wunix OS.
+.SH MODES
+.TP
+\fB\-o\fR, \fB\-\-create\fR
+Create archive (read filenames from standard input, write archive to standard output).
+.TP
+\fB\-i\fR, \fB\-\-extract\fR
+Extract files from archive (read from standard input).
+.TP
+\fB\-t\fR, \fB\-\-list\fR
+List archive contents.
+.SH OPTIONS
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Verbose mode.
+.TP
+\fB\-d\fR, \fB\-\-make\-directories\fR
+Create leading directories where needed.
+.TP
+\fB\-F\fR, \fB\-\-file\fR=\fIFILE\fR
+Use \fIFILE\fR instead of standard input or output.
+.TP
+\fB\-\-help\fR
+Display this help and exit.
+.SH "SEE ALSO"
+\fBtar\fR(1), \fBar\fR(1)
+"#,
+        roff_ru: r#".TH CPIO 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+cpio \- копирование файлов в архив и из архива
+.SH СИНТАКСИС
+\fBcpio\fR {\fB\-o\fR|\fB\-\-create\fR | \fB\-i\fR|\fB\-\-extract\fR | \fB\-t\fR|\fB\-\-list\fR} [\fIКЛЮЧИ\fR]...
+.SH ОПИСАНИЕ
+\fBcpio\fR — архиватор формата SVR4 portable cpio (\fBnewc\fR) для Wunix OS.
+.SH РЕЖИМЫ
+.TP
+\fB\-o\fR, \fB\-\-create\fR
+Создать архив (список файлов читается из STDIN, архив выводится в STDOUT).
+.TP
+\fB\-i\fR, \fB\-\-extract\fR
+Извлечь файлы из архива (чтение из STDIN).
+.TP
+\fB\-t\fR, \fB\-\-list\fR
+Показать список содержимого архива.
+.SH ОПЦИИ
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Подробный вывод.
+.TP
+\fB\-d\fR, \fB\-\-make\-directories\fR
+Создавать каталоги при распаковке.
+.TP
+\fB\-F\fR, \fB\-\-file\fR=\fIФАЙЛ\fR
+Использовать указанный файл вместо STDIN/STDOUT.
+.TP
+\fB\-\-help\fR
+Показать эту справку и выйти.
+.SH "СМ. ТАКЖЕ"
+\fBtar\fR(1), \fBar\fR(1)
+"#,
+    },
+    ManPageEntry {
+        name: "gunzip",
+        section: 1,
+        desc_en: "decompress files in GZIP (.gz) format",
+        desc_ru: "распаковка файлов формата GZIP (.gz)",
+        roff_en: r#".TH GUNZIP 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+gunzip \- decompress files in GZIP (.gz) format
+.SH SYNOPSIS
+\fBgunzip\fR [\fIOPTION\fR]... [\fIFILE\fR]...
+.SH DESCRIPTION
+\fBgunzip\fR decompresses files compressed in GZIP (\fB.gz\fR) format on Wunix OS.
+.SH OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-stdout\fR
+Write output on standard output and keep original files unchanged.
+.TP
+\fB\-f\fR, \fB\-\-force\fR
+Force overwrite of existing output files.
+.TP
+\fB\-k\fR, \fB\-\-keep\fR
+Keep (do not delete) input files during decompression.
+.TP
+\fB\-t\fR, \fB\-\-test\fR
+Test compressed file integrity.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Verbose mode.
+.TP
+\fB\-\-help\fR
+Display this help and exit.
+.SH "SEE ALSO"
+\fBgzip\fR(1), \fBtar\fR(1)
+"#,
+        roff_ru: r#".TH GUNZIP 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+gunzip \- распаковка файлов формата GZIP (.gz)
+.SH СИНТАКСИС
+\fBgunzip\fR [\fIКЛЮЧ\fR]... [\fIФАЙЛ\fR]...
+.SH ОПИСАНИЕ
+\fBgunzip\fR распаковывает файлы, сжатые в формате GZIP (\fB.gz\fR), в Wunix OS.
+.SH ОПЦИИ
+.TP
+\fB\-c\fR, \fB\-\-stdout\fR
+Выводить результат в стандартный вывод (STDOUT), не удаляя исходный файл.
+.TP
+\fB\-f\fR, \fB\-\-force\fR
+Перезаписывать существующие файлы.
+.TP
+\fB\-k\fR, \fB\-\-keep\fR
+Сохранять исходный \fB.gz\fR файл (не удалять).
+.TP
+\fB\-t\fR, \fB\-\-test\fR
+Проверить целостность сжатого файла.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Подробный вывод.
+.TP
+\fB\-\-help\fR
+Показать эту справку и выйти.
+.SH "СМ. ТАКЖЕ"
+\fBgzip\fR(1), \fBtar\fR(1)
+"#,
+    },
+    ManPageEntry {
+        name: "gzip",
+        section: 1,
+        desc_en: "compress or expand files",
+        desc_ru: "сжатие и распаковка файлов",
+        roff_en: r#".TH GZIP 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+gzip \- compress or expand files
+.SH SYNOPSIS
+\fBgzip\fR [\fIOPTION\fR]... [\fIFILE\fR]...
+.SH DESCRIPTION
+\fBgzip\fR compresses or decompresses files in RFC 1952 GZIP format on Wunix OS.
+.SH OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-stdout\fR
+Write output on standard output; keep original files unchanged.
+.TP
+\fB\-d\fR, \fB\-\-decompress\fR
+Decompress files.
+.TP
+\fB\-f\fR, \fB\-\-force\fR
+Force overwrite of existing output files.
+.TP
+\fB\-k\fR, \fB\-\-keep\fR
+Keep (do not delete) input files.
+.TP
+\fB\-t\fR, \fB\-\-test\fR
+Test compressed file integrity.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Verbose mode (display compression ratio).
+.TP
+\fB\-\-help\fR
+Display this help and exit.
+.SH "SEE ALSO"
+\fBgunzip\fR(1), \fBtar\fR(1)
+"#,
+        roff_ru: r#".TH GZIP 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+gzip \- сжатие и распаковка файлов
+.SH СИНТАКСИС
+\fBgzip\fR [\fIКЛЮЧ\fR]... [\fIФАЙЛ\fR]...
+.SH ОПИСАНИЕ
+\fBgzip\fR сжимает и распаковывает файлы в формате RFC 1952 GZIP в Wunix OS.
+.SH ОПЦИИ
+.TP
+\fB\-c\fR, \fB\-\-stdout\fR
+Выводить результат в стандартный вывод (STDOUT).
+.TP
+\fB\-d\fR, \fB\-\-decompress\fR
+Распаковать файл (режим gunzip).
+.TP
+\fB\-f\fR, \fB\-\-force\fR
+Перезаписывать существующие файлы.
+.TP
+\fB\-k\fR, \fB\-\-keep\fR
+Сохранять исходный файл (не удалять).
+.TP
+\fB\-t\fR, \fB\-\-test\fR
+Проверить целостность сжатого файла.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Подробный вывод (коэффициент сжатия).
+.TP
+\fB\-\-help\fR
+Показать эту справку и выйти.
+.SH "СМ. ТАКЖЕ"
+\fBgunzip\fR(1), \fBtar\fR(1)
+"#,
+    },
+    ManPageEntry {
+        name: "tar",
+        section: 1,
+        desc_en: "an archiving utility (POSIX ustar)",
+        desc_ru: "архиватор формата POSIX ustar",
+        roff_en: r#".TH TAR 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+tar \- an archiving utility (POSIX ustar)
+.SH SYNOPSIS
+\fBtar\fR [\fIOPTION\fR]... [\fIFILE\fR]...
+.SH DESCRIPTION
+\fBtar\fR is a POSIX ustar archiving utility for creating, listing, and extracting tape archives.
+.SH MODES
+.TP
+\fB\-c\fR, \fB\-\-create\fR
+Create a new archive.
+.TP
+\fB\-x\fR, \fB\-\-extract\fR
+Extract files from an archive.
+.TP
+\fB\-t\fR, \fB\-\-list\fR
+List the contents of an archive.
+.SH OPTIONS
+.TP
+\fB\-f\fR, \fB\-\-file\fR=\fIARCHIVE\fR
+Use archive file \fIARCHIVE\fR (or \fB\-\fR for stdin/stdout).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Verbosely list files processed.
+.TP
+\fB\-z\fR, \fB\-\-gzip\fR
+Filter the archive through \fBgzip\fR(1).
+.TP
+\fB\-C\fR, \fB\-\-directory\fR=\fIDIR\fR
+Change to directory \fIDIR\fR before performing operations.
+.TP
+\fB\-\-help\fR
+Display this help and exit.
+.SH "SEE ALSO"
+\fBgzip\fR(1), \fBgunzip\fR(1), \fBcpio\fR(1)
+"#,
+        roff_ru: r#".TH TAR 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+tar \- архиватор формата POSIX ustar
+.SH СИНТАКСИС
+\fBtar\fR [\fIКЛЮЧ\fR]... [\fIФАЙЛ\fR]...
+.SH ОПИСАНИЕ
+\fBtar\fR — утилита архивации POSIX ustar для создания, просмотра и распаковки архивов.
+.SH РЕЖИМЫ
+.TP
+\fB\-c\fR, \fB\-\-create\fR
+Создать новый архив.
+.TP
+\fB\-x\fR, \fB\-\-extract\fR
+Извлечь файлы из архива.
+.TP
+\fB\-t\fR, \fB\-\-list\fR
+Показать содержимое архива.
+.SH ОПЦИИ
+.TP
+\fB\-f\fR, \fB\-\-file\fR=\fIАРХИВ\fR
+Имя файла архива (или \fB\-\fR для stdin/stdout).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Подробный вывод обрабатываемых файлов.
+.TP
+\fB\-z\fR, \fB\-\-gzip\fR
+Сжатие или распаковка через \fBgzip\fR(1).
+.TP
+\fB\-C\fR, \fB\-\-directory\fR=\fIКАТАЛОГ\fR
+Перейти в указанный каталог перед началом работы.
+.TP
+\fB\-\-help\fR
+Показать эту справку и выйти.
+.SH "СМ. ТАКЖЕ"
+\fBgzip\fR(1), \fBgunzip\fR(1), \fBcpio\fR(1)
+"#,
+    },
+    ManPageEntry {
+        name: "unrar",
+        section: 1,
+        desc_en: "extract files from RAR archives",
+        desc_ru: "распаковка архивов формата RAR",
+        roff_en: r#".TH UNRAR 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+unrar \- extract files from RAR archives
+.SH SYNOPSIS
+\fBunrar\fR \fICOMMAND\fR [\fB\-\fR\fISWITCH\fR...] \fIARCHIVE\fR [\fIDEST_PATH/\fR]
+.SH DESCRIPTION
+\fBunrar\fR extracts and lists files in RAR archives on Wunix OS.
+.SH COMMANDS
+.TP
+\fBe\fR
+Extract files to the current directory without archived paths.
+.TP
+\fBl\fR
+List archive contents.
+.TP
+\fBt\fR
+Test archive file integrity.
+.TP
+\fBv\fR
+Verbosely list archive contents.
+.TP
+\fBx\fR
+Extract files with full paths.
+.SH OPTIONS
+.TP
+\fB\-o+\fR
+Overwrite existing files.
+.TP
+\fB\-y\fR
+Assume Yes on all queries.
+.TP
+\fB\-?\fR, \fB\-\-help\fR
+Display this help and exit.
+.SH "SEE ALSO"
+\fBunzip\fR(1), \fBtar\fR(1)
+"#,
+        roff_ru: r#".TH UNRAR 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+unrar \- распаковка архивов формата RAR
+.SH СИНТАКСИС
+\fBunrar\fR \fIКОМАНДА\fR [\fB\-\fR\fIКЛЮЧ\fR...] \fIАРХИВ.rar\fR [\fIЦЕЛЕВОЙ_КАТАЛОГ/\fR]
+.SH ОПИСАНИЕ
+\fBunrar\fR извлекает файлы и просматривает содержимое архивов RAR в Wunix OS.
+.SH КОМАНДЫ
+.TP
+\fBe\fR
+Извлечь файлы в текущий каталог (без подкаталогов).
+.TP
+\fBl\fR
+Показать список содержимого архива.
+.TP
+\fBt\fR
+Проверить целостность файлов архива.
+.TP
+\fBv\fR
+Подробный список файлов архива.
+.TP
+\fBx\fR
+Извлечь файлы с полными путями.
+.SH ОПЦИИ
+.TP
+\fB\-o+\fR
+Перезаписывать существующие файлы.
+.TP
+\fB\-y\fR
+Отвечать «Да» на все запросы.
+.TP
+\fB\-?\fR, \fB\-\-help\fR
+Показать эту справку и выйти.
+.SH "СМ. ТАКЖЕ"
+\fBunzip\fR(1), \fBtar\fR(1)
+"#,
+    },
+    ManPageEntry {
+        name: "unzip",
+        section: 1,
+        desc_en: "list, test and extract compressed files in a ZIP archive",
+        desc_ru: "просмотр, проверка и распаковка ZIP-архивов",
+        roff_en: r#".TH UNZIP 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+unzip \- list, test and extract compressed files in a ZIP archive
+.SH SYNOPSIS
+\fBunzip\fR [\fB\-l\fR] [\fB\-v\fR] [\fB\-t\fR] [\fB\-d\fR \fIEXDIR\fR] [\fB\-o\fR] [\fB\-q\fR] \fIARCHIVE.zip\fR
+.SH DESCRIPTION
+\fBunzip\fR lists, tests, or extracts files from a ZIP archive on Wunix OS.
+.SH OPTIONS
+.TP
+\fB\-l\fR
+List archive files (short format).
+.TP
+\fB\-v\fR
+List archive files (verbose format with method, size, CRC32).
+.TP
+\fB\-t\fR
+Test archive file integrity (CRC32 check).
+.TP
+\fB\-d\fR \fIEXDIR\fR
+Extract files into directory \fIEXDIR\fR.
+.TP
+\fB\-o\fR
+Overwrite existing files without prompting.
+.TP
+\fB\-q\fR
+Quiet mode.
+.TP
+\fB\-\-help\fR
+Display this help and exit.
+.SH "SEE ALSO"
+\fBzip\fR(1), \fBtar\fR(1)
+"#,
+        roff_ru: r#".TH UNZIP 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+unzip \- просмотр, проверка и распаковка ZIP-архивов
+.SH СИНТАКСИС
+\fBunzip\fR [\fB\-l\fR] [\fB\-v\fR] [\fB\-t\fR] [\fB\-d\fR \fIКАТАЛОГ\fR] [\fB\-o\fR] [\fB\-q\fR] \fIАРХИВ.zip\fR
+.SH ОПИСАНИЕ
+\fBunzip\fR просматривает, проверяет и извлекает файлы из архивов формата ZIP в Wunix OS.
+.SH ОПЦИИ
+.TP
+\fB\-l\fR
+Показать список файлов в архиве.
+.TP
+\fB\-v\fR
+Подробный список файлов (метод, размер, CRC32).
+.TP
+\fB\-t\fR
+Проверить целостность архива (проверка CRC32).
+.TP
+\fB\-d\fR \fIКАТАЛОГ\fR
+Директория для извлечения файлов.
+.TP
+\fB\-o\fR
+Перезаписывать существующие файлы без подтверждения.
+.TP
+\fB\-q\fR
+Тихий режим (минимальный вывод).
+.TP
+\fB\-\-help\fR
+Показать эту справку и выйти.
+.SH "СМ. ТАКЖЕ"
+\fBzip\fR(1), \fBtar\fR(1)
+"#,
+    },
+    ManPageEntry {
+        name: "zip",
+        section: 1,
+        desc_en: "package and compress (archive) files",
+        desc_ru: "упаковка и сжатие файлов в ZIP-архивы",
+        roff_en: r#".TH ZIP 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+zip \- package and compress (archive) files
+.SH SYNOPSIS
+\fBzip\fR [\fB\-r\fR] [\fB\-0\fR] [\fB\-v\fR] [\fB\-q\fR] \fIARCHIVE.zip\fR \fIFILE1\fR [\fIFILE2\fR...]
+.SH DESCRIPTION
+\fBzip\fR is a compression and file packaging utility for Wunix OS (PKWARE standard).
+.SH OPTIONS
+.TP
+\fB\-r\fR, \fB\-\-recurse\-paths\fR
+Recurse into directories.
+.TP
+\fB\-0\fR, \fB\-\-store\fR
+Store only without compression.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Verbose output.
+.TP
+\fB\-q\fR, \fB\-\-quiet\fR
+Quiet mode.
+.TP
+\fB\-\-help\fR
+Display this help and exit.
+.SH "SEE ALSO"
+\fBunzip\fR(1), \fBtar\fR(1)
+"#,
+        roff_ru: r#".TH ZIP 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+zip \- упаковка и сжатие файлов в ZIP-архивы
+.SH СИНТАКСИС
+\fBzip\fR [\fB\-r\fR] [\fB\-0\fR] [\fB\-v\fR] [\fB\-q\fR] \fIАРХИВ.zip\fR \fIФАЙЛ1\fR [\fIФАЙЛ2\fR...]
+.SH ОПИСАНИЕ
+\fBzip\fR — архиватор формата ZIP (стандарт PKWARE) для Wunix OS.
+.SH ОПЦИИ
+.TP
+\fB\-r\fR, \fB\-\-recurse\-paths\fR
+Рекурсивно добавлять подкаталоги.
+.TP
+\fB\-0\fR, \fB\-\-store\fR
+Сохранять без сжатия (метод Store).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Подробный вывод.
+.TP
+\fB\-q\fR, \fB\-\-quiet\fR
+Тихий режим (без вывода в stdout).
+.TP
+\fB\-\-help\fR
+Показать эту справку и выйти.
+.SH "СМ. ТАКЖЕ"
+\fBunzip\fR(1), \fBtar\fR(1)
+"#,
+    },
 ];
 
 pub struct ManDatabase;
@@ -3952,7 +4502,7 @@ mod tests {
             "host", "hwclock", "id", "init", "ip", "ln", "login", "ls", "lsblk", "lsdev",
             "lshw", "lsmod", "lspci", "man", "mkdir", "modinfo", "mount", "mv", "passwd", "ping", "pwd",
             "readlink", "reboot", "rm", "rmdir", "shutdown", "ss", "su", "sudo", "sudoadd", "system", "time",
-            "timedatectl", "ntpdate", "timesyncd", "top", "touch", "umount", "uname", "useradd", "userdel", "whoami", "winstall", "wpm", "wsh", "wsp", "wspd",
+            "timedatectl", "ntpdate", "timesyncd", "top", "touch", "umount", "uname", "useradd", "userdel", "whoami", "ar", "cpio", "gunzip", "gzip", "tar", "unrar", "unzip", "winstall", "wpm", "wsh", "wsp", "wspd", "zip",
         ];
         for prog in all_progs {
             assert!(
