@@ -153,20 +153,12 @@ pub fn save_installed_apps(apps: &[InstalledApp]) {
 }
 
 pub fn is_system_package(pkg: &str) -> bool {
-    let canonical = match pkg {
-        "cc" => "tinycc",
-        "ssh" | "sshd" | "scp" => "openssh",
-        "unzip" => "zip",
-        "gunzip" => "gzip",
-        other => other,
-    };
     matches!(
-        canonical,
-        "nano" | "curl" | "tar" | "zip" | "gzip" | "openssh"
-            | "openssl" | "ncurses" | "zlib" | "wunix-kernel" | "wunix-base"
-            | "libwunix" | "libpackwunix" | "libcwunix" | "coreutils" | "netutils"
-            | "sysutils" | "authutils" | "archiveutils" | "wspd" | "wsp" | "wsh"
-            | "init" | "system" | "winstall"
+        pkg,
+        "wunix-kernel" | "wunix-base" | "libwunix" | "libpackwunix" | "libcwunix"
+            | "coreutils" | "netutils" | "sysutils" | "authutils"
+            | "wspd" | "wsp" | "wsh" | "init" | "system" | "winstall"
+            | "openssl" | "ncurses" | "zlib"
     )
 }
 

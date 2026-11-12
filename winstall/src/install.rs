@@ -23,6 +23,7 @@ pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
     (b"/bin/rm\0",         b"/mnt/bin/rm\0"),
     (b"/bin/mkdir\0",      b"/mnt/bin/mkdir\0"),
     (b"/bin/rmdir\0",      b"/mnt/bin/rmdir\0"),
+    (b"/bin/mv\0",         b"/mnt/bin/mv\0"),
     (b"/bin/ln\0",         b"/mnt/bin/ln\0"),
     (b"/bin/readlink\0",   b"/mnt/bin/readlink\0"),
     (b"/bin/top\0",        b"/mnt/bin/top\0"),
