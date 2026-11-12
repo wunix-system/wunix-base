@@ -1,20 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "ar",
     "cat",
     "chmod",
     "chown",
     "clear",
-    "cpio",
-    "curl",
     "date",
     "echo",
     "fbset",
     "fdisk",
     "free",
-    "gunzip",
-    "gzip",
     "host",
     "hwclock",
     "id",
@@ -32,6 +27,7 @@ members = [
     "mkdir",
     "modinfo",
     "mount",
+    "mv",
     "ntpdate",
     "passwd",
     "ping",
@@ -46,7 +42,6 @@ members = [
     "sudo",
     "sudoadd",
     "system",
-    "tar",
     "time",
     "timedatectl",
     "timesyncd",
@@ -54,8 +49,6 @@ members = [
     "touch",
     "umount",
     "uname",
-    "unrar",
-    "unzip",
     "useradd",
     "userdel",
     "whoami",
@@ -64,7 +57,6 @@ members = [
     "wsp",
     "wspd",
     "wpm",
-    "zip",
 ]
 
 [profile.dev]
