@@ -1,7 +1,7 @@
 #[cfg(feature = "std")]
-pub mod linux;
+pub mod host;
 #[cfg(feature = "std")]
-pub use linux::*;
+pub use host::*;
 
 #[cfg(not(feature = "std"))]
 pub mod wunix;
