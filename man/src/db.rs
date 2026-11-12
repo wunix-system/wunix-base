@@ -4268,6 +4268,70 @@ zip \- упаковка и сжатие файлов в ZIP-архивы
 \fBunzip\fR(1), \fBtar\fR(1)
 "#,
     },
+    ManPageEntry {
+        name: "wc",
+        section: 1,
+        desc_en: "print newline, word, and byte counts for each file",
+        desc_ru: "подсчёт строк, слов и байт для каждого файла",
+        roff_en: r#".TH WC 1 "2026-11-12" "Wunix" "User Commands"
+.SH NAME
+wc \- print newline, word, and byte counts for each file
+.SH SYNOPSIS
+\fBwc\fR [\fIOPTION\fR]... [\fIFILE\fR]...
+.SH DESCRIPTION
+Print newline, word, and byte counts for each \fIFILE\fR, and a total line if more than one \fIFILE\fR is specified. With no \fIFILE\fR, or when \fIFILE\fR is \fB\-\fR, read standard input.
+.SH OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-bytes\fR
+print the byte counts
+.TP
+\fB\-m\fR, \fB\-\-chars\fR
+print the character counts
+.TP
+\fB\-l\fR, \fB\-\-lines\fR
+print the newline counts
+.TP
+\fB\-L\fR, \fB\-\-max\-line\-length\fR
+print the maximum display width
+.TP
+\fB\-w\fR, \fB\-\-words\fR
+print the word counts
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+display this help and exit
+.SH "SEE ALSO"
+\fBcat\fR(1), \fBls\fR(1)
+"#,
+        roff_ru: r#".TH WC 1 "2026-11-12" "Wunix" "Команды пользователя"
+.SH ИМЯ
+wc \- подсчёт строк, слов и байт для каждого файла
+.SH СИНТАКСИС
+\fBwc\fR [\fIОПЦИЯ\fR]... [\fIФАЙЛ\fR]...
+.SH ОПИСАНИЕ
+Подсчитывает строки, слова и байты для каждого \fIФАЙЛА\fR (и итоговую строку, если указано более одного файла). Если \fIФАЙЛ\fR не задан или равен \fB\-\fR, читает стандартный ввод.
+.SH ОПЦИИ
+.TP
+\fB\-c\fR, \fB\-\-bytes\fR
+вывести количество байт
+.TP
+\fB\-m\fR, \fB\-\-chars\fR
+вывести количество символов
+.TP
+\fB\-l\fR, \fB\-\-lines\fR
+вывести количество строк
+.TP
+\fB\-L\fR, \fB\-\-max\-line\-length\fR
+вывести длину самой длинной строки
+.TP
+\fB\-w\fR, \fB\-\-words\fR
+вывести количество слов
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+показать эту справку и выйти
+.SH "СМ. ТАКЖЕ"
+\fBcat\fR(1), \fBls\fR(1)
+"#,
+    },
 ];
 
 pub struct ManDatabase;
@@ -4502,7 +4566,7 @@ mod tests {
             "host", "hwclock", "id", "init", "ip", "ln", "login", "ls", "lsblk", "lsdev",
             "lshw", "lsmod", "lspci", "man", "mkdir", "modinfo", "mount", "mv", "passwd", "ping", "pwd",
             "readlink", "reboot", "rm", "rmdir", "shutdown", "ss", "su", "sudo", "sudoadd", "system", "time",
-            "timedatectl", "ntpdate", "timesyncd", "top", "touch", "umount", "uname", "useradd", "userdel", "whoami", "ar", "cpio", "gunzip", "gzip", "tar", "unrar", "unzip", "winstall", "wpm", "wsh", "wsp", "wspd", "zip",
+            "timedatectl", "ntpdate", "timesyncd", "top", "touch", "umount", "uname", "useradd", "userdel", "wc", "whoami", "ar", "cpio", "gunzip", "gzip", "tar", "unrar", "unzip", "winstall", "wpm", "wsh", "wsp", "wspd", "zip",
         ];
         for prog in all_progs {
             assert!(
