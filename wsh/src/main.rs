@@ -12,9 +12,9 @@ use std::string::String;
 use wsh::builtins::Builtins;
 use wsh::editor::LineEditor;
 use wsh::history::History;
-use wsh::parser::Parser;
 use wsh::platform;
 use wsh::prompt::Prompt;
+use wsh::runner::{is_script_control_or_brace, run_command_line, run_script_content};
 
 #[cfg(feature = "std")]
 fn main() {
@@ -30,19 +30,8 @@ fn main() {
     if args.len() >= 2 && !args[1].starts_with('-') {
         if let Ok(content) = std::fs::read_to_string(&args[1]) {
             let mut history = History::new(100);
-            let mut last_status = 0;
-            let mut should_exit = false;
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() || trimmed.starts_with('#') {
-                    continue;
-                }
-                last_status = run_command_line(trimmed, &mut history, last_status, &mut should_exit);
-                if should_exit {
-                    break;
-                }
-            }
-            std::process::exit(last_status);
+            let exit_code = run_script_content(&content, &mut history, 0, &mut false);
+            std::process::exit(exit_code);
         } else {
             eprintln!("wsh: cannot open script: {}", args[1]);
             std::process::exit(1);
@@ -125,6 +114,22 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let prog_name = args.first().map(|s| s.as_str()).unwrap_or("wsh");
     let is_env_app = prog_name.ends_with("env");
 
+    if prog_name.ends_with('[') || prog_name.ends_with("test") {
+        let code = Builtins::builtin_test(&args[1..]);
+        libwunix::exit(code as u64);
+    }
+
+    if prog_name.ends_with("unalias") {
+        libwunix::exit(0);
+    }
+
+    if prog_name.ends_with("command") && args.len() > 1 {
+        let mut history = History::new(10);
+        let mut should_exit = false;
+        let code = Builtins::builtin_command(&args[1..], &mut history, 0, &mut should_exit);
+        libwunix::exit(code as u64);
+    }
+
     if is_env_app && args.len() > 1 {
         // Эмуляция /usr/bin/env: исполнение следующей утилиты с аргументами
         let mut history = History::new(10);
@@ -152,7 +157,8 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     // Обработка запуска файла скрипта: wsh script.sh [args...]
     if args.len() >= 2 && !args[1].starts_with('-') {
         if let Some(content) = platform::read_file(&args[1]) {
-            let exit_code = run_script_content(&content);
+            let mut history = History::new(100);
+            let exit_code = run_script_content(&content, &mut history, 0, &mut false);
             libwunix::exit(exit_code as u64);
         } else {
             let not_found_msg = libwunix::t("wsh: не удалось открыть скрипт: ", "wsh: cannot open script: ");
@@ -171,29 +177,6 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
 
     run_interactive_shell();
     libwunix::exit(0);
-}
-
-fn run_script_content(content: &str) -> i32 {
-    let mut history = History::new(100);
-    let mut last_status = 0;
-    let mut should_exit = false;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        last_status = run_command_line(trimmed, &mut history, last_status, &mut should_exit);
-        if should_exit {
-            break;
-        }
-    }
-    last_status
-}
-
-fn is_script_control_or_brace(s: &str) -> bool {
-    matches!(s, "{" | "}" | "(" | ")" | "then" | "else" | "fi" | "do" | "done" | "esac")
-        || s.contains("() {")
-        || (s.ends_with("()") && s.len() > 2)
 }
 
 #[cfg(not(feature = "std"))]
@@ -369,141 +352,6 @@ fn run_interactive_shell() {
 
     #[cfg(feature = "std")]
     std::process::exit(last_status);
-}
-
-fn run_command_line(line: &str, history: &mut History, mut last_status: i32, should_exit: &mut bool) -> i32 {
-    let env_lookup = |key: &str| platform::get_env(key);
-    let tokens = Parser::tokenize(line);
-    let chain = match Parser::parse_chain(&tokens, &env_lookup, last_status) {
-        Some(c) => c,
-        None => return 0,
-    };
-
-    let mut skip_cond = None;
-
-    for item in chain.pipelines {
-        if *should_exit {
-            break;
-        }
-
-        if let Some(cond) = skip_cond.take() {
-            match cond {
-                wsh::parser::ChainOp::And if last_status != 0 => {
-                    // Предыдущая команда завершилась ошибкой: пропускаем ветку &&
-                    skip_cond = Some(item.op);
-                    continue;
-                }
-                wsh::parser::ChainOp::Or if last_status == 0 => {
-                    // Предыдущая команда завершилась успехом: пропускаем ветку ||
-                    skip_cond = Some(item.op);
-                    continue;
-                }
-                _ => {}
-            }
-        }
-
-        last_status = execute_single_pipeline(&item.pipeline, history, last_status, should_exit);
-
-        if item.op != wsh::parser::ChainOp::Always {
-            skip_cond = Some(item.op);
-        }
-    }
-
-    last_status
-}
-
-fn execute_single_pipeline(
-    pipeline: &wsh::parser::Pipeline,
-    history: &mut History,
-    last_status: i32,
-    should_exit: &mut bool,
-) -> i32 {
-    if pipeline.commands.is_empty() {
-        return 0;
-    }
-
-    // Если пайплайн состоит из одной команды, проверяем, не является ли она встроенной
-    if pipeline.commands.len() == 1 {
-        let single_cmd = &pipeline.commands[0];
-        if Builtins::is_builtin(&single_cmd.name) {
-            #[cfg(not(feature = "std"))]
-            {
-                let saved_in = libwunix::dup(0);
-                let saved_out = libwunix::dup(1);
-                apply_command_redirects(&single_cmd.redirects);
-                let res = Builtins::execute(single_cmd, history, last_status, should_exit);
-                if saved_in >= 0 {
-                    let _ = libwunix::dup2(saved_in as u64, 0);
-                    let _ = libwunix::close(saved_in as u64);
-                }
-                if saved_out >= 0 {
-                    let _ = libwunix::dup2(saved_out as u64, 1);
-                    let _ = libwunix::close(saved_out as u64);
-                }
-                if let Some(code) = res {
-                    return code;
-                }
-            }
-            #[cfg(feature = "std")]
-            {
-                if let Some(code) = Builtins::execute(single_cmd, history, last_status, should_exit) {
-                    return code;
-                }
-            }
-        }
-    }
-
-    // В противном случае запускаем реальный конвейер процессов через платформу
-    platform::execute_pipeline(pipeline)
-}
-
-#[cfg(not(feature = "std"))]
-fn apply_command_redirects(redirects: &[wsh::parser::Redirect]) {
-    for red in redirects {
-        match red {
-            wsh::parser::Redirect::Output(path) => {
-                let mut p_buf = [0u8; 256];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_TRUNC) as u64;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 1);
-                        let _ = libwunix::close(fd as u64);
-                    }
-                }
-            }
-            wsh::parser::Redirect::AppendOutput(path) => {
-                let mut p_buf = [0u8; 256];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_APPEND) as u64;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 1);
-                        let _ = libwunix::close(fd as u64);
-                    }
-                }
-            }
-            wsh::parser::Redirect::Input(path) => {
-                let mut p_buf = [0u8; 256];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], libwunix::O_RDONLY as u64, 0);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 0);
-                        let _ = libwunix::close(fd as u64);
-                    }
-                }
-            }
-        }
-    }
 }
 
 fn print_out(s: &str) {

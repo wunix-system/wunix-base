@@ -1,10 +1,10 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String};
+use alloc::{format, string::String, vec::Vec};
 
 #[cfg(feature = "std")]
-use std::string::String;
+use std::{format, string::String, vec::Vec};
 
 use crate::history::History;
 use crate::parser::SimpleCommand;
@@ -16,7 +16,30 @@ impl Builtins {
     pub fn is_builtin(name: &str) -> bool {
         matches!(
             name,
-            "cd" | "pwd" | "exit" | "echo" | "export" | "unset" | "env" | "history" | "clear" | "cls" | "help" | "type" | "which" | "whoami" | "hostname" | "true" | ":" | "false" | "command"
+            "cd"
+                | "pwd"
+                | "exit"
+                | "echo"
+                | "export"
+                | "unset"
+                | "env"
+                | "history"
+                | "clear"
+                | "cls"
+                | "help"
+                | "type"
+                | "which"
+                | "whoami"
+                | "hostname"
+                | "true"
+                | ":"
+                | "false"
+                | "command"
+                | "."
+                | "source"
+                | "["
+                | "test"
+                | "unalias"
         )
     }
 
@@ -55,15 +78,10 @@ impl Builtins {
             "type" | "which" => Some(Self::builtin_type(&cmd.args)),
             "true" | ":" => Some(0),
             "false" => Some(1),
-            "command" => {
-                if cmd.args.is_empty() {
-                    Some(0)
-                } else if cmd.args[0] == "-v" || cmd.args[0] == "-V" {
-                    Some(Self::builtin_type(&cmd.args[1..]))
-                } else {
-                    None
-                }
-            }
+            "unalias" => Some(0),
+            "command" => Some(Self::builtin_command(&cmd.args, history, last_status, should_exit)),
+            "." | "source" => Some(Self::builtin_source(&cmd.args, history, last_status, should_exit)),
+            "[" | "test" => Some(Self::builtin_test(&cmd.args)),
             _ => None,
         }
     }
@@ -306,7 +324,6 @@ impl Builtins {
             return 1;
         }
 
-        #[allow(unused_mut)]
         let mut status = 0;
         for name in args {
             if Self::is_builtin(name) {
@@ -318,52 +335,187 @@ impl Builtins {
                 #[cfg(feature = "std")]
                 print_out(&format!("{} is a shell builtin\n", name));
             } else {
-                // Ищем в PATH
-                #[cfg(feature = "std")]
-                {
-                    if let Ok(path) = std::env::var("PATH") {
-                        let mut found = false;
-                        for dir in path.split(':') {
-                            let p = std::path::Path::new(dir).join(name);
-                            if p.is_file() {
-                                print_out(&format!("{} is {}\n", name, p.display()));
-                                found = true;
-                                break;
-                            }
-                        }
-                        if !found {
-                            print_err(&format!("wsh: type: {}: not found\n", name));
-                            status = 1;
-                        }
-                    }
-                }
-                #[cfg(not(feature = "std"))]
-                {
-                    let mut path_buf = [0u8; 128];
-                    let prefix = b"/bin/";
-                    let mut exists = false;
-                    if prefix.len() + name.len() + 1 < path_buf.len() {
-                        path_buf[..prefix.len()].copy_from_slice(prefix);
-                        path_buf[prefix.len()..prefix.len() + name.len()].copy_from_slice(name.as_bytes());
-                        path_buf[prefix.len() + name.len()] = 0;
-                        let mut st = libwunix::Stat::zeroed();
-                        if libwunix::stat(&path_buf[..prefix.len() + name.len() + 1], &mut st) == 0 {
-                            exists = true;
-                        }
-                    }
-
-                    if exists {
+                let resolved = platform::resolve_in_path(name);
+                if resolved != *name || platform::file_exists(name) {
+                    let target = if resolved != *name { &resolved } else { name };
+                    #[cfg(not(feature = "std"))]
+                    {
                         let is_str = libwunix::t("это", "is");
-                        print_out(&format!("{} {} /bin/{}\n", name, is_str, name));
-                    } else {
+                        print_out(&format!("{} {} {}\n", name, is_str, target));
+                    }
+                    #[cfg(feature = "std")]
+                    print_out(&format!("{} is {}\n", name, target));
+                } else {
+                    #[cfg(not(feature = "std"))]
+                    {
                         let not_found_str = libwunix::t("не найдено", "not found");
                         print_err(&format!("wsh: type: {}: {}\n", name, not_found_str));
-                        status = 1;
                     }
+                    #[cfg(feature = "std")]
+                    print_err(&format!("wsh: type: {}: not found\n", name));
+                    status = 1;
                 }
             }
         }
         status
+    }
+
+    pub fn builtin_command(
+        args: &[String],
+        history: &mut History,
+        last_status: i32,
+        should_exit: &mut bool,
+    ) -> i32 {
+        if args.is_empty() {
+            0
+        } else if args[0] == "-v" || args[0] == "-V" {
+            Self::builtin_type(&args[1..])
+        } else {
+            let sub_cmd = SimpleCommand {
+                name: args[0].clone(),
+                args: args[1..].to_vec(),
+                redirects: Vec::new(),
+            };
+            crate::runner::execute_subcommand(&sub_cmd, history, last_status, should_exit)
+        }
+    }
+
+    fn builtin_source(
+        args: &[String],
+        history: &mut History,
+        last_status: i32,
+        should_exit: &mut bool,
+    ) -> i32 {
+        if args.is_empty() {
+            #[cfg(not(feature = "std"))]
+            print_err(libwunix::t("wsh: .: требуется имя файла\n", "wsh: .: filename argument required\n"));
+            #[cfg(feature = "std")]
+            print_err("wsh: .: filename argument required\n");
+            return 1;
+        }
+
+        let raw_path = &args[0];
+        let resolved_path = if raw_path.starts_with("~/") {
+            let home = platform::get_env("HOME").unwrap_or_else(|| String::from("/root"));
+            let mut p = home;
+            p.push_str(&raw_path[1..]);
+            p
+        } else if raw_path == "~" {
+            platform::get_env("HOME").unwrap_or_else(|| String::from("/root"))
+        } else if !raw_path.starts_with('/') {
+            let cwd = platform::get_cwd();
+            let mut p = cwd;
+            if !p.ends_with('/') {
+                p.push('/');
+            }
+            p.push_str(raw_path);
+            p
+        } else {
+            raw_path.clone()
+        };
+
+        if let Some(content) = platform::read_file(&resolved_path) {
+            crate::runner::run_script_content(&content, history, last_status, should_exit)
+        } else {
+            let err_msg = format!("wsh: .: {}: No such file or directory\n", resolved_path);
+            print_err(&err_msg);
+            1
+        }
+    }
+
+    pub fn builtin_test(args: &[String]) -> i32 {
+        let mut clean_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        if clean_args.last() == Some(&"]") {
+            clean_args.pop();
+        }
+
+        if clean_args.is_empty() {
+            return 1;
+        }
+
+        if clean_args[0] == "!" {
+            let sub_args: Vec<String> = clean_args[1..].iter().map(|&s| String::from(s)).collect();
+            return if Self::builtin_test(&sub_args) == 0 { 1 } else { 0 };
+        }
+
+        match clean_args.len() {
+            1 => {
+                if clean_args[0].is_empty() { 1 } else { 0 }
+            }
+            2 => {
+                match clean_args[0] {
+                    "-z" => if clean_args[1].is_empty() { 0 } else { 1 },
+                    "-n" => if !clean_args[1].is_empty() { 0 } else { 1 },
+                    "-f" => if platform::file_exists(clean_args[1]) && !platform::is_dir(clean_args[1]) { 0 } else { 1 },
+                    "-d" => if platform::is_dir(clean_args[1]) { 0 } else { 1 },
+                    "-e" => if platform::file_exists(clean_args[1]) { 0 } else { 1 },
+                    "-s" => if platform::file_size(clean_args[1]) > 0 { 0 } else { 1 },
+                    "-x" => if platform::file_exists(clean_args[1]) { 0 } else { 1 },
+                    _ => 1,
+                }
+            }
+            3 => {
+                let left = clean_args[0];
+                let op = clean_args[1];
+                let right = clean_args[2];
+                match op {
+                    "=" | "==" => if left == right { 0 } else { 1 },
+                    "!=" => if left != right { 0 } else { 1 },
+                    "-eq" => {
+                        let l: i64 = left.parse().unwrap_or(0);
+                        let r: i64 = right.parse().unwrap_or(0);
+                        if l == r { 0 } else { 1 }
+                    }
+                    "-ne" => {
+                        let l: i64 = left.parse().unwrap_or(0);
+                        let r: i64 = right.parse().unwrap_or(0);
+                        if l != r { 0 } else { 1 }
+                    }
+                    "-lt" => {
+                        let l: i64 = left.parse().unwrap_or(0);
+                        let r: i64 = right.parse().unwrap_or(0);
+                        if l < r { 0 } else { 1 }
+                    }
+                    "-le" => {
+                        let l: i64 = left.parse().unwrap_or(0);
+                        let r: i64 = right.parse().unwrap_or(0);
+                        if l <= r { 0 } else { 1 }
+                    }
+                    "-gt" => {
+                        let l: i64 = left.parse().unwrap_or(0);
+                        let r: i64 = right.parse().unwrap_or(0);
+                        if l > r { 0 } else { 1 }
+                    }
+                    "-ge" => {
+                        let l: i64 = left.parse().unwrap_or(0);
+                        let r: i64 = right.parse().unwrap_or(0);
+                        if l >= r { 0 } else { 1 }
+                    }
+                    _ => 1,
+                }
+            }
+            _ => {
+                if let Some(pos) = clean_args.iter().position(|&s| s == "-a" || s == "&&") {
+                    let left_args: Vec<String> = clean_args[..pos].iter().map(|&s| String::from(s)).collect();
+                    let right_args: Vec<String> = clean_args[pos + 1..].iter().map(|&s| String::from(s)).collect();
+                    if Self::builtin_test(&left_args) == 0 && Self::builtin_test(&right_args) == 0 {
+                        0
+                    } else {
+                        1
+                    }
+                } else if let Some(pos) = clean_args.iter().position(|&s| s == "-o" || s == "||") {
+                    let left_args: Vec<String> = clean_args[..pos].iter().map(|&s| String::from(s)).collect();
+                    let right_args: Vec<String> = clean_args[pos + 1..].iter().map(|&s| String::from(s)).collect();
+                    if Self::builtin_test(&left_args) == 0 || Self::builtin_test(&right_args) == 0 {
+                        0
+                    } else {
+                        1
+                    }
+                } else {
+                    1
+                }
+            }
+        }
     }
 
     fn builtin_help() -> i32 {
@@ -470,4 +622,53 @@ mod tests {
         assert_eq!(res_c, Some(0));
         assert!(history.is_empty());
     }
+
+    #[test]
+    fn test_builtin_test_conditions() {
+        // -z и -n
+        assert_eq!(Builtins::builtin_test(&[String::from("-z"), String::from("")]), 0);
+        assert_eq!(Builtins::builtin_test(&[String::from("-z"), String::from("hello")]), 1);
+        assert_eq!(Builtins::builtin_test(&[String::from("-n"), String::from("hello")]), 0);
+        assert_eq!(Builtins::builtin_test(&[String::from("-n"), String::from("")]), 1);
+
+        // Строковые сравнения
+        assert_eq!(Builtins::builtin_test(&[String::from("abc"), String::from("="), String::from("abc")]), 0);
+        assert_eq!(Builtins::builtin_test(&[String::from("abc"), String::from("!="), String::from("xyz")]), 0);
+        assert_eq!(Builtins::builtin_test(&[String::from("abc"), String::from("="), String::from("xyz")]), 1);
+
+        // Числовые сравнения
+        assert_eq!(Builtins::builtin_test(&[String::from("10"), String::from("-eq"), String::from("10")]), 0);
+        assert_eq!(Builtins::builtin_test(&[String::from("5"), String::from("-lt"), String::from("10")]), 0);
+        assert_eq!(Builtins::builtin_test(&[String::from("15"), String::from("-gt"), String::from("10")]), 0);
+
+        // Скобки [ ... ]
+        assert_eq!(Builtins::builtin_test(&[String::from("-n"), String::from("ok"), String::from("]")]), 0);
+
+        // Отрицание !
+        assert_eq!(Builtins::builtin_test(&[String::from("!"), String::from("-z"), String::from("text")]), 0);
+    }
+
+    #[test]
+    fn test_builtin_source_execution() {
+        let tmp_path = "/tmp/test_wsh_source.sh";
+        let script = "export NVM_DIR=/root/.nvm\nPATH=$NVM_DIR/bin:$PATH\n";
+        assert!(platform::write_file(tmp_path, script));
+
+        let mut history = History::new(10);
+        let mut should_exit = false;
+        let cmd = SimpleCommand {
+            name: String::from("."),
+            args: vec![String::from(tmp_path)],
+            redirects: vec![],
+        };
+        let res = Builtins::execute(&cmd, &mut history, 0, &mut should_exit);
+        assert_eq!(res, Some(0));
+
+        assert_eq!(platform::get_env("NVM_DIR"), Some("/root/.nvm".to_string()));
+        let path = platform::get_env("PATH").unwrap();
+        assert!(path.starts_with("/root/.nvm/bin"));
+
+        let _ = std::fs::remove_file(tmp_path);
+    }
 }
+

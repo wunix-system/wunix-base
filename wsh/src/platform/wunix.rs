@@ -342,8 +342,9 @@ fn execute_command_with_redirects(
     stdin_fd: Option<i64>,
     stdout_fd: Option<i64>,
 ) -> i32 {
+    let resolved_path = resolve_in_path(&cmd.name);
     let mut null_term_path = [0u8; PATH_BUFFER_CAPACITY];
-    let path_bytes = cmd.name.as_bytes();
+    let path_bytes = resolved_path.as_bytes();
     if path_bytes.len() >= null_term_path.len() {
         libwunix::write(libwunix::STDERR_FILENO, b"wsh: executable path too long\n");
         return 1;
@@ -566,4 +567,77 @@ pub fn write_file(path: &str, content: &str) -> bool {
     let _ = libwunix::write(fd as u64, content.as_bytes());
     let _ = libwunix::close(fd as u64);
     true
+}
+
+pub fn file_exists(path: &str) -> bool {
+    let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
+    let b = path.as_bytes();
+    if b.len() >= null_path.len() {
+        return false;
+    }
+    null_path[..b.len()].copy_from_slice(b);
+    null_path[b.len()] = 0;
+    let fd = libwunix::open(&null_path[..b.len() + 1], libwunix::O_RDONLY as u64, 0);
+    if fd >= 0 {
+        let _ = libwunix::close(fd as u64);
+        true
+    } else {
+        false
+    }
+}
+
+pub fn is_dir(path: &str) -> bool {
+    let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
+    let b = path.as_bytes();
+    if b.len() >= null_path.len() {
+        return false;
+    }
+    null_path[..b.len()].copy_from_slice(b);
+    null_path[b.len()] = 0;
+    let mut st = libwunix::Stat::zeroed();
+    if libwunix::stat(&null_path[..b.len() + 1], &mut st) == 0 {
+        (st.st_mode & 0o170000) == 0o040000
+    } else {
+        false
+    }
+}
+
+pub fn file_size(path: &str) -> u64 {
+    let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
+    let b = path.as_bytes();
+    if b.len() >= null_path.len() {
+        return 0;
+    }
+    null_path[..b.len()].copy_from_slice(b);
+    null_path[b.len()] = 0;
+    let mut st = libwunix::Stat::zeroed();
+    if libwunix::stat(&null_path[..b.len() + 1], &mut st) == 0 {
+        st.st_size as u64
+    } else {
+        0
+    }
+}
+
+pub fn resolve_in_path(cmd_name: &str) -> String {
+    if cmd_name.contains('/') {
+        return String::from(cmd_name);
+    }
+
+    let path_val = get_env("PATH").unwrap_or_else(|| String::from("/bin:/usr/bin"));
+    for dir in path_val.split(':') {
+        let trimmed = dir.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut candidate = String::from(trimmed);
+        if !candidate.ends_with('/') {
+            candidate.push('/');
+        }
+        candidate.push_str(cmd_name);
+        if file_exists(&candidate) && !is_dir(&candidate) {
+            return candidate;
+        }
+    }
+
+    String::from(cmd_name)
 }

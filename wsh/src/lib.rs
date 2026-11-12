@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
 
 pub mod builtins;
 pub mod completion;
@@ -8,3 +8,4 @@ pub mod history;
 pub mod parser;
 pub mod platform;
 pub mod prompt;
+pub mod runner;

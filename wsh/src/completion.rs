@@ -242,20 +242,7 @@ pub fn collect_command_completions_with_bins(
     items
 }
 
-/// Раскрывает тильду '~' в домашний каталог пользователя
-pub fn expand_tilde(path: &str, home: &str) -> String {
-    if path == "~" {
-        home.to_string()
-    } else if let Some(sub) = path.strip_prefix("~/") {
-        if home == "/" {
-            format!("/{}", sub)
-        } else {
-            format!("{}/{}", home, sub)
-        }
-    } else {
-        path.to_string()
-    }
-}
+pub use crate::parser::expand_tilde;
 
 /// Читает содержимое директории для автодополнения
 pub fn read_dir_entries(dir_path: &str) -> Vec<(String, CompletionKind)> {

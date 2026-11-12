@@ -54,6 +54,21 @@ pub struct CommandChain {
     pub pipelines: Vec<ChainedPipeline>,
 }
 
+/// Раскрывает тильду '~' в домашний каталог пользователя (для '~' и '~/...')
+pub fn expand_tilde(path: &str, home: &str) -> String {
+    if path == "~" {
+        home.to_string()
+    } else if let Some(sub) = path.strip_prefix("~/") {
+        let base = home.trim_end_matches('/');
+        let mut out = String::from(base);
+        out.push('/');
+        out.push_str(sub);
+        out
+    } else {
+        path.to_string()
+    }
+}
+
 pub struct Parser;
 
 impl Parser {
@@ -223,6 +238,23 @@ impl Parser {
         result
     }
 
+    /// Раскрывает тильду и переменные окружения в одном токене
+    fn expand_token<F>(token: &str, get_var: &F, last_status: i32) -> String
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let tilde_expanded = if token == "~" || token.starts_with("~/") {
+            if let Some(home) = get_var("HOME") {
+                expand_tilde(token, &home)
+            } else {
+                token.to_string()
+            }
+        } else {
+            token.to_string()
+        };
+        Self::expand_variables(&tilde_expanded, get_var, last_status)
+    }
+
     /// Разбирает список токенов в пайплайн команд
     pub fn parse_pipeline<F>(tokens: &[String], get_var: &F, last_status: i32) -> Option<Pipeline>
     where
@@ -250,7 +282,7 @@ impl Parser {
                 let is_append = token == ">>";
                 let is_input = token == "<";
                 let target = iter.next()?;
-                let target_expanded = Self::expand_variables(target, get_var, last_status);
+                let target_expanded = Self::expand_token(target, get_var, last_status);
 
                 let redirect = if is_input {
                     Redirect::Input(target_expanded)
@@ -266,7 +298,7 @@ impl Parser {
                     return None;
                 }
             } else {
-                let expanded = Self::expand_variables(token, get_var, last_status);
+                let expanded = Self::expand_token(token, get_var, last_status);
                 if let Some(cmd) = &mut current_cmd {
                     cmd.args.push(expanded);
                 } else {
@@ -462,5 +494,36 @@ mod tests {
 
         let tokens_quoted = Parser::tokenize("echo \"#not_a_comment\" '#also_not'");
         assert_eq!(tokens_quoted, vec!["echo", "#not_a_comment", "#also_not"]);
+    }
+
+    #[test]
+    fn test_parse_pipeline_expands_tilde() {
+        let env = |k: &str| match k {
+            "HOME" => Some("/home/valdis".to_string()),
+            "SUB" => Some("keys".to_string()),
+            _ => None,
+        };
+        let tokens = Parser::tokenize("cat ~ ~/.ssh/id_ed25519.pub ~user ~/$SUB > ~/out.txt");
+        let pipeline = Parser::parse_pipeline(&tokens, &env, 0).expect("failed to parse pipeline");
+
+        assert_eq!(pipeline.commands[0].name, "cat");
+        assert_eq!(
+            pipeline.commands[0].args,
+            vec![
+                "/home/valdis",
+                "/home/valdis/.ssh/id_ed25519.pub",
+                "~user",
+                "/home/valdis/keys",
+            ]
+        );
+        assert_eq!(
+            pipeline.commands[0].redirects,
+            vec![Redirect::Output("/home/valdis/out.txt".to_string())]
+        );
+
+        let no_home = |_k: &str| None;
+        let tokens_no_home = Parser::tokenize("cat ~/.ssh/id_ed25519.pub");
+        let p_no_home = Parser::parse_pipeline(&tokens_no_home, &no_home, 0).expect("failed");
+        assert_eq!(p_no_home.commands[0].args, vec!["~/.ssh/id_ed25519.pub"]);
     }
 }

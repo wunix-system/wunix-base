@@ -1,10 +1,10 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{string::String, string::ToString, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 
 #[cfg(feature = "std")]
-use std::{string::String, string::ToString, vec::Vec};
+use std::vec::Vec;
 
 use crate::builtins::Builtins;
 use crate::history::History;

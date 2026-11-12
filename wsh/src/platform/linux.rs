@@ -276,3 +276,35 @@ pub fn append_file_line(path: &str, line: &str) -> bool {
 pub fn write_file(path: &str, content: &str) -> bool {
     std::fs::write(path, content).is_ok()
 }
+
+pub fn file_exists(path: &str) -> bool {
+    std::path::Path::new(path).exists()
+}
+
+pub fn is_dir(path: &str) -> bool {
+    std::path::Path::new(path).is_dir()
+}
+
+pub fn file_size(path: &str) -> u64 {
+    std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+}
+
+pub fn resolve_in_path(cmd_name: &str) -> String {
+    if cmd_name.contains('/') {
+        return String::from(cmd_name);
+    }
+
+    let path_val = get_env("PATH").unwrap_or_else(|| String::from("/bin:/usr/bin"));
+    for dir in path_val.split(':') {
+        let trimmed = dir.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let p = std::path::Path::new(trimmed).join(cmd_name);
+        if p.is_file() {
+            return p.to_string_lossy().into_owned();
+        }
+    }
+
+    String::from(cmd_name)
+}
