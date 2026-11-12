@@ -3374,6 +3374,350 @@ userdel -r olduser
 \fBuseradd\fR(8), \fBpasswd\fR(1), \fBrm\fR(1)
 "#,
     },
+    ManPageEntry {
+        name: "winstall",
+        section: 8,
+        desc_en: "interactive Wunix OS system installer",
+        desc_ru: "интерактивный установщик операционной системы Wunix OS",
+        roff_en: r#".TH WINSTALL 8 "2026-11-12" "Wunix" "System Administration Commands"
+.SH NAME
+winstall \- interactive Wunix OS system installer
+.SH SYNOPSIS
+\fBwinstall\fR
+.SH DESCRIPTION
+\fBwinstall\fR is a text-mode (TUI) wizard for installing Wunix OS onto a local disk. It guides the user through disk selection, automatic or manual partitioning, filesystem formatting (ext4, fat32, ufs, swap), network adapter configuration, date and timezone setup, user and hostname creation, and deploying the kernel, bootloader, and base system files.
+.PP
+If \fB/proc/cmdline\fR contains \fBmode=install\fR, \fBwinstall\fR skips the Live/Install boot menu and starts the installation wizard directly.
+.SH FILES
+.TP
+\fI/proc/cmdline\fR
+Kernel command line checked for \fBmode=install\fR.
+.TP
+\fI/boot\fR
+Source directory for the kernel and Limine bootloader files.
+.SH "SEE ALSO"
+\fBfdisk\fR(8), \fBmount\fR(8), \fBinit\fR(8)
+"#,
+        roff_ru: r#".TH WINSTALL 8 "2026-11-12" "Wunix" "Команды системного администрирования"
+.SH ИМЯ
+winstall \- интерактивный установщик операционной системы Wunix OS
+.SH СИНТАКСИС
+\fBwinstall\fR
+.SH ОПИСАНИЕ
+\fBwinstall\fR — текстовый мастер (TUI) установки Wunix OS на жёсткий диск. Позволяет выбрать целевой диск, выполнить автоматическую или ручную разметку, отформатировать разделы (ext4, fat32, ufs, swap), настроить сетевой адаптер, часовой пояс и время, создать пользователя и имя узла, а также установить ядро, загрузчик и базовую систему.
+.PP
+Если в \fB/proc/cmdline\fR присутствует параметр \fBmode=install\fR, \fBwinstall\fR пропускает меню выбора Live/Install и сразу запускает мастер установки.
+.SH ФАЙЛЫ
+.TP
+\fI/proc/cmdline\fR
+Параметры запуска ядра (проверяется наличие \fBmode=install\fR).
+.TP
+\fI/boot\fR
+Каталог с образом ядра и файлами загрузчика Limine.
+.SH "СМ. ТАКЖЕ"
+\fBfdisk\fR(8), \fBmount\fR(8), \fBinit\fR(8)
+"#,
+    },
+    ManPageEntry {
+        name: "wpm",
+        section: 8,
+        desc_en: "user package manager for Wunix OS (.wp)",
+        desc_ru: "менеджер пользовательских программ и пакетов .wp в ОС Wunix",
+        roff_en: r#".TH WPM 8 "2026-11-12" "Wunix" "System Administration Commands"
+.SH NAME
+wpm \- user package manager for Wunix OS (.wp)
+.SH SYNOPSIS
+\fBwpm\fR [\fIOPTIONS\fR]... [\fICOMMAND\fR] [\fIARGS\fR]...
+.SH DESCRIPTION
+\fBwpm\fR manages user-space applications packaged in \fB.wp\fR format on Wunix OS. Modifying packages requires root privileges.
+.SH COMMANDS
+.TP
+\fBsearch\fR \fIQUERY\fR
+Search available applications in repository catalogs.
+.TP
+\fBinstall\fR \fIPKG\fR...
+Install software from local cache or a \fB.wp\fR file.
+.TP
+\fBremove\fR \fIPKG\fR...
+Remove installed software.
+.TP
+\fBupgrade\fR
+Upgrade installed software.
+.TP
+\fBlist\fR
+List installed software.
+.TP
+\fBinfo\fR \fIPKG\fR
+Show details for a package.
+.TP
+\fBrepo\fR [\fBlist\fR|\fBadd\fR|\fBrm\fR]
+Manage repository sources.
+.TP
+\fBupdate\fR
+Synchronize repository indexes.
+.TP
+\fBclean\fR
+Clean package cache in \fI/var/cache/wpm\fR.
+.SH OPTIONS
+.TP
+\fB\-v\fR, \fB\-V\fR, \fB\-\-version\fR
+Show version information.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show this help message.
+.TP
+\fB\-y\fR, \fB\-\-yes\fR
+Do not prompt for confirmation.
+.TP
+\fB\-d\fR, \fB\-\-verbose\fR
+Verbose extraction logs.
+.TP
+\fB\-\-ignore\-critical\-unsafe\fR
+Override WSP base security check.
+.SH "SEE ALSO"
+\fBwsp\fR(8), \fBwspd\fR(8)
+"#,
+        roff_ru: r#".TH WPM 8 "2026-11-12" "Wunix" "Команды системного администрирования"
+.SH ИМЯ
+wpm \- менеджер пользовательских программ и пакетов .wp в ОС Wunix
+.SH СИНТАКСИС
+\fBwpm\fR [\fIОПЦИИ\fR]... [\fIКОМАНДА\fR] [\fIАРГУМЕНТЫ\fR]...
+.SH ОПИСАНИЕ
+\fBwpm\fR управляет пользовательскими программами в формате пакетов \fB.wp\fR в ОС Wunix. Операции установки, удаления и обновления требуют прав администратора (root).
+.SH КОМАНДЫ
+.TP
+\fBsearch\fR \fIЗАПРОС\fR
+Поиск программ в каталоге репозиториев.
+.TP
+\fBinstall\fR \fIПАКЕТ\fR...
+Установка программ из локального кэша или файла \fB.wp\fR.
+.TP
+\fBremove\fR \fIПАКЕТ\fR...
+Удаление установленных программ.
+.TP
+\fBupgrade\fR
+Обновление установленных программ.
+.TP
+\fBlist\fR
+Список установленных программ.
+.TP
+\fBinfo\fR \fIПАКЕТ\fR
+Подробная информация о программе.
+.TP
+\fBrepo\fR [\fBlist\fR|\fBadd\fR|\fBrm\fR]
+Управление источниками репозиториев.
+.TP
+\fBupdate\fR
+Синхронизация индексов репозиториев.
+.TP
+\fBclean\fR
+Очистка кэша \fI/var/cache/wpm\fR.
+.SH ОПЦИИ
+.TP
+\fB\-v\fR, \fB\-V\fR, \fB\-\-version\fR
+Показать версию утилиты.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Показать эту справку.
+.TP
+\fB\-y\fR, \fB\-\-yes\fR
+Подтверждать операции без запроса.
+.TP
+\fB\-d\fR, \fB\-\-verbose\fR
+Подробный вывод процесса распаковки.
+.TP
+\fB\-\-ignore\-critical\-unsafe\fR
+Игнорировать защитный барьер безопасности WSP.
+.SH "СМ. ТАКЖЕ"
+\fBwsp\fR(8), \fBwspd\fR(8)
+"#,
+    },
+    ManPageEntry {
+        name: "wsp",
+        section: 8,
+        desc_en: "kernel and base system package manager for Wunix OS (.wp)",
+        desc_ru: "системный диспетчер ядра и базовых компонентов .wp в ОС Wunix",
+        roff_en: r#".TH WSP 8 "2026-11-12" "Wunix" "System Administration Commands"
+.SH NAME
+wsp \- kernel and base system package manager for Wunix OS (.wp)
+.SH SYNOPSIS
+\fBwsp\fR [\fIOPTIONS\fR]... [\fICOMMAND\fR] [\fIARGS\fR]...
+.SH DESCRIPTION
+\fBwsp\fR manages the kernel and core system components packaged in \fB.wp\fR format on Wunix OS.
+.SH COMMANDS
+.TP
+\fBaudit\fR
+Full audit of kernel and base files.
+.TP
+\fBcheck\fR
+Fast check for available kernel updates.
+.TP
+\fBupgrade\fR
+Upgrade kernel and base system with a rollback point.
+.TP
+\fBlist\fR
+List installed base components.
+.TP
+\fBinfo\fR \fIPKG\fR
+Detailed component info.
+.TP
+\fBinstall\fR \fIPKG.wp\fR
+Install system package from a \fB.wp\fR file.
+.TP
+\fBkernel\fR [\fBlist\fR|\fBrollback\fR|\fBclean\fR]
+Manage kernel versions in \fI/boot\fR.
+.TP
+\fBrollback\fR
+Rollback to fallback kernel.
+.TP
+\fBupdate\fR
+Synchronize system repository index.
+.SH OPTIONS
+.TP
+\fB\-v\fR, \fB\-V\fR, \fB\-\-version\fR
+Show version information.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show this help message.
+.TP
+\fB\-c\fR, \fB\-\-critical\fR
+Target critical base components only.
+.TP
+\fB\-y\fR, \fB\-\-yes\fR
+Do not prompt for confirmation.
+.TP
+\fB\-d\fR, \fB\-\-verbose\fR
+Verbose execution details.
+.TP
+\fB\-\-dry\-run\fR
+Simulation mode without disk writes.
+.SH "SEE ALSO"
+\fBwspd\fR(8), \fBwpm\fR(8)
+"#,
+        roff_ru: r#".TH WSP 8 "2026-11-12" "Wunix" "Команды системного администрирования"
+.SH ИМЯ
+wsp \- системный диспетчер ядра и базовых компонентов .wp в ОС Wunix
+.SH СИНТАКСИС
+\fBwsp\fR [\fIОПЦИИ\fR]... [\fIКОМАНДА\fR] [\fIАРГУМЕНТЫ\fR]...
+.SH ОПИСАНИЕ
+\fBwsp\fR управляет ядром и базовыми системными компонентами ОС Wunix в формате пакетов \fB.wp\fR.
+.SH КОМАНДЫ
+.TP
+\fBaudit\fR
+Полный аудит ядра, файлов и безопасности.
+.TP
+\fBcheck\fR
+Быстрая проверка наличия обновлений ядра.
+.TP
+\fBupgrade\fR
+Применение обновлений ядра с созданием точки отката.
+.TP
+\fBlist\fR
+Список установленных системных компонентов.
+.TP
+\fBinfo\fR \fIПАКЕТ\fR
+Подробная информация о компоненте.
+.TP
+\fBinstall\fR \fIПАКЕТ.wp\fR
+Установка системного компонента из файла \fB.wp\fR.
+.TP
+\fBkernel\fR [\fBlist\fR|\fBrollback\fR|\fBclean\fR]
+Управление ядрами в каталоге \fI/boot\fR.
+.TP
+\fBrollback\fR
+Откат к предыдущей версии ядра.
+.TP
+\fBupdate\fR
+Синхронизация индекса системного репозитория.
+.SH ОПЦИИ
+.TP
+\fB\-v\fR, \fB\-V\fR, \fB\-\-version\fR
+Показать версию утилиты.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Показать эту справку.
+.TP
+\fB\-c\fR, \fB\-\-critical\fR
+Работать только с критическими пакетами базы.
+.TP
+\fB\-y\fR, \fB\-\-yes\fR
+Подтверждать операции без запроса.
+.TP
+\fB\-d\fR, \fB\-\-verbose\fR
+Подробный вывод процесса проверки файлов.
+.TP
+\fB\-\-dry\-run\fR
+Режим симуляции без изменения файлов на диске.
+.SH "СМ. ТАКЖЕ"
+\fBwspd\fR(8), \fBwpm\fR(8)
+"#,
+    },
+    ManPageEntry {
+        name: "wspd",
+        section: 8,
+        desc_en: "Wunix System Package background update check daemon",
+        desc_ru: "системный фоновый демон проверки обновлений WSP в ОС Wunix",
+        roff_en: r#".TH WSPD 8 "2026-11-12" "Wunix" "System Administration Commands"
+.SH NAME
+wspd \- Wunix System Package background update check daemon
+.SH SYNOPSIS
+\fBwspd\fR [\fIOPTIONS\fR]...
+.SH DESCRIPTION
+\fBwspd\fR is the background daemon that periodically checks for Wunix System Package (WSP) updates.
+.SH OPTIONS
+.TP
+\fB\-1\fR, \fB\-\-once\fR
+Run a single update check and exit.
+.TP
+\fB\-d\fR, \fB\-\-daemon\fR
+Run continuously in daemon mode (default).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Verbose log output.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show this help message and exit.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Show version information and exit.
+.SH FILES
+.TP
+\fI/etc/wsp/daemon.conf\fR
+Daemon configuration file.
+.SH "SEE ALSO"
+\fBwsp\fR(8), \fBwpm\fR(8), \fBsystem\fR(1)
+"#,
+        roff_ru: r#".TH WSPD 8 "2026-11-12" "Wunix" "Команды системного администрирования"
+.SH ИМЯ
+wspd \- системный фоновый демон проверки обновлений WSP в ОС Wunix
+.SH СИНТАКСИС
+\fBwspd\fR [\fIОПЦИИ\fR]...
+.SH ОПИСАНИЕ
+\fBwspd\fR — фоновая служба, периодически проверяющая наличие системных обновлений WSP в ОС Wunix.
+.SH ОПЦИИ
+.TP
+\fB\-1\fR, \fB\-\-once\fR
+Выполнить однократную проверку обновлений и выйти.
+.TP
+\fB\-d\fR, \fB\-\-daemon\fR
+Запуск в режиме непрерывной фоновой службы (по умолчанию).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Подробный вывод процесса проверки.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Показать эту справку и выйти.
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Вывести информацию о версии и выйти.
+.SH ФАЙЛЫ
+.TP
+\fI/etc/wsp/daemon.conf\fR
+Файл конфигурации демона.
+.SH "СМ. ТАКЖЕ"
+\fBwsp\fR(8), \fBwpm\fR(8), \fBsystem\fR(1)
+"#,
+    },
 ];
 
 pub struct ManDatabase;
@@ -3608,7 +3952,7 @@ mod tests {
             "host", "hwclock", "id", "init", "ip", "ln", "login", "ls", "lsblk", "lsdev",
             "lshw", "lsmod", "lspci", "man", "mkdir", "modinfo", "mount", "mv", "passwd", "ping", "pwd",
             "readlink", "reboot", "rm", "rmdir", "shutdown", "ss", "su", "sudo", "sudoadd", "system", "time",
-            "timedatectl", "ntpdate", "timesyncd", "top", "touch", "umount", "uname", "useradd", "userdel", "whoami", "wsh",
+            "timedatectl", "ntpdate", "timesyncd", "top", "touch", "umount", "uname", "useradd", "userdel", "whoami", "winstall", "wpm", "wsh", "wsp", "wspd",
         ];
         for prog in all_progs {
             assert!(
