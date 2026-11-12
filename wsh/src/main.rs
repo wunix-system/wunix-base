@@ -14,7 +14,9 @@ use wsh::editor::LineEditor;
 use wsh::history::History;
 use wsh::platform;
 use wsh::prompt::Prompt;
-use wsh::runner::{is_script_control_or_brace, run_command_line, run_script_content};
+use wsh::runner::run_command_line;
+#[cfg(feature = "std")]
+use wsh::runner::run_script_content;
 
 #[cfg(feature = "std")]
 fn main() {
@@ -145,25 +147,64 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         libwunix::exit(code as u64);
     }
 
-    // Обработка запуска команды через -c: wsh -c "команда"
+    // Обработка запуска команды через -c: wsh -c "команда" [arg0 arg1 ...]
     if args.len() >= 3 && args[1] == "-c" {
         let cmd_str = &args[2];
+        let script_name = args.get(3).map(|s| s.as_str()).unwrap_or(prog_name);
+        let script_args = if args.len() > 4 { &args[4..] } else { &[] };
         let mut history = History::new(10);
         let mut should_exit = false;
-        let exit_code = run_command_line(cmd_str, &mut history, 0, &mut should_exit);
+        let exit_code = wsh::script::run_bash_script(
+            cmd_str,
+            script_name,
+            script_args,
+            &mut history,
+            0,
+            &mut should_exit,
+        );
         libwunix::exit(exit_code as u64);
     }
 
-    // Обработка запуска файла скрипта: wsh script.sh [args...]
-    if args.len() >= 2 && !args[1].starts_with('-') {
-        if let Some(content) = platform::read_file(&args[1]) {
+    // Обработка запуска файла скрипта (включая флаги вроде bash -e script.sh)
+    let mut script_idx = 1usize;
+    while script_idx < args.len() && args[script_idx].starts_with('-') && args[script_idx] != "--" {
+        if args[script_idx] == "-c" && script_idx + 1 < args.len() {
+            let cmd_str = &args[script_idx + 1];
+            let mut history = History::new(10);
+            let mut should_exit = false;
+            let exit_code = wsh::script::run_bash_script(
+                cmd_str,
+                prog_name,
+                &args[script_idx + 2..],
+                &mut history,
+                0,
+                &mut should_exit,
+            );
+            libwunix::exit(exit_code as u64);
+        }
+        script_idx += 1;
+    }
+    if script_idx < args.len() && args[script_idx] == "--" {
+        script_idx += 1;
+    }
+
+    if script_idx < args.len() {
+        let script_path = &args[script_idx];
+        if let Some(content) = platform::read_file(script_path) {
             let mut history = History::new(100);
-            let exit_code = run_script_content(&content, &mut history, 0, &mut false);
+            let exit_code = wsh::script::run_bash_script(
+                &content,
+                script_path,
+                &args[script_idx + 1..],
+                &mut history,
+                0,
+                &mut false,
+            );
             libwunix::exit(exit_code as u64);
         } else {
             let not_found_msg = libwunix::t("wsh: не удалось открыть скрипт: ", "wsh: cannot open script: ");
             libwunix::write(libwunix::STDERR_FILENO, not_found_msg.as_bytes());
-            libwunix::write(libwunix::STDERR_FILENO, args[1].as_bytes());
+            libwunix::write(libwunix::STDERR_FILENO, script_path.as_bytes());
             libwunix::write(libwunix::STDERR_FILENO, b"\n");
             libwunix::exit(1);
         }
@@ -182,9 +223,8 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
 #[cfg(not(feature = "std"))]
 fn run_from_stdin() -> i32 {
     let mut history = History::new(100);
-    let mut last_status = 0;
     let mut should_exit = false;
-    let mut line_buf = String::new();
+    let mut script_buf = String::new();
     let mut chunk = [0u8; 1024];
 
     loop {
@@ -193,29 +233,11 @@ fn run_from_stdin() -> i32 {
             break;
         }
         if let Ok(s) = core::str::from_utf8(&chunk[..n as usize]) {
-            line_buf.push_str(s);
-            while let Some(pos) = line_buf.find('\n') {
-                let line: String = line_buf.drain(..=pos).collect();
-                let trimmed = line.trim();
-                if !trimmed.is_empty() && !trimmed.starts_with('#') {
-                    if is_script_control_or_brace(trimmed) {
-                        continue;
-                    }
-                    last_status = run_command_line(trimmed, &mut history, last_status, &mut should_exit);
-                    if should_exit {
-                        return last_status;
-                    }
-                }
-            }
+            script_buf.push_str(s);
         }
     }
 
-    let trimmed = line_buf.trim();
-    if !trimmed.is_empty() && !trimmed.starts_with('#') && !should_exit && !is_script_control_or_brace(trimmed) {
-        last_status = run_command_line(trimmed, &mut history, last_status, &mut should_exit);
-    }
-
-    last_status
+    wsh::script::run_bash_script(&script_buf, "wsh", &[], &mut history, 0, &mut should_exit)
 }
 
 fn get_history_file_path() -> String {

@@ -9,3 +9,5 @@ pub mod parser;
 pub mod platform;
 pub mod prompt;
 pub mod runner;
+pub mod script;
+pub mod script_expr;

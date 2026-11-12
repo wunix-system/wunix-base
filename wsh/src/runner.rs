@@ -1,10 +1,10 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 
 #[cfg(feature = "std")]
-use std::vec::Vec;
+use std::{string::String, vec::Vec};
 
 use crate::builtins::Builtins;
 use crate::history::History;
@@ -15,12 +15,26 @@ use crate::platform;
 pub fn run_command_line(
     line: &str,
     history: &mut History,
-    mut last_status: i32,
+    last_status: i32,
     should_exit: &mut bool,
 ) -> i32 {
     let env_lookup = |key: &str| platform::get_env(key);
+    execute_chain_with_env(line, &env_lookup, history, last_status, should_exit)
+}
+
+/// Исполняет строку команд с пользовательским обработчиком переменных окружения/скрипта.
+pub fn execute_chain_with_env<F>(
+    line: &str,
+    env_lookup: &F,
+    history: &mut History,
+    mut last_status: i32,
+    should_exit: &mut bool,
+) -> i32
+where
+    F: Fn(&str) -> Option<String>,
+{
     let tokens = Parser::tokenize(line);
-    let chain = match Parser::parse_chain(&tokens, &env_lookup, last_status) {
+    let chain = match Parser::parse_chain(&tokens, env_lookup, last_status) {
         Some(c) => c,
         None => return 0,
     };
@@ -149,27 +163,14 @@ fn execute_builtin_with_redirects(
     }
 }
 
-/// Выполняет содержимое шелл-скрипта построчно в текущем контексте процесса
+/// Выполняет содержимое шелл-скрипта с поддержкой управляющих конструкций bash.
 pub fn run_script_content(
     content: &str,
     history: &mut History,
-    mut last_status: i32,
+    last_status: i32,
     should_exit: &mut bool,
 ) -> i32 {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if is_script_control_or_brace(trimmed) {
-            continue;
-        }
-        last_status = run_command_line(trimmed, history, last_status, should_exit);
-        if *should_exit {
-            break;
-        }
-    }
-    last_status
+    crate::script::run_bash_script(content, "wsh", &[], history, last_status, should_exit)
 }
 
 /// Распознает управляющие конструкции и разделители блоков шелла

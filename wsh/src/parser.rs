@@ -79,9 +79,26 @@ impl Parser {
         let mut chars = input.chars().peekable();
         let mut in_single_quote = false;
         let mut in_double_quote = false;
+        let mut paren_depth = 0usize;
 
         while let Some(c) = chars.next() {
+            if paren_depth > 0 && !in_single_quote && !in_double_quote {
+                if c == '(' {
+                    paren_depth += 1;
+                } else if c == ')' {
+                    paren_depth -= 1;
+                }
+                current.push(c);
+                continue;
+            }
             match c {
+                '$' if !in_single_quote && !in_double_quote && chars.peek() == Some(&'(') => {
+                    current.push(c);
+                    if let Some(next) = chars.next() {
+                        current.push(next);
+                        paren_depth += 1;
+                    }
+                }
                 '\\' if !in_single_quote => {
                     if in_double_quote {
                         // По стандарту POSIX в двойных кавычках экранируются только '"', '\\', '$', '`'
@@ -190,15 +207,36 @@ impl Parser {
             if c == '$' {
                 if chars.peek() == Some(&'?') {
                     chars.next();
-                    #[cfg(feature = "std")]
-                    result.push_str(&last_status.to_string());
-                    #[cfg(not(feature = "std"))]
-                    {
-                        let mut buf = [0u8; 16];
-                        let s = format_int(last_status, &mut buf);
-                        result.push_str(s);
+                    push_i64(&mut result, last_status as i64);
+                    continue;
+                }
+                if matches!(chars.peek(), Some(&'#') | Some(&'@') | Some(&'*')) {
+                    let key = chars.next().unwrap();
+                    let mut buf = [0u8; 4];
+                    let s = key.encode_utf8(&mut buf);
+                    if let Some(val) = get_var(s) {
+                        result.push_str(&val);
                     }
                     continue;
+                }
+                if chars.peek().is_some_and(|ch| ch.is_ascii_digit()) {
+                    let key = chars.next().unwrap();
+                    let mut buf = [0u8; 4];
+                    let s = key.encode_utf8(&mut buf);
+                    if let Some(val) = get_var(s) {
+                        result.push_str(&val);
+                    }
+                    continue;
+                }
+                if chars.peek() == Some(&'(') {
+                    let rest: String = chars.clone().collect();
+                    if let Some((val, consumed)) = try_expand_arith(&rest, get_var) {
+                        for _ in 0..consumed {
+                            chars.next();
+                        }
+                        push_i64(&mut result, val);
+                        continue;
+                    }
                 }
 
                 let mut var_name = String::new();
@@ -211,6 +249,10 @@ impl Parser {
                         }
                         var_name.push(ch);
                         chars.next();
+                    }
+                    if !var_name.is_empty() {
+                        result.push_str(&expand_braced_param(&var_name, get_var));
+                        continue;
                     }
                 } else {
                     while let Some(&ch) = chars.peek() {
@@ -364,6 +406,78 @@ impl Parser {
             Some(CommandChain { pipelines })
         }
     }
+}
+
+fn push_i64(out: &mut String, val: i64) {
+    #[cfg(feature = "std")]
+    out.push_str(&val.to_string());
+    #[cfg(not(feature = "std"))]
+    {
+        if val < 0 {
+            out.push('-');
+            let mut buf = [0u8; 16];
+            let s = format_int((-val) as i32, &mut buf);
+            out.push_str(s);
+        } else {
+            let mut buf = [0u8; 16];
+            let s = format_int(val as i32, &mut buf);
+            out.push_str(s);
+        }
+    }
+}
+
+fn try_expand_arith<F>(rest: &str, get_var: &F) -> Option<(i64, usize)>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if !rest.starts_with("((") {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut prev_close = false;
+    for (byte_idx, ch) in rest.char_indices().skip(2) {
+        if ch == '(' {
+            depth += 1;
+            prev_close = false;
+        } else if ch == ')' {
+            if depth > 0 {
+                depth -= 1;
+                prev_close = false;
+            } else if prev_close {
+                let inner = &rest[2..byte_idx - 1];
+                let val = crate::script_expr::eval_arith(inner, get_var);
+                let consumed_chars = rest[..=byte_idx].chars().count();
+                return Some((val, consumed_chars));
+            } else {
+                prev_close = true;
+            }
+        } else {
+            prev_close = false;
+        }
+    }
+    None
+}
+
+fn expand_braced_param<F>(expr: &str, get_var: &F) -> String
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if let Some(name) = expr.strip_prefix('#') {
+        let len = get_var(name).map(|v| v.len()).unwrap_or(0);
+        let mut out = String::new();
+        push_i64(&mut out, len as i64);
+        return out;
+    }
+    if let Some((name, default)) = expr.split_once(":-") {
+        return match get_var(name) {
+            Some(v) if !v.is_empty() => v,
+            _ => String::from(default),
+        };
+    }
+    if let Some((name, default)) = expr.split_once('-') {
+        return get_var(name).unwrap_or_else(|| String::from(default));
+    }
+    get_var(expr).unwrap_or_default()
 }
 
 #[cfg(not(feature = "std"))]

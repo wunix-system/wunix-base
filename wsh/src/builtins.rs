@@ -38,6 +38,7 @@ impl Builtins {
                 | "."
                 | "source"
                 | "["
+                | "[["
                 | "test"
                 | "unalias"
         )
@@ -82,6 +83,7 @@ impl Builtins {
             "command" => Some(Self::builtin_command(&cmd.args, history, last_status, should_exit)),
             "." | "source" => Some(Self::builtin_source(&cmd.args, history, last_status, should_exit)),
             "[" | "test" => Some(Self::builtin_test(&cmd.args)),
+            "[[" => Some(crate::script_expr::eval_double_bracket(&cmd.args)),
             _ => None,
         }
     }
