@@ -34,6 +34,7 @@ pub struct CheckResult {
 pub fn check_system_updates(verbose: bool) -> CheckResult {
     ensure_run_dirs();
     let installed = load_installed_packages();
+    let repo_packages = load_repo_packages();
 
     let mut result = CheckResult {
         total_checked: installed.len(),
@@ -42,18 +43,19 @@ pub fn check_system_updates(verbose: bool) -> CheckResult {
         details: Vec::new(),
     };
 
-    // Проверяем наличие обновленных пакетов в локальном системном хранилище /var/cache/wsp
-    // и репозитории WSP
+    // Проверяем наличие обновленных пакетов в локальном репозитории и кэше WSP
     for pkg in &installed {
-        if let Some(newer_ver) = check_package_update(&pkg.name, &pkg.version) {
-            result.updates_available += 1;
-            let is_critical = pkg.tier == "critical" || pkg.name == "wunix-kernel";
-            if is_critical {
-                result.critical_count += 1;
-            }
+        if let Some(repo_pkg) = repo_packages.iter().find(|rp| rp.name == pkg.name) {
+            if repo_pkg.version > pkg.version {
+                result.updates_available += 1;
+                let is_critical = pkg.tier == "critical" || pkg.name == "wunix-kernel";
+                if is_critical {
+                    result.critical_count += 1;
+                }
 
-            let msg = format!("{}: {} -> {}", pkg.name, pkg.version, newer_ver);
-            result.details.push(msg);
+                let msg = format!("{}: {} -> {}", pkg.name, pkg.version, repo_pkg.version);
+                result.details.push(msg);
+            }
         }
     }
 
@@ -90,23 +92,37 @@ fn ensure_run_dirs() {
     let _ = mkdir(b"/var/cache/wsp\0", 0o755);
 }
 
-fn check_package_update(name: &str, current_ver: &Version) -> Option<Version> {
-    // 1. Проверяем кэш системных пакетов /var/cache/wsp/<name>-*.wp
-    // Для известных пакетов ядра и базы сверяем с новейшими доступными версиями
-    let candidate = match name {
-        "wunix-kernel" => Version::new(0, 4, 2),
-        "libwunix" => Version::new(0, 2, 0),
-        "libpackwunix" => Version::new(0, 1, 0),
-        "libcwunix" => Version::new(1, 0, 0),
-        "wunix-base" => Version::new(1, 0, 1),
-        _ => *current_ver,
-    };
+fn load_repo_packages() -> Vec<libpackwunix::sources::RepoPackage> {
+    let candidates: [&[u8]; 3] = [
+        b"/var/lib/wsp/packages.json\0",
+        b"/var/lib/wsp/repo/system/x86_64/packages.json\0",
+        b"/var/cache/wsp/packages.json\0",
+    ];
 
-    if candidate > *current_ver {
-        Some(candidate)
-    } else {
-        None
+    for path in &candidates {
+        let fd = open(*path, O_RDONLY as u64, 0);
+        if fd >= 0 {
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = read(fd as u64, &mut chunk);
+                if n <= 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n as usize]);
+            }
+            close(fd as u64);
+
+            if let Ok(content) = core::str::from_utf8(&buf) {
+                let pkgs = libpackwunix::sources::parse_repo_index(content);
+                if !pkgs.is_empty() {
+                    return pkgs;
+                }
+            }
+        }
     }
+
+    Vec::new()
 }
 
 fn load_installed_packages() -> Vec<InstalledPkg> {
@@ -190,17 +206,17 @@ fn get_default_packages() -> Vec<InstalledPkg> {
     alloc::vec![
         InstalledPkg {
             name: "wunix-kernel".to_string(),
-            version: Version::new(0, 4, 2),
+            version: Version::new(1, 0, 0),
             tier: "critical".to_string(),
         },
         InstalledPkg {
             name: "libwunix".to_string(),
-            version: Version::new(0, 2, 0),
+            version: Version::new(1, 0, 0),
             tier: "base".to_string(),
         },
         InstalledPkg {
             name: "libpackwunix".to_string(),
-            version: Version::new(0, 1, 0),
+            version: Version::new(1, 0, 0),
             tier: "base".to_string(),
         },
         InstalledPkg {
@@ -210,7 +226,7 @@ fn get_default_packages() -> Vec<InstalledPkg> {
         },
         InstalledPkg {
             name: "wunix-base".to_string(),
-            version: Version::new(1, 0, 1),
+            version: Version::new(1, 0, 0),
             tier: "base".to_string(),
         },
     ]

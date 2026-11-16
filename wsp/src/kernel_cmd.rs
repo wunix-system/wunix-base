@@ -65,8 +65,15 @@ fn list_kernels() -> i32 {
 fn rollback_kernel() -> i32 {
     println!("wsp: переключение загрузчика на резервное ядро...");
 
+    let installed = crate::db::load_installed_packages();
+    let k_ver = installed
+        .iter()
+        .find(|p| p.name == "wunix-kernel")
+        .and_then(|p| Version::parse(&p.version).ok())
+        .unwrap_or(Version::new(1, 0, 0));
+
     let fallback_entry = KernelEntry {
-        version: Version::new(0, 4, 1),
+        version: k_ver,
         kernel_path: "boot():/boot/wunix-kernel.old".into(),
         cmdline: "root=/dev/vda1 lang=ru mode=disk".into(),
     };

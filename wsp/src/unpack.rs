@@ -98,6 +98,11 @@ fn cstr_slice(bytes: &[u8]) -> &str {
 
 /// Распаковывает системный пакет WSP (.wp) в файловую систему ядра
 pub fn unpack_wsp_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageManifest, Vec<String>), &'static str> {
+    unpack_wsp_package_to(pkg_bytes, "", verbose)
+}
+
+/// Распаковывает системный пакет WSP (.wp) с указанием корневого каталога
+pub fn unpack_wsp_package_to(pkg_bytes: &[u8], root_prefix: &str, verbose: bool) -> Result<(PackageManifest, Vec<String>), &'static str> {
     let container = PackageContainer::parse(pkg_bytes)?;
 
     if container.manifest.package_type == PackageType::User {
@@ -144,7 +149,11 @@ pub fn unpack_wsp_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
             continue;
         }
 
-        let target_path = format!("/{}", clean_path);
+        let target_path = if root_prefix.is_empty() {
+            format!("/{}", clean_path)
+        } else {
+            format!("{}/{}", root_prefix.trim_end_matches('/'), clean_path)
+        };
         let mut null_target = [0u8; 512];
         let t_bytes = target_path.as_bytes();
         let copy_len = t_bytes.len().min(511);
@@ -182,8 +191,18 @@ pub fn unpack_wsp_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
                 }
 
                 let file_data = &tar_bytes[data_start..data_end];
-                let is_bin = target_path.starts_with("/bin/") || target_path.starts_with("/boot/");
-                let mode: u32 = if is_bin { 0o755 } else { 0o644 };
+                let is_bin = target_path.contains("/bin/") || target_path.contains("/boot/");
+                let mode: u32 = if target_path.ends_with("/sudo")
+                    || target_path.ends_with("/su")
+                    || target_path.ends_with("/passwd")
+                    || target_path.ends_with("/sudoadd")
+                {
+                    0o4755
+                } else if is_bin {
+                    0o755
+                } else {
+                    0o644
+                };
 
                 let fd = open(&null_target, (O_CREAT | O_WRONLY | O_TRUNC) as u64, mode as u64);
                 if fd >= 0 {

@@ -9,6 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::vec;
 use libwunix::{close, mkdir, open, read, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
+use libpackwunix::sources::{parse_repo_index, RepoPackage};
 
 pub const WSP_DB_DIR: &[u8] = b"/var/lib/wsp\0";
 pub const WSP_DB_PATH: &[u8] = b"/var/lib/wsp/installed.json\0";
@@ -23,18 +24,55 @@ pub struct SystemPackageEntry {
     pub files: Vec<String>,
 }
 
+fn get_path(root: &str, sub: &str) -> String {
+    if root.is_empty() {
+        sub.to_string()
+    } else {
+        format!("{}{}", root.trim_end_matches('/'), sub)
+    }
+}
+
+fn open_c(path: &str, flags: u64, mode: u64) -> i64 {
+    let mut null_p = [0u8; 256];
+    let b = path.as_bytes();
+    let l = b.len().min(255);
+    null_p[..l].copy_from_slice(&b[..l]);
+    null_p[l] = 0;
+    open(&null_p, flags, mode)
+}
+
 pub fn ensure_db_dirs() {
-    let _ = mkdir(b"/var\0", 0o755);
-    let _ = mkdir(b"/var/lib\0", 0o755);
-    let _ = mkdir(WSP_DB_DIR, 0o755);
-    let _ = mkdir(b"/var/cache\0", 0o755);
-    let _ = mkdir(b"/var/cache/wsp\0", 0o755);
-    let _ = mkdir(b"/run\0", 0o755);
-    let _ = mkdir(b"/run/wsp\0", 0o755);
+    ensure_db_dirs_in("");
+}
+
+pub fn ensure_db_dirs_in(root: &str) {
+    let dirs = [
+        "/var",
+        "/var/lib",
+        "/var/lib/wsp",
+        "/var/cache",
+        "/var/cache/wsp",
+        "/run",
+        "/run/wsp",
+    ];
+    for d in &dirs {
+        let full = get_path(root, d);
+        let mut null_p = [0u8; 256];
+        let b = full.as_bytes();
+        let l = b.len().min(255);
+        null_p[..l].copy_from_slice(&b[..l]);
+        null_p[l] = 0;
+        let _ = mkdir(&null_p, 0o755);
+    }
 }
 
 pub fn has_critical_alert() -> bool {
-    let fd = open(WSP_ALERT_PATH, O_RDONLY as u64, 0);
+    has_critical_alert_in("")
+}
+
+pub fn has_critical_alert_in(root: &str) -> bool {
+    let path = get_path(root, "/run/wsp/critical_alert.json");
+    let fd = open_c(&path, O_RDONLY as u64, 0);
     if fd >= 0 {
         close(fd as u64);
         true
@@ -44,11 +82,16 @@ pub fn has_critical_alert() -> bool {
 }
 
 pub fn load_installed_packages() -> Vec<SystemPackageEntry> {
-    ensure_db_dirs();
-    let fd = open(WSP_DB_PATH, O_RDONLY as u64, 0);
+    load_installed_packages_from("")
+}
+
+pub fn load_installed_packages_from(root: &str) -> Vec<SystemPackageEntry> {
+    ensure_db_dirs_in(root);
+    let db_path = get_path(root, "/var/lib/wsp/installed.json");
+    let fd = open_c(&db_path, O_RDONLY as u64, 0);
     if fd < 0 {
         let defaults = get_default_base_packages();
-        save_installed_packages(&defaults);
+        save_installed_packages_to(root, &defaults);
         return defaults;
     }
 
@@ -65,7 +108,7 @@ pub fn load_installed_packages() -> Vec<SystemPackageEntry> {
 
     if buf.is_empty() {
         let defaults = get_default_base_packages();
-        save_installed_packages(&defaults);
+        save_installed_packages_to(root, &defaults);
         return defaults;
     }
 
@@ -73,7 +116,7 @@ pub fn load_installed_packages() -> Vec<SystemPackageEntry> {
     let parsed = parse_installed_db(content);
     if parsed.is_empty() {
         let defaults = get_default_base_packages();
-        save_installed_packages(&defaults);
+        save_installed_packages_to(root, &defaults);
         defaults
     } else {
         parsed
@@ -81,8 +124,13 @@ pub fn load_installed_packages() -> Vec<SystemPackageEntry> {
 }
 
 pub fn save_installed_packages(packages: &[SystemPackageEntry]) {
-    ensure_db_dirs();
-    let fd = open(WSP_DB_PATH, (O_CREAT | O_WRONLY | O_TRUNC) as u64, 0o644);
+    save_installed_packages_to("", packages);
+}
+
+pub fn save_installed_packages_to(root: &str, packages: &[SystemPackageEntry]) {
+    ensure_db_dirs_in(root);
+    let db_path = get_path(root, "/var/lib/wsp/installed.json");
+    let fd = open_c(&db_path, (O_CREAT | O_WRONLY | O_TRUNC) as u64, 0o644);
     if fd < 0 {
         return;
     }
@@ -107,6 +155,42 @@ pub fn save_installed_packages(packages: &[SystemPackageEntry]) {
     }
     let _ = write(fd as u64, b"]\n");
     close(fd as u64);
+}
+
+pub fn load_repo_packages(root: &str) -> Vec<RepoPackage> {
+    let candidates = [
+        get_path(root, "/var/lib/wsp/packages.json"),
+        get_path(root, "/var/lib/wsp/repo/system/x86_64/packages.json"),
+        get_path(root, "/var/cache/wsp/packages.json"),
+        "/var/lib/wsp/packages.json".to_string(),
+        "/var/lib/wsp/repo/system/x86_64/packages.json".to_string(),
+        "/var/cache/wsp/packages.json".to_string(),
+    ];
+
+    for path in &candidates {
+        let fd = open_c(path, O_RDONLY as u64, 0);
+        if fd >= 0 {
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = read(fd as u64, &mut chunk);
+                if n <= 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n as usize]);
+            }
+            close(fd as u64);
+
+            if let Ok(content) = core::str::from_utf8(&buf) {
+                let pkgs = parse_repo_index(content);
+                if !pkgs.is_empty() {
+                    return pkgs;
+                }
+            }
+        }
+    }
+
+    Vec::new()
 }
 
 pub fn get_default_base_packages() -> Vec<SystemPackageEntry> {

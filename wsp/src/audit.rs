@@ -4,7 +4,8 @@ extern crate alloc;
 use alloc::format;
 use libwunix::{close, open, println, t, O_RDONLY};
 
-use crate::db::{has_critical_alert, load_installed_packages};
+use libpackwunix::version::Version;
+use crate::db::{has_critical_alert, load_installed_packages, load_repo_packages};
 use crate::display::{COLOR_BOLD, COLOR_GREEN, COLOR_RED, COLOR_RESET, COLOR_YELLOW};
 
 pub fn run_audit(verify_files: bool) -> i32 {
@@ -71,8 +72,20 @@ pub fn run_audit(verify_files: bool) -> i32 {
         println!("  {:<22} {}{}{}", t("Статус безопасности:", "Security status:"), COLOR_RED, t("[Требуются критические обновления]", "[Critical updates pending]"), COLOR_RESET);
         println!();
         println!("  {}", t("Доступны обязательные обновления безопасности ядра:", "Mandatory kernel security updates available:"));
-        println!("    - wunix-kernel 0.4.1 -> 0.4.2 [критический: планировщик и poll]");
-        println!("    - libwunix 0.1.0 -> 0.2.0 [критический: границы памяти mmap]");
+        let repo_pkgs = load_repo_packages("");
+        let mut listed = 0;
+        for inst in &packages {
+            let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(1, 0, 0));
+            if let Some(rp) = repo_pkgs.iter().find(|p| p.name == inst.name) {
+                if rp.version > inst_ver {
+                    println!("    - {} {} -> {} [{}]", inst.name, inst.version, rp.version, rp.tier);
+                    listed += 1;
+                }
+            }
+        }
+        if listed == 0 {
+            println!("    - {}", t("Обнаружен маркер требуемых обновлений безопасности ядра", "Kernel security update marker active"));
+        }
         println!();
         println!("  Рекомендация: sudo wsp upgrade --critical");
     } else {
