@@ -41,7 +41,7 @@ fn cstr_to_str(ptr: *const u8) -> &'static str {
     }
 }
 
-fn locate_system_package(pkg: &str) -> Option<alloc::string::String> {
+fn locate_system_package(pkg: &str, root_dir: &str) -> Option<alloc::string::String> {
     if pkg.ends_with(".wp") || pkg.ends_with(".wsp") || pkg.contains('/') {
         let mut null_p = [0u8; 256];
         let b = pkg.as_bytes();
@@ -60,12 +60,26 @@ fn locate_system_package(pkg: &str) -> Option<alloc::string::String> {
         alloc::format!("/var/cache/wsp/{}-1.0.0.wp", pkg),
         alloc::format!("/var/lib/wsp/repo/system/x86_64/{}.wp", pkg),
         alloc::format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.0.wp", pkg),
+        alloc::format!("/repositories/system/x86_64/{}.wp", pkg),
+        alloc::format!("/repositories/system/x86_64/{}-1.0.0.wp", pkg),
     ];
 
-    let repo_pkgs = db::load_repo_packages("");
+    if !root_dir.is_empty() && root_dir != "/" {
+        let r = root_dir.trim_end_matches('/');
+        candidates.push(alloc::format!("{}/var/cache/wsp/{}.wp", r, pkg));
+        candidates.push(alloc::format!("{}/var/cache/wsp/{}-1.0.0.wp", r, pkg));
+        candidates.push(alloc::format!("{}/var/lib/wsp/repo/system/x86_64/{}.wp", r, pkg));
+    }
+
+    let repo_pkgs = db::load_repo_packages(root_dir);
     if let Some(rp) = repo_pkgs.iter().find(|p| p.name == pkg) {
         candidates.push(alloc::format!("/var/cache/wsp/{}", rp.filename));
         candidates.push(alloc::format!("/var/lib/wsp/repo/system/x86_64/{}", rp.filename));
+        candidates.push(alloc::format!("/repositories/system/x86_64/{}", rp.filename));
+        if !root_dir.is_empty() && root_dir != "/" {
+            let r = root_dir.trim_end_matches('/');
+            candidates.push(alloc::format!("{}/var/cache/wsp/{}", r, rp.filename));
+        }
     }
 
     for path in &candidates {
@@ -211,7 +225,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             } else if positional.len() > 1 {
                 let mut status_code = 0;
                 for target in &positional[1..] {
-                    let resolved = locate_system_package(target);
+                    let resolved = locate_system_package(target, root_dir);
                     if let Some(pkg_file) = resolved.as_deref() {
                         match unpack::read_file_to_vec(pkg_file) {
                             Ok(data) => {

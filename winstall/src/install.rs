@@ -1,89 +1,41 @@
-// Копирование Wunix base и установка системы на смонтированный раздел.
+// Установка Wunix base и прикладных пакетов через WSP и WPM на смонтированный раздел.
 
 use crate::disk::install_limine_bootloader;
 use crate::net::{apply_network_config, NetConfig};
 
 use libwunix::{
-    close, hash_password, mkdir, mount, open, pread64, pwrite64, umount2,
+    close, hash_password, mkdir, mount, open, pread64, pwrite64, symlink, umount2,
     O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
 };
 
-/// Список системных утилит Wunix Base для копирования на диск.
-/// ВНИМАНИЕ: winstall здесь ИСКЛЮЧЕН — установщик на диске не нужен!
-pub const INSTALL_BINARIES: &[(&[u8], &[u8])] = &[
-    (b"/bin/init\0",       b"/mnt/bin/init\0"),
-    (b"/bin/wsh\0",        b"/mnt/bin/wsh\0"),
-    (b"/bin/echo\0",       b"/mnt/bin/echo\0"),
-    (b"/bin/cat\0",        b"/mnt/bin/cat\0"),
-    (b"/bin/ls\0",         b"/mnt/bin/ls\0"),
-    (b"/bin/clear\0",      b"/mnt/bin/clear\0"),
-    (b"/bin/uname\0",      b"/mnt/bin/uname\0"),
-    (b"/bin/pwd\0",        b"/mnt/bin/pwd\0"),
-    (b"/bin/touch\0",      b"/mnt/bin/touch\0"),
-    (b"/bin/rm\0",         b"/mnt/bin/rm\0"),
-    (b"/bin/mkdir\0",      b"/mnt/bin/mkdir\0"),
-    (b"/bin/rmdir\0",      b"/mnt/bin/rmdir\0"),
-    (b"/bin/mv\0",         b"/mnt/bin/mv\0"),
-    (b"/bin/ln\0",         b"/mnt/bin/ln\0"),
-    (b"/bin/readlink\0",   b"/mnt/bin/readlink\0"),
-    (b"/bin/top\0",        b"/mnt/bin/top\0"),
-    (b"/bin/free\0",       b"/mnt/bin/free\0"),
-    (b"/bin/ping\0",       b"/mnt/bin/ping\0"),
-    (b"/bin/ip\0",         b"/mnt/bin/ip\0"),
-    (b"/bin/curl\0",       b"/mnt/bin/curl\0"),
-    (b"/bin/host\0",       b"/mnt/bin/host\0"),
-    (b"/bin/ss\0",         b"/mnt/bin/ss\0"),
-    (b"/bin/lsblk\0",      b"/mnt/bin/lsblk\0"),
-    (b"/bin/fdisk\0",      b"/mnt/bin/fdisk\0"),
-    (b"/bin/mount\0",      b"/mnt/bin/mount\0"),
-    (b"/bin/umount\0",     b"/mnt/bin/umount\0"),
-    (b"/bin/man\0",        b"/mnt/bin/man\0"),
-    (b"/bin/lspci\0",      b"/mnt/bin/lspci\0"),
-    (b"/bin/lshw\0",       b"/mnt/bin/lshw\0"),
-    (b"/bin/lsdev\0",      b"/mnt/bin/lsdev\0"),
-    (b"/bin/lsmod\0",      b"/mnt/bin/lsmod\0"),
-    (b"/bin/modinfo\0",    b"/mnt/bin/modinfo\0"),
-    (b"/bin/hwclock\0",    b"/mnt/bin/hwclock\0"),
-    (b"/bin/fbset\0",      b"/mnt/bin/fbset\0"),
-    (b"/bin/date\0",       b"/mnt/bin/date\0"),
-    (b"/bin/time\0",       b"/mnt/bin/time\0"),
-    (b"/bin/timedatectl\0",b"/mnt/bin/timedatectl\0"),
-    (b"/bin/shutdown\0",   b"/mnt/bin/shutdown\0"),
-    (b"/bin/reboot\0",     b"/mnt/bin/reboot\0"),
-    (b"/bin/whoami\0",     b"/mnt/bin/whoami\0"),
-    (b"/bin/id\0",         b"/mnt/bin/id\0"),
-    (b"/bin/chmod\0",      b"/mnt/bin/chmod\0"),
-    (b"/bin/chown\0",      b"/mnt/bin/chown\0"),
-    (b"/bin/passwd\0",     b"/mnt/bin/passwd\0"),
-    (b"/bin/useradd\0",    b"/mnt/bin/useradd\0"),
-    (b"/bin/userdel\0",    b"/mnt/bin/userdel\0"),
-    (b"/bin/su\0",         b"/mnt/bin/su\0"),
-    (b"/bin/sudo\0",       b"/mnt/bin/sudo\0"),
-    (b"/bin/login\0",      b"/mnt/bin/login\0"),
-    (b"/bin/sudoadd\0",    b"/mnt/bin/sudoadd\0"),
-    (b"/bin/nano\0",       b"/mnt/bin/nano\0"),
-    (b"/bin/ssh\0",        b"/mnt/bin/ssh\0"),
-    (b"/bin/sshd\0",       b"/mnt/bin/sshd\0"),
-    (b"/bin/sshd-session\0", b"/mnt/bin/sshd-session\0"),
-    (b"/bin/ssh-keygen\0", b"/mnt/bin/ssh-keygen\0"),
-    (b"/bin/scp\0",        b"/mnt/bin/scp\0"),
-    (b"/bin/sftp-server\0", b"/mnt/bin/sftp-server\0"),
-    (b"/bin/openssl\0",    b"/mnt/bin/openssl\0"),
-    (b"/bin/ntpdate\0",    b"/mnt/bin/ntpdate\0"),
-    (b"/bin/timesyncd\0",  b"/mnt/bin/timesyncd\0"),
-    (b"/bin/system\0",     b"/mnt/bin/system\0"),
-    (b"/bin/nslookup\0",   b"/mnt/bin/nslookup\0"),
-    (b"/bin/tar\0",        b"/mnt/bin/tar\0"),
-    (b"/bin/zip\0",        b"/mnt/bin/zip\0"),
-    (b"/bin/unzip\0",      b"/mnt/bin/unzip\0"),
-    (b"/bin/gzip\0",       b"/mnt/bin/gzip\0"),
-    (b"/bin/gunzip\0",     b"/mnt/bin/gunzip\0"),
-    (b"/bin/unrar\0",      b"/mnt/bin/unrar\0"),
-    (b"/bin/ar\0",         b"/mnt/bin/ar\0"),
-    (b"/bin/cpio\0",       b"/mnt/bin/cpio\0"),
-    (b"/bin/wsp\0",        b"/mnt/bin/wsp\0"),
-    (b"/bin/wpm\0",        b"/mnt/bin/wpm\0"),
-    (b"/bin/wspd\0",       b"/mnt/bin/wspd\0"),
+/// Список компонентов базовой системы и ядра Wunix, устанавливаемых через WSP
+pub const SYSTEM_PACKAGES: &[&str] = &[
+    "wunix-kernel",
+    "libwunix",
+    "libpackwunix",
+    "libcwunix",
+    "wunix-base",
+    "coreutils",
+    "netutils",
+    "sysutils",
+    "authutils",
+    "wspd",
+    "openssl",
+    "ncurses",
+    "zlib",
+];
+
+/// Список прикладных пользовательских программ Wunix, устанавливаемых через WPM
+pub const APP_PACKAGES: &[&str] = &[
+    "archiveutils",
+    "curl",
+    "gzip",
+    "nano",
+    "openssh",
+    "tar",
+    "tinycc",
+    "wc",
+    "zip",
 ];
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
@@ -211,8 +163,107 @@ fn make_salt(out: &mut [u8; 8]) {
     }
 }
 
+/// Выполняет команду пакетного менеджера (wsp или wpm) через fork + execve
+fn run_command(cmd: &[u8], args: &[&[u8]]) -> bool {
+    let pid = libwunix::fork();
+    if pid < 0 {
+        return false;
+    }
+    if pid == 0 {
+        // Перенаправляем stdout и stderr в лог, чтобы не искажать TUI-интерфейс
+        let log_fd = open(b"/tmp/winstall.log\0", (O_WRONLY | O_CREAT) as u64, 0o644);
+        if log_fd >= 0 {
+            let _ = libwunix::dup2(log_fd as u64, 1);
+            let _ = libwunix::dup2(log_fd as u64, 2);
+            let _ = close(log_fd as u64);
+        }
+
+        let mut argv: [*const u8; 16] = [core::ptr::null(); 16];
+        argv[0] = cmd.as_ptr();
+        for (i, &arg) in args.iter().enumerate().take(14) {
+            argv[i + 1] = arg.as_ptr();
+        }
+        argv[args.len() + 1] = core::ptr::null();
+
+        let envp: [*const u8; 1] = [core::ptr::null()];
+
+        libwunix::execve(cmd, argv.as_ptr() as u64, envp.as_ptr() as u64);
+        libwunix::exit(127);
+    }
+
+    let mut raw_status: i32 = 0;
+    let waited = libwunix::wait4(pid, &mut raw_status as *mut i32, 0);
+    waited >= 0 && raw_status == 0
+}
+
+fn copy_repo_metadata() {
+    // Копируем системные пакеты WSP в кэш целевой системы
+    const WSP_CACHE_FILES: &[&[u8]] = &[
+        b"wunix-kernel-1.0.0.wp\0",
+        b"libwunix-1.0.0.wp\0",
+        b"libpackwunix-1.0.0.wp\0",
+        b"libcwunix-1.0.0.wp\0",
+        b"wunix-base-1.0.0.wp\0",
+        b"coreutils-1.0.0.wp\0",
+        b"netutils-1.0.0.wp\0",
+        b"sysutils-1.0.0.wp\0",
+        b"authutils-1.0.0.wp\0",
+        b"wspd-1.0.0.wp\0",
+        b"openssl-3.4.0.wp\0",
+        b"ncurses-6.4.0.wp\0",
+        b"zlib-1.3.1.wp\0",
+    ];
+
+    copy_file(b"/var/lib/wsp/repo/system/x86_64/packages.json\0", b"/mnt/var/lib/wsp/repo/system/x86_64/packages.json\0", 0o644);
+    copy_file(b"/var/cache/wsp/packages.json\0", b"/mnt/var/cache/wsp/packages.json\0", 0o644);
+
+    for &f in WSP_CACHE_FILES {
+        let mut src = [0u8; 128];
+        let mut dst = [0u8; 128];
+        let mut spos = ap(&mut src, 0, b"/var/cache/wsp/");
+        spos = ap(&mut src, spos, f);
+        src[spos] = 0;
+
+        let mut dpos = ap(&mut dst, 0, b"/mnt/var/cache/wsp/");
+        dpos = ap(&mut dst, dpos, f);
+        dst[dpos] = 0;
+
+        copy_file(&src[..spos + 1], &dst[..dpos + 1], 0o644);
+    }
+
+    // Копируем прикладные пакеты WPM в кэш целевой системы
+    const WPM_CACHE_FILES: &[&[u8]] = &[
+        b"archiveutils-1.0.0.wp\0",
+        b"curl-1.0.0.wp\0",
+        b"gzip-1.0.0.wp\0",
+        b"nano-7.2.0.wp\0",
+        b"openssh-9.8.0.wp\0",
+        b"tar-1.0.0.wp\0",
+        b"tinycc-0.9.27.wp\0",
+        b"wc-1.0.0.wp\0",
+        b"zip-1.0.0.wp\0",
+    ];
+
+    copy_file(b"/var/lib/wpm/repo/apps/x86_64/packages.json\0", b"/mnt/var/lib/wpm/repo/apps/x86_64/packages.json\0", 0o644);
+    copy_file(b"/var/cache/wpm/packages.json\0", b"/mnt/var/cache/wpm/packages.json\0", 0o644);
+
+    for &f in WPM_CACHE_FILES {
+        let mut src = [0u8; 128];
+        let mut dst = [0u8; 128];
+        let mut spos = ap(&mut src, 0, b"/var/cache/wpm/");
+        spos = ap(&mut src, spos, f);
+        src[spos] = 0;
+
+        let mut dpos = ap(&mut dst, 0, b"/mnt/var/cache/wpm/");
+        dpos = ap(&mut dst, dpos, f);
+        dst[dpos] = 0;
+
+        copy_file(&src[..spos + 1], &dst[..dpos + 1], 0o644);
+    }
+}
+
 pub fn total_install_items() -> usize {
-    INSTALL_BINARIES.len() + INSTALL_BOOT_FILES.len() + INSTALL_ETC_FILES.len() + INSTALL_EXTRA_FILES.len() + 10
+    SYSTEM_PACKAGES.len() + APP_PACKAGES.len() + INSTALL_BOOT_FILES.len() + INSTALL_ETC_FILES.len() + 10
 }
 
 /// Выполняет установку системы Wunix на смонтированный диск
@@ -245,14 +296,17 @@ where
         b"/mnt/bin\0".as_ref(), b"/mnt/etc\0", b"/mnt/tmp\0",
         b"/mnt/root\0", b"/mnt/home\0", b"/mnt/mnt\0",
         b"/mnt/boot\0", b"/mnt/dev\0",  b"/mnt/proc\0", b"/mnt/sys\0",
+        b"/mnt/lib\0", b"/mnt/lib64\0",
         b"/mnt/etc/ssl\0", b"/mnt/etc/ssl/certs\0",
         b"/mnt/etc/ssh\0", b"/mnt/etc/services\0", b"/mnt/etc/services/enabled\0",
         b"/mnt/etc/wsp\0", b"/mnt/etc/wpm\0",
         b"/mnt/var\0", b"/mnt/var/run\0", b"/mnt/var/empty\0", b"/mnt/var/log\0", b"/mnt/var/log/services\0",
         b"/mnt/var/lib/wsp\0", b"/mnt/var/lib/wpm\0",
+        b"/mnt/var/lib/wsp/repo\0", b"/mnt/var/lib/wsp/repo/system\0", b"/mnt/var/lib/wsp/repo/system/x86_64\0",
+        b"/mnt/var/lib/wpm/repo\0", b"/mnt/var/lib/wpm/repo/apps\0", b"/mnt/var/lib/wpm/repo/apps/x86_64\0",
         b"/mnt/var/cache/wsp\0", b"/mnt/var/cache/wpm\0",
         b"/mnt/run\0", b"/mnt/run/services\0",
-        b"/mnt/usr\0", b"/mnt/usr/lib\0", b"/mnt/usr/libexec\0",
+        b"/mnt/usr\0", b"/mnt/usr/bin\0", b"/mnt/usr/lib\0", b"/mnt/usr/libexec\0",
         b"/mnt/usr/include\0", b"/mnt/usr/share\0",
     ] {
         ensure_dir(d);
@@ -260,33 +314,56 @@ where
     let _ = libwunix::chmod(b"/mnt/tmp\0", 0o1777);
     let _ = libwunix::chmod(b"/mnt/root\0", 0o700);
     let _ = libwunix::chmod(b"/mnt/var/empty\0", 0o755);
-    copy_file(b"/bin/sshd-session\0", b"/mnt/usr/libexec/sshd-session\0", 0o755);
-    copy_file(b"/bin/sftp-server\0", b"/mnt/usr/libexec/sftp-server\0", 0o755);
-    copy_file(b"/var/lib/wsp/installed.json\0", b"/mnt/var/lib/wsp/installed.json\0", 0o644);
-    copy_file(b"/var/lib/wpm/installed.json\0", b"/mnt/var/lib/wpm/installed.json\0", 0o644);
+    copy_repo_metadata();
     done += 1;
 
-    // 1. Копирование системных бинарных файлов (/bin) - БЕЗ winstall!
-    for (src, dst) in INSTALL_BINARIES {
-        let s = *src;
-        let start = s.iter().rposition(|&b| b == b'/').map(|p| p + 1).unwrap_or(0);
-        let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
-        let name = core::str::from_utf8(&s[start..end]).unwrap_or("bin");
-        let pct = (10 + (done * 50 / total)).min(60) as u8;
-        progress(pct, name, done, total);
+    // 1. Установка компонентов ядра и базовой системы через WSP
+    for &pkg in SYSTEM_PACKAGES {
+        let pct = (10 + (done * 45 / total)).min(55) as u8;
+        progress(pct, pkg, done, total);
 
-        let mode = if name == "sudo" || name == "su" || name == "passwd" || name == "sudoadd" {
-            0o4755
-        } else {
-            0o755
-        };
-        copy_file(src, dst, mode);
-        let _ = libwunix::chmod(dst, mode as u32);
+        let mut null_pkg = [0u8; 32];
+        let b = pkg.as_bytes();
+        let l = b.len().min(31);
+        null_pkg[..l].copy_from_slice(&b[..l]);
+        null_pkg[l] = 0;
+
+        let _ = run_command(
+            b"/bin/wsp\0",
+            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", &null_pkg[..l + 1]],
+        );
         done += 1;
     }
 
-    // 2. Копирование файлов ядра и загрузчика (/boot)
-    progress(62, "Установка ядра и загрузчика (/boot)...", done, total);
+    // 2. Установка пользовательских прикладных программ через WPM
+    for &app in APP_PACKAGES {
+        let pct = (55 + (done * 20 / total)).min(75) as u8;
+        progress(pct, app, done, total);
+
+        let mut null_app = [0u8; 32];
+        let b = app.as_bytes();
+        let l = b.len().min(31);
+        null_app[..l].copy_from_slice(&b[..l]);
+        null_app[l] = 0;
+
+        let _ = run_command(
+            b"/bin/wpm\0",
+            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", &null_app[..l + 1]],
+        );
+        done += 1;
+    }
+
+    // Настраиваем системные симлинки совместимости
+    let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/sh\0");
+    let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib/ld-musl-x86_64.so.1\0");
+    let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib64/ld-musl-x86_64.so.1\0");
+    let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib/ld-wunix.so.1\0");
+    let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib64/ld-wunix.so.1\0");
+    copy_file(b"/bin/sshd-session\0", b"/mnt/usr/libexec/sshd-session\0", 0o755);
+    copy_file(b"/bin/sftp-server\0", b"/mnt/usr/libexec/sftp-server\0", 0o755);
+
+    // 3. Копирование файлов ядра и загрузчика (/boot)
+    progress(76, "Установка ядра и загрузчика (/boot)...", done, total);
     for (src, dst) in INSTALL_BOOT_FILES {
         copy_file(src, dst, 0o644);
         done += 1;
