@@ -11,8 +11,6 @@ use alloc::vec;
 use libwunix::{close, mkdir, open, read, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 use libpackwunix::sources::{parse_repo_index, RepoPackage};
 
-pub const WSP_DB_DIR: &[u8] = b"/var/lib/wsp\0";
-pub const WSP_DB_PATH: &[u8] = b"/var/lib/wsp/installed.json\0";
 pub const WSP_ALERT_PATH: &[u8] = b"/run/wsp/critical_alert.json\0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +133,7 @@ pub fn load_installed_packages_from(root: &str) -> Vec<SystemPackageEntry> {
     }
 }
 
+#[allow(dead_code)]
 pub fn save_installed_packages(packages: &[SystemPackageEntry]) {
     save_installed_packages_to("", packages);
 }

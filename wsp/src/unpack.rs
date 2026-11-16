@@ -97,6 +97,7 @@ fn cstr_slice(bytes: &[u8]) -> &str {
 }
 
 /// Распаковывает системный пакет WSP (.wp) в файловую систему ядра
+#[allow(dead_code)]
 pub fn unpack_wsp_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageManifest, Vec<String>), &'static str> {
     unpack_wsp_package_to(pkg_bytes, "", verbose)
 }
