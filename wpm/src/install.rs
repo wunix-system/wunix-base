@@ -35,8 +35,9 @@ pub fn load_installed_apps() -> Vec<InstalledApp> {
     ensure_db_dir();
     let fd = open(WPM_DB_PATH, O_RDONLY as u64, 0);
     if fd < 0 {
-        save_installed_apps(&[]);
-        return Vec::new();
+        let defaults = get_default_installed_apps();
+        save_installed_apps(&defaults);
+        return defaults;
     }
 
     let mut buf = Vec::new();
@@ -50,8 +51,21 @@ pub fn load_installed_apps() -> Vec<InstalledApp> {
     }
     close(fd as u64);
 
+    if buf.is_empty() {
+        let defaults = get_default_installed_apps();
+        save_installed_apps(&defaults);
+        return defaults;
+    }
+
     let text = core::str::from_utf8(&buf).unwrap_or("");
-    parse_installed_db(text)
+    let parsed = parse_installed_db(text);
+    if parsed.is_empty() {
+        let defaults = get_default_installed_apps();
+        save_installed_apps(&defaults);
+        defaults
+    } else {
+        parsed
+    }
 }
 
 fn parse_installed_db(content: &str) -> Vec<InstalledApp> {
@@ -121,6 +135,85 @@ fn extract_json_val(line: &str) -> Option<String> {
         }
     }
     None
+}
+
+pub fn get_default_installed_apps() -> Vec<InstalledApp> {
+    alloc::vec![
+        InstalledApp {
+            name: "archiveutils".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Пользовательские утилиты работы со специальными архивными контейнерами (ar, cpio, unrar)".to_string(),
+            files: alloc::vec![
+                "/bin/ar".to_string(),
+                "/bin/cpio".to_string(),
+                "/bin/unrar".to_string(),
+            ],
+        },
+        InstalledApp {
+            name: "curl".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Сетевой клиент HTTP/HTTPS для передачи данных и API".to_string(),
+            files: alloc::vec![
+                "/bin/curl".to_string(),
+            ],
+        },
+        InstalledApp {
+            name: "gzip".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Утилиты потокового сжатия и распаковки gzip (gzip, gunzip)".to_string(),
+            files: alloc::vec![
+                "/bin/gzip".to_string(),
+                "/bin/gunzip".to_string(),
+            ],
+        },
+        InstalledApp {
+            name: "nano".to_string(),
+            version: "7.2.0".to_string(),
+            description: "Текстовый редактор GNU nano для Wunix".to_string(),
+            files: alloc::vec![
+                "/bin/nano".to_string(),
+            ],
+        },
+        InstalledApp {
+            name: "openssh".to_string(),
+            version: "9.8.0".to_string(),
+            description: "Комплекс сетевого безопасного доступа OpenSSH (ssh, sshd, scp)".to_string(),
+            files: alloc::vec![
+                "/bin/ssh".to_string(),
+                "/bin/sshd".to_string(),
+                "/bin/sshd-session".to_string(),
+                "/bin/ssh-keygen".to_string(),
+                "/bin/scp".to_string(),
+                "/bin/sftp-server".to_string(),
+                "/etc/ssh/sshd_config".to_string(),
+            ],
+        },
+        InstalledApp {
+            name: "tar".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Утилита работы со стандартными архивами tar".to_string(),
+            files: alloc::vec![
+                "/bin/tar".to_string(),
+            ],
+        },
+        InstalledApp {
+            name: "wc".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Пользовательская программа wc для подсчета строк, слов и байтов".to_string(),
+            files: alloc::vec![
+                "/bin/wc".to_string(),
+            ],
+        },
+        InstalledApp {
+            name: "zip".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Утилиты сжатия и распаковки ZIP архивов (zip, unzip)".to_string(),
+            files: alloc::vec![
+                "/bin/zip".to_string(),
+                "/bin/unzip".to_string(),
+            ],
+        },
+    ]
 }
 
 pub fn save_installed_apps(apps: &[InstalledApp]) {

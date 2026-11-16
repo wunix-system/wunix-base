@@ -263,6 +263,7 @@ where
     copy_file(b"/bin/sshd-session\0", b"/mnt/usr/libexec/sshd-session\0", 0o755);
     copy_file(b"/bin/sftp-server\0", b"/mnt/usr/libexec/sftp-server\0", 0o755);
     copy_file(b"/var/lib/wsp/installed.json\0", b"/mnt/var/lib/wsp/installed.json\0", 0o644);
+    copy_file(b"/var/lib/wpm/installed.json\0", b"/mnt/var/lib/wpm/installed.json\0", 0o644);
     done += 1;
 
     // 1. Копирование системных бинарных файлов (/bin) - БЕЗ winstall!
