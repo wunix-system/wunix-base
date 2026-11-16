@@ -337,7 +337,7 @@ where
 
         let _ = run_command(
             b"/bin/wsp\0",
-            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", &null_pkg[..l + 1]],
+            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", b"--reinstall\0", &null_pkg[..l + 1]],
         );
         done += 1;
     }
@@ -355,7 +355,7 @@ where
 
         let _ = run_command(
             b"/bin/wpm\0",
-            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", &null_app[..l + 1]],
+            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", b"--reinstall\0", &null_app[..l + 1]],
         );
         done += 1;
     }

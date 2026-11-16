@@ -90,9 +90,13 @@ pub fn load_installed_packages_from(root: &str) -> Vec<SystemPackageEntry> {
     let db_path = get_path(root, "/var/lib/wsp/installed.json");
     let fd = open_c(&db_path, O_RDONLY as u64, 0);
     if fd < 0 {
-        let defaults = get_default_base_packages();
-        save_installed_packages_to(root, &defaults);
-        return defaults;
+        if root.is_empty() || root == "/" {
+            let defaults = get_default_base_packages();
+            save_installed_packages_to(root, &defaults);
+            return defaults;
+        } else {
+            return Vec::new();
+        }
     }
 
     let mut buf = Vec::new();
@@ -107,17 +111,25 @@ pub fn load_installed_packages_from(root: &str) -> Vec<SystemPackageEntry> {
     close(fd as u64);
 
     if buf.is_empty() {
-        let defaults = get_default_base_packages();
-        save_installed_packages_to(root, &defaults);
-        return defaults;
+        if root.is_empty() || root == "/" {
+            let defaults = get_default_base_packages();
+            save_installed_packages_to(root, &defaults);
+            return defaults;
+        } else {
+            return Vec::new();
+        }
     }
 
     let content = core::str::from_utf8(&buf).unwrap_or("");
     let parsed = parse_installed_db(content);
     if parsed.is_empty() {
-        let defaults = get_default_base_packages();
-        save_installed_packages_to(root, &defaults);
-        defaults
+        if root.is_empty() || root == "/" {
+            let defaults = get_default_base_packages();
+            save_installed_packages_to(root, &defaults);
+            defaults
+        } else {
+            Vec::new()
+        }
     } else {
         parsed
     }
