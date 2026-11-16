@@ -5,7 +5,7 @@ use crate::net::{apply_network_config, NetConfig};
 
 use libwunix::{
     close, hash_password, mkdir, mount, open, pread64, pwrite64, symlink, umount2,
-    O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
+    O_APPEND, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
 };
 
 /// Список компонентов базовой системы и ядра Wunix, устанавливаемых через WSP
@@ -163,37 +163,44 @@ fn make_salt(out: &mut [u8; 8]) {
     }
 }
 
-/// Выполняет команду пакетного менеджера (wsp или wpm) через fork + execve
+/// Выполняет команду пакетного менеджера (wsp или wpm) через синхронный execve
 fn run_command(cmd: &[u8], args: &[&[u8]]) -> bool {
-    let pid = libwunix::fork();
-    if pid < 0 {
-        return false;
-    }
-    if pid == 0 {
-        // Перенаправляем stdout и stderr в лог, чтобы не искажать TUI-интерфейс
-        let log_fd = open(b"/tmp/winstall.log\0", (O_WRONLY | O_CREAT) as u64, 0o644);
-        if log_fd >= 0 {
-            let _ = libwunix::dup2(log_fd as u64, 1);
-            let _ = libwunix::dup2(log_fd as u64, 2);
-            let _ = close(log_fd as u64);
-        }
+    let log_fd = open(
+        b"/tmp/winstall.log\0",
+        (O_WRONLY | O_CREAT | O_APPEND) as u64,
+        0o644,
+    );
+    let saved_stdout = libwunix::dup(1);
+    let saved_stderr = libwunix::dup(2);
 
-        let mut argv: [*const u8; 16] = [core::ptr::null(); 16];
-        argv[0] = cmd.as_ptr();
-        for (i, &arg) in args.iter().enumerate().take(14) {
-            argv[i + 1] = arg.as_ptr();
-        }
-        argv[args.len() + 1] = core::ptr::null();
-
-        let envp: [*const u8; 1] = [core::ptr::null()];
-
-        libwunix::execve(cmd, argv.as_ptr() as u64, envp.as_ptr() as u64);
-        libwunix::exit(127);
+    if log_fd >= 0 {
+        let _ = libwunix::dup2(log_fd as u64, 1);
+        let _ = libwunix::dup2(log_fd as u64, 2);
+        let _ = close(log_fd as u64);
     }
 
-    let mut raw_status: i32 = 0;
-    let waited = libwunix::wait4(pid, &mut raw_status as *mut i32, 0);
-    waited >= 0 && raw_status == 0
+    let mut argv: [*const u8; 16] = [core::ptr::null(); 16];
+    argv[0] = cmd.as_ptr();
+    for (i, &arg) in args.iter().enumerate().take(14) {
+        argv[i + 1] = arg.as_ptr();
+    }
+    argv[args.len() + 1] = core::ptr::null();
+
+    let env_path = b"PATH=/bin\0";
+    let envp: [*const u8; 2] = [env_path.as_ptr(), core::ptr::null()];
+
+    let res = libwunix::execve(cmd, argv.as_ptr() as u64, envp.as_ptr() as u64);
+
+    if saved_stdout >= 0 {
+        let _ = libwunix::dup2(saved_stdout as u64, 1);
+        let _ = close(saved_stdout as u64);
+    }
+    if saved_stderr >= 0 {
+        let _ = libwunix::dup2(saved_stderr as u64, 2);
+        let _ = close(saved_stderr as u64);
+    }
+
+    res == 0
 }
 
 fn copy_repo_metadata() {
