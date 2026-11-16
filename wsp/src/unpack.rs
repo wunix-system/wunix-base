@@ -149,8 +149,9 @@ pub fn unpack_wsp_package_to(pkg_bytes: &[u8], root_prefix: &str, verbose: bool)
             continue;
         }
 
+        let sys_path = format!("/{}", clean_path);
         let target_path = if root_prefix.is_empty() {
-            format!("/{}", clean_path)
+            sys_path.clone()
         } else {
             format!("{}/{}", root_prefix.trim_end_matches('/'), clean_path)
         };
@@ -176,7 +177,7 @@ pub fn unpack_wsp_package_to(pkg_bytes: &[u8], root_prefix: &str, verbose: bool)
                     null_link[l_len] = 0;
 
                     let _ = symlink(&null_link, &null_target);
-                    installed_files.push(target_path.clone());
+                    installed_files.push(sys_path);
                     if verbose {
                         libwunix::println!("       {} -> {}", target_path, linkname);
                     }
@@ -191,11 +192,11 @@ pub fn unpack_wsp_package_to(pkg_bytes: &[u8], root_prefix: &str, verbose: bool)
                 }
 
                 let file_data = &tar_bytes[data_start..data_end];
-                let is_bin = target_path.contains("/bin/") || target_path.contains("/boot/");
-                let mode: u32 = if target_path.ends_with("/sudo")
-                    || target_path.ends_with("/su")
-                    || target_path.ends_with("/passwd")
-                    || target_path.ends_with("/sudoadd")
+                let is_bin = sys_path.contains("/bin/") || sys_path.contains("/boot/");
+                let mode: u32 = if sys_path.ends_with("/sudo")
+                    || sys_path.ends_with("/su")
+                    || sys_path.ends_with("/passwd")
+                    || sys_path.ends_with("/sudoadd")
                 {
                     0o4755
                 } else if is_bin {
@@ -209,7 +210,7 @@ pub fn unpack_wsp_package_to(pkg_bytes: &[u8], root_prefix: &str, verbose: bool)
                     let _ = write(fd as u64, file_data);
                     close(fd as u64);
                     let _ = chmod(&null_target, mode);
-                    installed_files.push(target_path.clone());
+                    installed_files.push(sys_path);
                     if verbose {
                         libwunix::println!("       {}", target_path);
                     }

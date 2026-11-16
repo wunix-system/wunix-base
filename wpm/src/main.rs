@@ -66,6 +66,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let mut flag_quiet = false;
     let mut flag_verbose = false;
     let mut flag_reinstall = false;
+    let mut flag_root: Option<&str> = None;
 
     let mut positional: Vec<&str> = Vec::new();
 
@@ -92,6 +93,12 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             "--purge" => flag_purge = true,
             "--reinstall" => flag_reinstall = true,
             "--ignore-critical-unsafe" => flag_ignore_unsafe = true,
+            "-r" | "--root" => {
+                if i + 1 < count {
+                    i += 1;
+                    flag_root = Some(args[i]);
+                }
+            }
             _ => {
                 if !a.is_empty() {
                     if a.starts_with('-') {
@@ -139,7 +146,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             search::run_search(q)
         }
         "install" => {
-            install::run_install(rest, flag_yes, flag_ignore_unsafe, flag_verbose, flag_reinstall)
+            install::run_install_in(rest, flag_root, flag_yes, flag_ignore_unsafe, flag_verbose, flag_reinstall)
         }
         "remove" | "rm" => {
             install::run_remove(rest, flag_purge, flag_yes)
@@ -160,7 +167,11 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             }
         }
         "list" | "ls" => {
-            list::run_list()
+            if let Some(root) = flag_root {
+                list::run_list_in(root)
+            } else {
+                list::run_list()
+            }
         }
         "info" => {
             if let Some(&name) = rest.first() {

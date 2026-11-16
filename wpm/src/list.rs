@@ -5,11 +5,15 @@ use alloc::format;
 use libwunix::println;
 
 use crate::display::{print_error, COLOR_GREEN, COLOR_RESET};
-use crate::install::load_installed_apps;
+use crate::install::{load_installed_apps, load_installed_apps_from};
 use crate::search::get_wpm_catalog;
 
 pub fn run_list() -> i32 {
-    let apps = load_installed_apps();
+    run_list_in("/")
+}
+
+pub fn run_list_in(root: &str) -> i32 {
+    let apps = load_installed_apps_from(root);
 
     println!("Установленные пользовательские программы (WPM):");
     println!();
@@ -42,13 +46,13 @@ pub fn run_info(name: &str) -> i32 {
     let installed = load_installed_apps();
     let catalog = get_wpm_catalog();
 
-    let canonical = match name {
+    let pkg_id = match name {
         "tcc" => "tinycc",
         other => other,
     };
 
-    let inst_match = installed.iter().find(|a| a.name == canonical || a.name == name);
-    let cat_match = catalog.iter().find(|p| p.name == canonical || p.name == name || p.aliases.iter().any(|al| al == name));
+    let inst_match = installed.iter().find(|a| a.name == pkg_id || a.name == name);
+    let cat_match = catalog.iter().find(|p| p.name == pkg_id || p.name == name || p.aliases.iter().any(|al| al == name));
 
     if inst_match.is_none() && cat_match.is_none() {
         print_error(&format!("программа '{}' не найдена в каталоге WPM", name));

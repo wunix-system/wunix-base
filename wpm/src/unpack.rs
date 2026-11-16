@@ -111,7 +111,13 @@ fn cstr_slice(bytes: &[u8]) -> &str {
 }
 
 /// Распаковывает пакет WPM (.wp) в файловую систему Wunix
+#[allow(dead_code)]
 pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageManifest, Vec<String>), &'static str> {
+    unpack_wpm_package_to(pkg_bytes, None, verbose)
+}
+
+/// Распаковывает пакет WPM (.wp) с поддержкой целевого префикса корня
+pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbose: bool) -> Result<(PackageManifest, Vec<String>), &'static str> {
     let container = PackageContainer::parse(pkg_bytes)?;
 
     // Проверяем тип пакета: WPM ставит только пользовательские пакеты
@@ -178,7 +184,11 @@ pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
             continue;
         }
 
-        let target_path = format!("/{}", clean_path);
+        let sys_path = format!("/{}", clean_path);
+        let target_path = match root_prefix {
+            Some(root) if !root.is_empty() => format!("{}/{}", root.trim_end_matches('/'), clean_path),
+            _ => sys_path.clone(),
+        };
         let mut null_target = [0u8; 512];
         let t_bytes = target_path.as_bytes();
         let copy_len = t_bytes.len().min(511);
@@ -203,7 +213,7 @@ pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
                     null_link[l_len] = 0;
 
                     let _ = symlink(&null_link, &null_target);
-                    installed_files.push(target_path.clone());
+                    installed_files.push(sys_path);
                     if verbose {
                         libwunix::println!("  symlink: {} -> {}", target_path, linkname);
                     }
@@ -221,7 +231,7 @@ pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
                 let file_data = &tar_bytes[data_start..data_end];
 
                 // Исполняемые файлы в /bin, /sbin, /usr/bin получают права 0o755
-                let is_bin = target_path.starts_with("/bin/") || target_path.starts_with("/usr/bin/");
+                let is_bin = sys_path.starts_with("/bin/") || sys_path.starts_with("/usr/bin/");
                 let mode: u32 = if is_bin { 0o755 } else { 0o644 };
 
                 let fd = open(&null_target, (O_CREAT | O_WRONLY | O_TRUNC) as u64, mode as u64);
@@ -229,7 +239,7 @@ pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageMan
                     let _ = write(fd as u64, file_data);
                     close(fd as u64);
                     let _ = chmod(&null_target, mode);
-                    installed_files.push(target_path.clone());
+                    installed_files.push(sys_path);
                     if verbose {
                         libwunix::println!("  extract: {}", target_path);
                     }

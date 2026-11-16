@@ -10,9 +10,11 @@ use libpackwunix::format::PackageContainer;
 
 use crate::display::{confirm_prompt, format_size, print_access_denied, print_disk_space_change, print_error, print_step, COLOR_BOLD, COLOR_RESET};
 use crate::guard::ensure_wsp_system_safe;
-use crate::unpack::{read_file_to_vec, unpack_wpm_package};
+use crate::unpack::{read_file_to_vec, unpack_wpm_package_to};
 
+#[allow(dead_code)]
 pub const WPM_DB_DIR: &[u8] = b"/var/lib/wpm\0";
+#[allow(dead_code)]
 pub const WPM_DB_PATH: &[u8] = b"/var/lib/wpm/installed.json\0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,21 +25,53 @@ pub struct InstalledApp {
     pub files: Vec<String>,
 }
 
-fn ensure_db_dir() {
-    let _ = mkdir(b"/var\0", 0o755);
-    let _ = mkdir(b"/var/lib\0", 0o755);
-    let _ = mkdir(WPM_DB_DIR, 0o755);
-    let _ = mkdir(b"/var/cache\0", 0o755);
-    let _ = mkdir(b"/var/cache/wpm\0", 0o755);
+pub fn ensure_db_dir_in(root: &str) {
+    let r = if root == "/" { "" } else { root.trim_end_matches('/') };
+    let dirs = [
+        format!("{}/var", r),
+        format!("{}/var/lib", r),
+        format!("{}/var/lib/wpm", r),
+        format!("{}/var/cache", r),
+        format!("{}/var/cache/wpm", r),
+    ];
+    for d in &dirs {
+        let mut null_d = [0u8; 256];
+        let bytes = d.as_bytes();
+        let l = bytes.len().min(255);
+        null_d[..l].copy_from_slice(&bytes[..l]);
+        null_d[l] = 0;
+        let _ = mkdir(&null_d, 0o755);
+    }
+}
+
+#[allow(dead_code)]
+pub fn ensure_db_dir() {
+    ensure_db_dir_in("/");
 }
 
 pub fn load_installed_apps() -> Vec<InstalledApp> {
-    ensure_db_dir();
-    let fd = open(WPM_DB_PATH, O_RDONLY as u64, 0);
+    load_installed_apps_from("/")
+}
+
+pub fn load_installed_apps_from(root: &str) -> Vec<InstalledApp> {
+    ensure_db_dir_in(root);
+    let r = if root == "/" { "" } else { root.trim_end_matches('/') };
+    let db_path = format!("{}/var/lib/wpm/installed.json", r);
+    let mut null_path = [0u8; 256];
+    let bytes = db_path.as_bytes();
+    let l = bytes.len().min(255);
+    null_path[..l].copy_from_slice(&bytes[..l]);
+    null_path[l] = 0;
+
+    let fd = open(&null_path, O_RDONLY as u64, 0);
     if fd < 0 {
-        let defaults = get_default_installed_apps();
-        save_installed_apps(&defaults);
-        return defaults;
+        if root.is_empty() || root == "/" {
+            let defaults = get_default_installed_apps();
+            save_installed_apps_to(root, &defaults);
+            return defaults;
+        } else {
+            return Vec::new();
+        }
     }
 
     let mut buf = Vec::new();
@@ -52,17 +86,25 @@ pub fn load_installed_apps() -> Vec<InstalledApp> {
     close(fd as u64);
 
     if buf.is_empty() {
-        let defaults = get_default_installed_apps();
-        save_installed_apps(&defaults);
-        return defaults;
+        if root.is_empty() || root == "/" {
+            let defaults = get_default_installed_apps();
+            save_installed_apps_to(root, &defaults);
+            return defaults;
+        } else {
+            return Vec::new();
+        }
     }
 
     let text = core::str::from_utf8(&buf).unwrap_or("");
     let parsed = parse_installed_db(text);
     if parsed.is_empty() {
-        let defaults = get_default_installed_apps();
-        save_installed_apps(&defaults);
-        defaults
+        if root.is_empty() || root == "/" {
+            let defaults = get_default_installed_apps();
+            save_installed_apps_to(root, &defaults);
+            defaults
+        } else {
+            Vec::new()
+        }
     } else {
         parsed
     }
@@ -217,8 +259,20 @@ pub fn get_default_installed_apps() -> Vec<InstalledApp> {
 }
 
 pub fn save_installed_apps(apps: &[InstalledApp]) {
-    ensure_db_dir();
-    let fd = open(WPM_DB_PATH, (O_CREAT | O_WRONLY | O_TRUNC) as u64, 0o644);
+    save_installed_apps_to("/", apps);
+}
+
+pub fn save_installed_apps_to(root: &str, apps: &[InstalledApp]) {
+    ensure_db_dir_in(root);
+    let r = if root == "/" { "" } else { root.trim_end_matches('/') };
+    let db_path = format!("{}/var/lib/wpm/installed.json", r);
+    let mut null_path = [0u8; 256];
+    let bytes = db_path.as_bytes();
+    let l = bytes.len().min(255);
+    null_path[..l].copy_from_slice(&bytes[..l]);
+    null_path[l] = 0;
+
+    let fd = open(&null_path, (O_CREAT | O_WRONLY | O_TRUNC) as u64, 0o644);
     if fd < 0 {
         return;
     }
@@ -255,7 +309,12 @@ pub fn is_system_package(pkg: &str) -> bool {
     )
 }
 
-fn locate_package_file(pkg: &str) -> Option<String> {
+#[allow(dead_code)]
+pub fn locate_package_file(pkg: &str) -> Option<String> {
+    locate_package_file_in(pkg, None)
+}
+
+pub fn locate_package_file_in(pkg: &str, root_opt: Option<&str>) -> Option<String> {
     if pkg.ends_with(".wp") || pkg.ends_with(".wsp") || pkg.contains('/') {
         let mut null_p = [0u8; 256];
         let b = pkg.as_bytes();
@@ -269,19 +328,67 @@ fn locate_package_file(pkg: &str) -> Option<String> {
         }
     }
 
-    let canonical = match pkg {
+    let pkg_id = match pkg {
         "tcc" | "cc" => "tinycc",
         other => other,
     };
 
-    let candidates = [
-        format!("/var/cache/wpm/{}.wp", canonical),
-        format!("/var/cache/wpm/{}-0.9.27.wp", canonical),
-        format!("/var/lib/wpm/repo/apps/x86_64/{}.wp", canonical),
-        format!("/repo/apps/x86_64/{}.wp", canonical),
-        format!("/usr/share/wpm/packages/{}.wp", canonical),
-        format!("/var/cache/wpm/{}.wp", pkg),
+    let mut repo_dirs: Vec<String> = alloc::vec![
+        "/var/lib/wpm/repo/apps/x86_64".to_string(),
+        "/var/cache/wpm".to_string(),
+        "/repo/apps/x86_64".to_string(),
+        "/repositories/apps/x86_64".to_string(),
     ];
+    if let Some(root) = root_opt {
+        if !root.is_empty() && root != "/" {
+            let r = root.trim_end_matches('/');
+            repo_dirs.insert(0, format!("{}/var/lib/wpm/repo/apps/x86_64", r));
+            repo_dirs.insert(1, format!("{}/var/cache/wpm", r));
+            repo_dirs.insert(2, format!("{}/repo/apps/x86_64", r));
+            repo_dirs.insert(3, format!("{}/repositories/apps/x86_64", r));
+        }
+    }
+
+    let mut candidates: Vec<String> = Vec::new();
+
+    for repo_dir in &repo_dirs {
+        let idx_path = format!("{}/packages.json", repo_dir);
+        if let Ok(idx_data) = read_file_to_vec(&idx_path) {
+            if let Ok(idx_str) = core::str::from_utf8(&idx_data) {
+                let pkgs = libpackwunix::sources::parse_repo_index(idx_str);
+                for p in pkgs {
+                    if p.name == pkg_id || p.name == pkg {
+                        candidates.push(format!("{}/{}", repo_dir, p.filename));
+                        candidates.push(format!("/var/cache/wpm/{}", p.filename));
+                        if let Some(root) = root_opt {
+                            if !root.is_empty() && root != "/" {
+                                candidates.push(format!("{}/var/cache/wpm/{}", root.trim_end_matches('/'), p.filename));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    candidates.push(format!("/var/cache/wpm/{}.wp", pkg_id));
+    candidates.push(format!("/var/cache/wpm/{}-1.0.0.wp", pkg_id));
+    candidates.push(format!("/var/lib/wpm/repo/apps/x86_64/{}.wp", pkg_id));
+    candidates.push(format!("/repo/apps/x86_64/{}.wp", pkg_id));
+    candidates.push(format!("/repositories/apps/x86_64/{}.wp", pkg_id));
+    candidates.push(format!("/usr/share/wpm/packages/{}.wp", pkg_id));
+    candidates.push(format!("/var/cache/wpm/{}.wp", pkg));
+
+    if let Some(root) = root_opt {
+        if !root.is_empty() && root != "/" {
+            let r = root.trim_end_matches('/');
+            candidates.push(format!("{}/var/cache/wpm/{}.wp", r, pkg_id));
+            candidates.push(format!("{}/var/cache/wpm/{}-1.0.0.wp", r, pkg_id));
+            candidates.push(format!("{}/var/lib/wpm/repo/apps/x86_64/{}.wp", r, pkg_id));
+            candidates.push(format!("{}/repo/apps/x86_64/{}.wp", r, pkg_id));
+            candidates.push(format!("{}/repositories/apps/x86_64/{}.wp", r, pkg_id));
+        }
+    }
 
     for path in &candidates {
         let mut null_p = [0u8; 256];
@@ -309,7 +416,19 @@ struct PackageTarget {
     installed_size: u64,
 }
 
+#[allow(dead_code)]
 pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, verbose: bool, reinstall: bool) -> i32 {
+    run_install_in(packages, None, assume_yes, ignore_unsafe, verbose, reinstall)
+}
+
+pub fn run_install_in(
+    packages: &[&str],
+    root_prefix: Option<&str>,
+    assume_yes: bool,
+    ignore_unsafe: bool,
+    verbose: bool,
+    reinstall: bool,
+) -> i32 {
     if packages.is_empty() {
         print_error(t(
             "укажите имя программы для установки: wpm install <пакет>",
@@ -325,11 +444,12 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
         return 1;
     }
 
-    if ensure_wsp_system_safe(ignore_unsafe).is_err() {
+    if root_prefix.is_none() && ensure_wsp_system_safe(ignore_unsafe).is_err() {
         return 1;
     }
 
-    let installed_list = load_installed_apps();
+    let root_str = root_prefix.unwrap_or("/");
+    let installed_list = load_installed_apps_from(root_str);
     let mut targets: Vec<PackageTarget> = Vec::new();
     let mut total_download: u64 = 0;
     let mut total_installed_space: u64 = 0;
@@ -342,7 +462,7 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
             return 1;
         }
 
-        let pkg_file_path = match locate_package_file(pkg) {
+        let pkg_file_path = match locate_package_file_in(pkg, root_prefix) {
             Some(p) => p,
             None => {
                 print_error(&format!(
@@ -428,7 +548,7 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
         }
     }
 
-    let mut installed_list = load_installed_apps();
+    let mut installed_list = load_installed_apps_from(root_str);
     let mut total_installed = 0;
 
     for target in targets {
@@ -443,7 +563,7 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
         print_step(2, 4, &step2_msg, true);
 
         // Шаг 3: Распаковка
-        let (manifest, files) = match unpack_wpm_package(&target.data, verbose) {
+        let (manifest, files) = match unpack_wpm_package_to(&target.data, root_prefix, verbose) {
             Ok(res) => res,
             Err(e) => {
                 print_step(3, 4, t("Распаковка файлов в систему", "Extracting package files"), false);
@@ -461,7 +581,7 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
             description: manifest.description.clone(),
             files: files.clone(),
         });
-        save_installed_apps(&installed_list);
+        save_installed_apps_to(root_str, &installed_list);
         print_step(4, 4, t("Регистрация программы в реестре WPM", "Registering in WPM database"), true);
 
         println!(
@@ -502,12 +622,12 @@ pub fn run_remove(packages: &[&str], purge: bool, assume_yes: bool) -> i32 {
     let mut total_freed_space: u64 = 0;
 
     for &pkg in packages {
-        let canonical = match pkg {
+        let pkg_id = match pkg {
             "tcc" => "tinycc",
             other => other,
         };
 
-        if let Some(app) = installed_list.iter().find(|a| a.name == canonical || a.name == pkg) {
+        if let Some(app) = installed_list.iter().find(|a| a.name == pkg_id || a.name == pkg) {
             let freed = (app.files.len() as u64 * 32 * 1024).max(520 * 1024);
             total_freed_space += freed;
             targets_to_remove.push(app.clone());
