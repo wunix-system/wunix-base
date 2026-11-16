@@ -40,6 +40,51 @@ pub fn is_tty() -> bool {
     unsafe { libc::isatty(libc::STDIN_FILENO) == 1 }
 }
 
+pub fn is_fd_tty(fd: u64) -> bool {
+    unsafe { libc::isatty(fd as i32) == 1 }
+}
+
+pub fn can_read(path: &str) -> bool {
+    if let Ok(cstr) = std::ffi::CString::new(path) {
+        unsafe { libc::access(cstr.as_ptr(), libc::R_OK) == 0 }
+    } else {
+        false
+    }
+}
+
+pub fn can_write(path: &str) -> bool {
+    if let Ok(cstr) = std::ffi::CString::new(path) {
+        unsafe { libc::access(cstr.as_ptr(), libc::W_OK) == 0 }
+    } else {
+        false
+    }
+}
+
+pub fn capture_stdout<F: FnOnce() -> i32>(f: F) -> (i32, String) {
+    static SUB_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+    let seq = SUB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_path = std::env::temp_dir().join(format!("wsh_sub_{}_{}", std::process::id(), seq));
+    let Ok(file) = File::create(&tmp_path) else {
+        return (f(), String::new());
+    };
+    use std::os::unix::io::AsRawFd;
+    let out_fd = file.as_raw_fd();
+    unsafe {
+        let saved = libc::dup(1);
+        libc::dup2(out_fd, 1);
+        drop(file);
+        let code = f();
+        if saved >= 0 {
+            libc::dup2(saved, 1);
+            libc::close(saved);
+        }
+        let content = std::fs::read_to_string(&tmp_path).unwrap_or_default();
+        let _ = std::fs::remove_file(&tmp_path);
+        let trimmed = content.trim_end_matches('\n').trim_end_matches('\r');
+        (code, String::from(trimmed))
+    }
+}
+
 pub struct RawModeGuard {
     orig_termios: libc::termios,
     active: bool,
@@ -108,95 +153,131 @@ pub fn read_stdin_byte() -> Option<u8> {
 
 /// Выполняет внешний конвейер команд с поддержкой каналов (|) и перенаправлений (>, >>, <)
 pub fn execute_pipeline(pipeline: &Pipeline) -> i32 {
+    execute_pipeline_with_runner(pipeline, false, |_| None)
+}
+
+pub fn execute_pipeline_with_runner<F>(
+    pipeline: &Pipeline,
+    pipefail: bool,
+    mut run_builtin: F,
+) -> i32
+where
+    F: FnMut(&SimpleCommand) -> Option<i32>,
+{
     let num_cmds = pipeline.commands.len();
     if num_cmds == 0 {
         return 0;
     }
 
     if num_cmds == 1 {
+        if let Some(code) = run_builtin(&pipeline.commands[0]) {
+            return code;
+        }
         return execute_single_command(&pipeline.commands[0], Stdio::inherit(), Stdio::inherit());
     }
 
-    let mut prev_stdout: Option<std::process::ChildStdout> = None;
-    let mut children = Vec::new();
+    // Если среди стадий есть встроенные команды, выполняем их последовательно с перенаправлением
+    let mut last_status = 0;
+    let mut pipefail_status = 0;
+    let mut prev_bytes: Option<Vec<u8>> = None;
 
     for (i, cmd) in pipeline.commands.iter().enumerate() {
-        let is_first = i == 0;
         let is_last = i == num_cmds - 1;
-
-        let stdin = if is_first {
-            Stdio::inherit()
-        } else if let Some(pipe) = prev_stdout.take() {
-            Stdio::from(pipe)
-        } else {
-            Stdio::null()
-        };
-
-        let stdout = if is_last {
-            Stdio::inherit()
-        } else {
-            Stdio::piped()
-        };
+        if let Some(code) = run_builtin(cmd) {
+            if !is_last {
+                prev_bytes = Some(Vec::new());
+            }
+            last_status = code;
+            if code != 0 {
+                pipefail_status = code;
+            }
+            continue;
+        }
 
         let mut process = Command::new(&cmd.name);
         process.args(&cmd.args);
-        process.stdin(stdin);
-        process.stdout(stdout);
-
-        // Применяем перенаправления ввода-вывода
+        if prev_bytes.is_some() {
+            process.stdin(Stdio::piped());
+        } else {
+            process.stdin(Stdio::inherit());
+        }
+        if is_last {
+            process.stdout(Stdio::inherit());
+        } else {
+            process.stdout(Stdio::piped());
+        }
         for red in &cmd.redirects {
             match red {
-                Redirect::Output(path) => {
-                    if let Ok(file) = File::create(path) {
+                Redirect::Output { fd: 1, path, append } => {
+                    let f = if *append {
+                        OpenOptions::new().create(true).append(true).open(path)
+                    } else {
+                        File::create(path)
+                    };
+                    if let Ok(file) = f {
                         process.stdout(Stdio::from(file));
                     }
                 }
-                Redirect::AppendOutput(path) => {
-                    if let Ok(file) = OpenOptions::new().create(true).append(true).open(path) {
-                        process.stdout(Stdio::from(file));
+                Redirect::Output { fd: 2, path, append } => {
+                    let f = if *append {
+                        OpenOptions::new().create(true).append(true).open(path)
+                    } else {
+                        File::create(path)
+                    };
+                    if let Ok(file) = f {
+                        process.stderr(Stdio::from(file));
                     }
                 }
-                Redirect::Input(path) => {
+                Redirect::Input { fd: 0, path } => {
                     if let Ok(file) = File::open(path) {
                         process.stdin(Stdio::from(file));
                     }
                 }
+                _ => {}
             }
         }
 
         match process.spawn() {
             Ok(mut child) => {
-                if !is_last {
-                    prev_stdout = child.stdout.take();
+                if let Some(input) = prev_bytes.take() {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        use std::io::Write;
+                        let _ = stdin.write_all(&input);
+                    }
                 }
-                children.push(child);
+                match child.wait_with_output() {
+                    Ok(out) => {
+                        if !is_last {
+                            prev_bytes = Some(out.stdout);
+                        }
+                        last_status = out.status.code().unwrap_or(1);
+                    }
+                    Err(e) => {
+                        eprintln!("wsh: error waiting for child process: {}", e);
+                        last_status = 1;
+                    }
+                }
             }
             Err(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
                     eprintln!("wsh: command not found: {}", cmd.name);
-                    return 127;
+                    last_status = 127;
                 } else {
                     eprintln!("wsh: error executing {}: {}", cmd.name, e);
-                    return 1;
+                    last_status = 1;
                 }
             }
         }
-    }
-
-    let mut last_status = 0;
-    for mut child in children {
-        match child.wait() {
-            Ok(status) => {
-                last_status = status.code().unwrap_or(1);
-            }
-            Err(e) => {
-                eprintln!("wsh: error waiting for child process: {}", e);
-                last_status = 1;
-            }
+        if last_status != 0 {
+            pipefail_status = last_status;
         }
     }
 
-    last_status
+    if pipefail && pipefail_status != 0 {
+        pipefail_status
+    } else {
+        last_status
+    }
 }
 
 fn execute_single_command(cmd: &SimpleCommand, default_in: Stdio, default_out: Stdio) -> i32 {
@@ -207,25 +288,39 @@ fn execute_single_command(cmd: &SimpleCommand, default_in: Stdio, default_out: S
 
     for red in &cmd.redirects {
         match red {
-            Redirect::Output(path) => match File::create(path) {
-                Ok(file) => {
-                    process.stdout(Stdio::from(file));
+            Redirect::Output { fd: 1, path, append } => {
+                let f = if *append {
+                    OpenOptions::new().create(true).append(true).open(path)
+                } else {
+                    File::create(path)
+                };
+                match f {
+                    Ok(file) => {
+                        process.stdout(Stdio::from(file));
+                    }
+                    Err(e) => {
+                        eprintln!("wsh: cannot open file {}: {}", path, e);
+                        return 1;
+                    }
                 }
-                Err(e) => {
-                    eprintln!("wsh: cannot create file {}: {}", path, e);
-                    return 1;
+            }
+            Redirect::Output { fd: 2, path, append } => {
+                let f = if *append {
+                    OpenOptions::new().create(true).append(true).open(path)
+                } else {
+                    File::create(path)
+                };
+                match f {
+                    Ok(file) => {
+                        process.stderr(Stdio::from(file));
+                    }
+                    Err(e) => {
+                        eprintln!("wsh: cannot open file {}: {}", path, e);
+                        return 1;
+                    }
                 }
-            },
-            Redirect::AppendOutput(path) => match OpenOptions::new().create(true).append(true).open(path) {
-                Ok(file) => {
-                    process.stdout(Stdio::from(file));
-                }
-                Err(e) => {
-                    eprintln!("wsh: cannot open file {}: {}", path, e);
-                    return 1;
-                }
-            },
-            Redirect::Input(path) => match File::open(path) {
+            }
+            Redirect::Input { fd: 0, path } => match File::open(path) {
                 Ok(file) => {
                     process.stdin(Stdio::from(file));
                 }
@@ -234,6 +329,7 @@ fn execute_single_command(cmd: &SimpleCommand, default_in: Stdio, default_out: S
                     return 1;
                 }
             },
+            _ => {}
         }
     }
 

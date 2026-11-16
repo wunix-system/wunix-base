@@ -4,7 +4,22 @@ use libwunix::{
     STDOUT_FILENO,
 };
 
-pub fn run_id(specified_user: Option<&str>) {
+#[derive(Default, Clone, Copy)]
+pub struct IdOptions {
+    pub only_user: bool,
+    pub only_group: bool,
+    pub only_groups: bool,
+    pub name: bool,
+    pub real: bool,
+}
+
+fn write_num(val: u32) {
+    let mut num_buf = [0u8; 16];
+    let s = libwunix::fmt::utoa(val as u64, &mut num_buf);
+    write(STDOUT_FILENO, s.as_bytes());
+}
+
+pub fn run_id(specified_user: Option<&str>, opts: IdOptions) {
     let (uid, gid, euid, egid, username) = if let Some(u) = specified_user {
         match libwunix::get_passwd_by_name(u) {
             Ok(Some(entry)) => (entry.uid, entry.gid, entry.uid, entry.gid, Some(entry)),
@@ -22,11 +37,59 @@ pub fn run_id(specified_user: Option<&str>) {
         let g = getgid();
         let eu = geteuid();
         let eg = getegid();
-        let entry = get_passwd_by_uid(u).ok().flatten();
+        let entry = get_passwd_by_uid(if opts.real { u } else { eu }).ok().flatten();
         (u, g, eu, eg, entry)
     };
 
     let u_name = username.as_ref().map(|e| e.username()).unwrap_or("");
+    let target_uid = if opts.real { uid } else { euid };
+    let target_gid = if opts.real { gid } else { egid };
+
+    if opts.only_user {
+        if opts.name && !u_name.is_empty() {
+            write(STDOUT_FILENO, u_name.as_bytes());
+        } else {
+            write_num(target_uid);
+        }
+        write(STDOUT_FILENO, b"\n");
+        return;
+    }
+
+    if opts.only_group {
+        let g_entry = get_group_by_gid(target_gid).ok().flatten();
+        let g_name = g_entry.as_ref().map(|g| g.name()).unwrap_or("");
+        if opts.name && !g_name.is_empty() {
+            write(STDOUT_FILENO, g_name.as_bytes());
+        } else {
+            write_num(target_gid);
+        }
+        write(STDOUT_FILENO, b"\n");
+        return;
+    }
+
+    if opts.only_groups {
+        let g_entry = get_group_by_gid(gid).ok().flatten();
+        let g_name = g_entry.as_ref().map(|g| g.name()).unwrap_or("");
+        if opts.name && !g_name.is_empty() {
+            write(STDOUT_FILENO, g_name.as_bytes());
+        } else {
+            write_num(gid);
+        }
+        let _ = for_each_group(|grp| {
+            if grp.gid != gid && !u_name.is_empty() && grp.has_member(u_name) {
+                write(STDOUT_FILENO, b" ");
+                if opts.name {
+                    write(STDOUT_FILENO, grp.name().as_bytes());
+                } else {
+                    write_num(grp.gid);
+                }
+            }
+            true
+        });
+        write(STDOUT_FILENO, b"\n");
+        return;
+    }
+
     print_id_token("uid=", uid, u_name);
 
     let g_entry = get_group_by_gid(gid).ok().flatten();

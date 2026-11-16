@@ -1,6 +1,7 @@
 #![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
 
 pub mod builtins;
+pub mod builtins_coreutils;
 pub mod completion;
 pub mod editor;
 pub mod highlight;

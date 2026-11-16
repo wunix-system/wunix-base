@@ -20,6 +20,7 @@ impl Builtins {
                 | "pwd"
                 | "exit"
                 | "echo"
+                | "printf"
                 | "export"
                 | "unset"
                 | "env"
@@ -30,6 +31,9 @@ impl Builtins {
                 | "type"
                 | "which"
                 | "whoami"
+                | "id"
+                | "date"
+                | "wc"
                 | "hostname"
                 | "true"
                 | ":"
@@ -65,6 +69,7 @@ impl Builtins {
                 Some(code)
             }
             "echo" => Some(Self::builtin_echo(&cmd.args)),
+            "printf" => Some(Self::builtin_printf(&cmd.args)),
             "export" => Some(Self::builtin_export(&cmd.args)),
             "unset" => Some(Self::builtin_unset(&cmd.args)),
             "env" => Some(Self::builtin_env()),
@@ -74,6 +79,9 @@ impl Builtins {
                 Some(0)
             }
             "whoami" => Some(Self::builtin_whoami()),
+            "id" => Some(crate::builtins_coreutils::builtin_id(&cmd.args)),
+            "date" => Some(crate::builtins_coreutils::builtin_date(&cmd.args)),
+            "wc" => Some(crate::builtins_coreutils::builtin_wc(&cmd.args)),
             "hostname" => Some(Self::builtin_hostname()),
             "help" => Some(Self::builtin_help()),
             "type" | "which" => Some(Self::builtin_type(&cmd.args)),
@@ -155,6 +163,30 @@ impl Builtins {
 
         if !no_newline {
             print_out("\n");
+        }
+        0
+    }
+
+    fn builtin_printf(args: &[String]) -> i32 {
+        if args.is_empty() {
+            return 0;
+        }
+        let mut idx = 0usize;
+        let mut target_var: Option<&str> = None;
+        if args.get(0).map(|s| s.as_str()) == Some("-v") && args.len() >= 3 {
+            target_var = Some(args[1].as_str());
+            idx = 2;
+        }
+        if idx >= args.len() {
+            return 0;
+        }
+        let fmt = &args[idx];
+        let val_args = &args[idx + 1..];
+        let out = format_printf(fmt, val_args);
+        if let Some(var) = target_var {
+            platform::set_env(var, &out);
+        } else {
+            print_out(&out);
         }
         0
     }
@@ -452,7 +484,16 @@ impl Builtins {
                     "-d" => if platform::is_dir(clean_args[1]) { 0 } else { 1 },
                     "-e" => if platform::file_exists(clean_args[1]) { 0 } else { 1 },
                     "-s" => if platform::file_size(clean_args[1]) > 0 { 0 } else { 1 },
+                    "-r" => if platform::can_read(clean_args[1]) { 0 } else { 1 },
+                    "-w" => if platform::can_write(clean_args[1]) { 0 } else { 1 },
                     "-x" => if platform::file_exists(clean_args[1]) { 0 } else { 1 },
+                    "-t" => {
+                        if let Ok(fd) = clean_args[1].parse::<u64>() {
+                            if platform::is_fd_tty(fd) { 0 } else { 1 }
+                        } else {
+                            1
+                        }
+                    }
                     _ => 1,
                 }
             }
@@ -536,7 +577,7 @@ impl Builtins {
     }
 }
 
-fn print_out(s: &str) {
+pub(crate) fn print_out(s: &str) {
     #[cfg(feature = "std")]
     {
         use std::io::Write;
@@ -549,7 +590,7 @@ fn print_out(s: &str) {
     }
 }
 
-fn print_err(s: &str) {
+pub(crate) fn print_err(s: &str) {
     #[cfg(feature = "std")]
     {
         use std::io::Write;
@@ -571,6 +612,211 @@ fn t(ru: &'static str, en: &'static str) -> &'static str {
     {
         ru
     }
+}
+
+fn unescape_printf_str(s: &str, stop_on_c: bool) -> (String, bool) {
+    let mut out = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('e') | Some('E') => out.push('\x1b'),
+            Some('a') => out.push('\x07'),
+            Some('b') => out.push('\x08'),
+            Some('f') => out.push('\x0c'),
+            Some('v') => out.push('\x0b'),
+            Some('\\') => out.push('\\'),
+            Some('"') => out.push('"'),
+            Some('\'') => out.push('\''),
+            Some('c') if stop_on_c => return (out, true),
+            Some('x') => {
+                let mut val = 0u8;
+                let mut cnt = 0;
+                while cnt < 2 {
+                    if let Some(&h) = chars.peek() {
+                        if let Some(d) = h.to_digit(16) {
+                            val = val * 16 + d as u8;
+                            chars.next();
+                            cnt += 1;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                if cnt > 0 {
+                    out.push(val as char);
+                } else {
+                    out.push_str("\\x");
+                }
+            }
+            Some('0') => {
+                let mut val = 0u8;
+                let mut cnt = 0;
+                while cnt < 3 {
+                    if let Some(&o) = chars.peek() {
+                        if ('0'..='7').contains(&o) {
+                            val = val * 8 + (o as u8 - b'0');
+                            chars.next();
+                            cnt += 1;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                out.push(val as char);
+            }
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    (out, false)
+}
+
+fn pad_field(s: &str, width: usize, left_align: bool, zero_pad: bool) -> String {
+    let len = s.chars().count();
+    if len >= width {
+        return String::from(s);
+    }
+    let pad_len = width - len;
+    let pad_ch = if zero_pad && !left_align { '0' } else { ' ' };
+    let mut out = String::new();
+    if !left_align {
+        for _ in 0..pad_len {
+            out.push(pad_ch);
+        }
+    }
+    out.push_str(s);
+    if left_align {
+        for _ in 0..pad_len {
+            out.push(' ');
+        }
+    }
+    out
+}
+
+pub fn format_printf(fmt: &str, args: &[String]) -> String {
+    let mut out = String::new();
+    let mut arg_idx = 0usize;
+
+    loop {
+        let start_arg = arg_idx;
+        let mut chars = fmt.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                let mut esc_seq = String::from("\\");
+                if let Some(nc) = chars.next() {
+                    esc_seq.push(nc);
+                    if nc == 'x' {
+                        for _ in 0..2 {
+                            if chars.peek().is_some_and(|ch| ch.is_ascii_hexdigit()) {
+                                esc_seq.push(chars.next().unwrap());
+                            }
+                        }
+                    } else if nc == '0' {
+                        for _ in 0..3 {
+                            if chars.peek().is_some_and(|ch| ('0'..='7').contains(ch)) {
+                                esc_seq.push(chars.next().unwrap());
+                            }
+                        }
+                    }
+                }
+                let (decoded, _) = unescape_printf_str(&esc_seq, false);
+                out.push_str(&decoded);
+                continue;
+            }
+            if c != '%' {
+                out.push(c);
+                continue;
+            }
+            if chars.peek() == Some(&'%') {
+                chars.next();
+                out.push('%');
+                continue;
+            }
+            let mut left_align = false;
+            let mut zero_pad = false;
+            while let Some(&fc) = chars.peek() {
+                if fc == '-' {
+                    left_align = true;
+                    chars.next();
+                } else if fc == '0' {
+                    zero_pad = true;
+                    chars.next();
+                } else if fc == '+' || fc == ' ' {
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            let mut width = 0usize;
+            while let Some(&wc) = chars.peek() {
+                if wc.is_ascii_digit() {
+                    width = width * 10 + (wc as usize - '0' as usize);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if chars.peek() == Some(&'.') {
+                chars.next();
+                while chars.peek().is_some_and(|ch| ch.is_ascii_digit()) {
+                    chars.next();
+                }
+            }
+            let spec = chars.next().unwrap_or('s');
+            let raw_arg = args.get(arg_idx).map(|s| s.as_str()).unwrap_or("");
+            arg_idx += 1;
+
+            let formatted = match spec {
+                's' => String::from(raw_arg),
+                'b' => {
+                    let (decoded, stop) = unescape_printf_str(raw_arg, true);
+                    if stop {
+                        out.push_str(&pad_field(&decoded, width, left_align, false));
+                        return out;
+                    }
+                    decoded
+                }
+                'd' | 'i' => {
+                    let v = raw_arg.trim().parse::<i64>().unwrap_or(0);
+                    format!("{}", v)
+                }
+                'u' => {
+                    let v = raw_arg.trim().parse::<u64>().unwrap_or(0);
+                    format!("{}", v)
+                }
+                'x' => {
+                    let v = raw_arg.trim().parse::<u64>().unwrap_or(0);
+                    format!("{:x}", v)
+                }
+                'X' => {
+                    let v = raw_arg.trim().parse::<u64>().unwrap_or(0);
+                    format!("{:X}", v)
+                }
+                'o' => {
+                    let v = raw_arg.trim().parse::<u64>().unwrap_or(0);
+                    format!("{:o}", v)
+                }
+                'c' => raw_arg.chars().next().map(|ch| format!("{}", ch)).unwrap_or_default(),
+                other => format!("%{}", other),
+            };
+            out.push_str(&pad_field(&formatted, width, left_align, zero_pad));
+        }
+
+        if arg_idx >= args.len() || arg_idx == start_arg {
+            break;
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -671,6 +917,21 @@ mod tests {
         assert!(path.starts_with("/root/.nvm/bin"));
 
         let _ = std::fs::remove_file(tmp_path);
+    }
+
+    #[test]
+    fn test_format_printf() {
+        let args = vec![
+            String::from("\x1b[2m"),
+            String::from("12:34:56"),
+            String::from("\x1b[0m"),
+            String::from("hello"),
+        ];
+        assert_eq!(
+            format_printf("%s[%s]%s %s\\n", &args),
+            "\x1b[2m[12:34:56]\x1b[0m hello\n"
+        );
+        assert_eq!(format_printf("%04d", &[String::from("7")]), "0007");
     }
 }
 

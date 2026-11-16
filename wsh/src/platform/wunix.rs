@@ -153,7 +153,68 @@ pub fn get_all_env() -> Vec<(String, String)> {
 }
 
 pub fn is_tty() -> bool {
-    true
+    libwunix::isatty(0)
+}
+
+pub fn is_fd_tty(fd: u64) -> bool {
+    libwunix::isatty(fd)
+}
+
+pub fn can_read(path: &str) -> bool {
+    let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
+    let b = path.as_bytes();
+    if b.len() >= null_path.len() {
+        return false;
+    }
+    null_path[..b.len()].copy_from_slice(b);
+    null_path[b.len()] = 0;
+    libwunix::access(&null_path[..b.len() + 1], 4) == 0
+}
+
+pub fn can_write(path: &str) -> bool {
+    let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
+    let b = path.as_bytes();
+    if b.len() >= null_path.len() {
+        return false;
+    }
+    null_path[..b.len()].copy_from_slice(b);
+    null_path[b.len()] = 0;
+    libwunix::access(&null_path[..b.len() + 1], 2) == 0
+}
+
+pub fn capture_stdout<F: FnOnce() -> i32>(f: F) -> (i32, String) {
+    static SUB_SEQ: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(1);
+    let seq = SUB_SEQ.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let mut path_str = String::from("/tmp/.wsh_sub_");
+    let mut num_buf = [0u8; 20];
+    path_str.push_str(format_u64(seq as u64, &mut num_buf));
+
+    let mut null_term = [0u8; PATH_BUFFER_CAPACITY];
+    let b = path_str.as_bytes();
+    null_term[..b.len()].copy_from_slice(b);
+    null_term[b.len()] = 0;
+
+    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_TRUNC) as u64;
+    let out_fd = libwunix::open(&null_term[..b.len() + 1], flags, 0o600);
+    if out_fd < 0 {
+        return (f(), String::new());
+    }
+
+    let saved_stdout = libwunix::dup(1);
+    let _ = libwunix::dup2(out_fd as u64, 1);
+    let _ = libwunix::close(out_fd as u64);
+
+    let code = f();
+
+    if saved_stdout >= 0 {
+        let _ = libwunix::dup2(saved_stdout as u64, 1);
+        let _ = libwunix::close(saved_stdout as u64);
+    }
+
+    let content = read_file(&path_str).unwrap_or_default();
+    let _ = libwunix::unlink(&null_term[..b.len() + 1]);
+    let trimmed = content.trim_end_matches('\n').trim_end_matches('\r');
+    (code, String::from(trimmed))
 }
 
 pub struct RawModeGuard {
@@ -232,145 +293,154 @@ fn format_u64<'a>(mut val: u64, buf: &'a mut [u8; 20]) -> &'a str {
 }
 
 pub fn execute_pipeline(pipeline: &Pipeline) -> i32 {
+    execute_pipeline_with_runner(pipeline, false, |_| None)
+}
+
+pub fn execute_pipeline_with_runner<F>(
+    pipeline: &Pipeline,
+    pipefail: bool,
+    mut run_builtin: F,
+) -> i32
+where
+    F: FnMut(&SimpleCommand) -> Option<i32>,
+{
     let num_cmds = pipeline.commands.len();
     if num_cmds == 0 {
         return 0;
     }
 
     if num_cmds == 1 {
+        if let Some(code) = run_builtin(&pipeline.commands[0]) {
+            return code;
+        }
         return execute_command_with_redirects(&pipeline.commands[0], None, None);
     }
 
-    // Для конвейера из нескольких команд (cmd1 | cmd2 | ...) используем временные файлы в ramfs (/tmp)
-    static PIPE_SEQ: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(1);
-    let mut prev_temp_file: Option<String> = None;
-    let mut prev_read_fd: Option<i64> = None;
-    let mut last_status = 0;
+    // Настоящий параллельный конвейер через ядерные каналы pipe2 + fork + wait4
+    let mut prev_read_fd: Option<i32> = None;
+    let mut pids: Vec<i64> = Vec::with_capacity(num_cmds);
 
     for (i, cmd) in pipeline.commands.iter().enumerate() {
-        let is_first = i == 0;
         let is_last = i == num_cmds - 1;
-
-        let in_fd = if is_first {
-            None
-        } else {
-            prev_read_fd.take()
-        };
-
-        let (out_fd, current_temp_file) = if is_last {
+        let mut pipe_fds = [0i32; 2];
+        let (next_read_fd, write_fd) = if is_last {
             (None, None)
+        } else if libwunix::pipe2(&mut pipe_fds, 0) == 0 {
+            (Some(pipe_fds[0]), Some(pipe_fds[1]))
         } else {
-            let seq = PIPE_SEQ.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            let mut path_str = String::from("/tmp/.wsh_p_");
-            let mut num_buf = [0u8; 20];
-            let num_s = format_u64(seq as u64, &mut num_buf);
-            path_str.push_str(num_s);
-
-            let mut null_term = [0u8; PATH_BUFFER_CAPACITY];
-            let b = path_str.as_bytes();
-            if b.len() < null_term.len() {
-                null_term[..b.len()].copy_from_slice(b);
-                null_term[b.len()] = 0;
-                let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_TRUNC) as u64;
-                let fd = libwunix::open(&null_term[..b.len() + 1], flags, 0o600);
-                if fd >= 0 {
-                    (Some(fd), Some(path_str))
-                } else {
-                    (None, None)
-                }
-            } else {
-                (None, None)
+            libwunix::write(libwunix::STDERR_FILENO, b"wsh: pipe2 failed\n");
+            if let Some(fd) = prev_read_fd.take() {
+                let _ = libwunix::close(fd as u64);
             }
+            return 1;
         };
 
-        last_status = execute_command_with_redirects(cmd, in_fd, out_fd);
+        let pid = libwunix::fork();
+        if pid < 0 {
+            libwunix::write(libwunix::STDERR_FILENO, b"wsh: fork failed\n");
+            if let Some(fd) = prev_read_fd.take() {
+                let _ = libwunix::close(fd as u64);
+            }
+            if let Some(fd) = next_read_fd {
+                let _ = libwunix::close(fd as u64);
+            }
+            if let Some(fd) = write_fd {
+                let _ = libwunix::close(fd as u64);
+            }
+            return 1;
+        }
 
-        // Закрываем дескриптор чтения предыдущего шага и удаляем его временный файл
-        if let Some(fd) = in_fd {
+        if pid == 0 {
+            if let Some(fd) = next_read_fd {
+                let _ = libwunix::close(fd as u64);
+            }
+            if let Some(fd) = prev_read_fd {
+                let _ = libwunix::dup2(fd as u64, 0);
+                let _ = libwunix::close(fd as u64);
+            }
+            if let Some(fd) = write_fd {
+                let _ = libwunix::dup2(fd as u64, 1);
+                let _ = libwunix::close(fd as u64);
+            }
+            if !apply_redirects(&cmd.redirects) {
+                libwunix::exit(1);
+            }
+            if let Some(code) = run_builtin(cmd) {
+                libwunix::exit(code as u64);
+            }
+            let res = execve_command(cmd);
+            if res < 0 {
+                let not_found_prefix = libwunix::t("команда не найдена: ", "command not found: ");
+                libwunix::write(libwunix::STDERR_FILENO, not_found_prefix.as_bytes());
+                libwunix::write(libwunix::STDERR_FILENO, cmd.name.as_bytes());
+                libwunix::write(libwunix::STDERR_FILENO, b"\n");
+                libwunix::exit(127);
+            }
+            libwunix::exit(res as u64);
+        }
+
+        pids.push(pid);
+        if let Some(fd) = prev_read_fd.take() {
             let _ = libwunix::close(fd as u64);
         }
-        if let Some(old_path) = prev_temp_file.take() {
-            let mut null_term = [0u8; PATH_BUFFER_CAPACITY];
-            let b = old_path.as_bytes();
-            if b.len() < null_term.len() {
-                null_term[..b.len()].copy_from_slice(b);
-                null_term[b.len()] = 0;
-                let _ = libwunix::unlink(&null_term[..b.len() + 1]);
-            }
-        }
-
-        // Закрываем дескриптор записи текущего шага
-        if let Some(fd) = out_fd {
+        if let Some(fd) = write_fd {
             let _ = libwunix::close(fd as u64);
         }
-
-        // Открываем записанный файл для чтения следующей командой конвейера
-        if let Some(ref path_str) = current_temp_file {
-            let mut null_term = [0u8; PATH_BUFFER_CAPACITY];
-            let b = path_str.as_bytes();
-            if b.len() < null_term.len() {
-                null_term[..b.len()].copy_from_slice(b);
-                null_term[b.len()] = 0;
-                let fd = libwunix::open(&null_term[..b.len() + 1], libwunix::O_RDONLY as u64, 0);
-                if fd >= 0 {
-                    prev_read_fd = Some(fd);
-                }
-            }
-        }
-        prev_temp_file = current_temp_file;
+        prev_read_fd = next_read_fd;
     }
 
-    // Удаляем последний оставшийся временный файл
-    if let Some(old_path) = prev_temp_file {
-        let mut null_term = [0u8; PATH_BUFFER_CAPACITY];
-        let b = old_path.as_bytes();
-        if b.len() < null_term.len() {
-            null_term[..b.len()].copy_from_slice(b);
-            null_term[b.len()] = 0;
-            let _ = libwunix::unlink(&null_term[..b.len() + 1]);
-        }
-    }
     if let Some(fd) = prev_read_fd {
         let _ = libwunix::close(fd as u64);
     }
 
-    last_status
+    let mut last_status = 0;
+    let mut pipefail_status = 0;
+    for pid in pids {
+        let mut raw_status: i32 = 0;
+        let waited = libwunix::wait4(pid, &mut raw_status as *mut i32, 0);
+        let code = if waited < 0 {
+            1
+        } else if (raw_status & 0x7f) != 0 {
+            128 + (raw_status & 0x7f)
+        } else {
+            (raw_status >> 8) & 0xff
+        };
+        last_status = code;
+        if code != 0 {
+            pipefail_status = code;
+        }
+    }
+
+    if pipefail && pipefail_status != 0 {
+        pipefail_status
+    } else {
+        last_status
+    }
 }
 
-fn execute_command_with_redirects(
-    cmd: &SimpleCommand,
-    stdin_fd: Option<i64>,
-    stdout_fd: Option<i64>,
-) -> i32 {
+fn execve_command(cmd: &SimpleCommand) -> i64 {
     let resolved_path = resolve_in_path(&cmd.name);
     let mut null_term_path = [0u8; PATH_BUFFER_CAPACITY];
     let path_bytes = resolved_path.as_bytes();
     if path_bytes.len() >= null_term_path.len() {
         libwunix::write(libwunix::STDERR_FILENO, b"wsh: executable path too long\n");
-        return 1;
+        return -1;
     }
     null_term_path[..path_bytes.len()].copy_from_slice(path_bytes);
     null_term_path[path_bytes.len()] = 0;
 
-    // Формируем нуль-терминированные строки для argv
     let mut argv_storage: Vec<Vec<u8>> = Vec::new();
     let mut name_vec = cmd.name.as_bytes().to_vec();
     name_vec.push(0);
     argv_storage.push(name_vec);
-
     for arg in &cmd.args {
         let mut arg_vec = arg.as_bytes().to_vec();
         arg_vec.push(0);
         argv_storage.push(arg_vec);
     }
-
-    let mut argv_ptrs: Vec<*const u8> = Vec::new();
-    for item in &argv_storage {
-        argv_ptrs.push(item.as_ptr());
-    }
+    let mut argv_ptrs: Vec<*const u8> = argv_storage.iter().map(|i| i.as_ptr()).collect();
     argv_ptrs.push(core::ptr::null());
 
-    // Передаем переменные окружения шелла в дочерний процесс
     let current_env = get_all_env();
     let mut envp_storage: Vec<Vec<u8>> = Vec::new();
     for (k, v) in current_env {
@@ -381,101 +451,38 @@ fn execute_command_with_redirects(
         entry.push(0);
         envp_storage.push(entry);
     }
-    let mut envp_ptrs: Vec<*const u8> = Vec::new();
-    for item in &envp_storage {
-        envp_ptrs.push(item.as_ptr());
-    }
+    let mut envp_ptrs: Vec<*const u8> = envp_storage.iter().map(|i| i.as_ptr()).collect();
     envp_ptrs.push(core::ptr::null());
 
-    // Сохраняем исходные stdin/stdout, чтобы восстановить их после завершения дочернего процесса
+    libwunix::execve(
+        &null_term_path[..path_bytes.len() + 1],
+        argv_ptrs.as_ptr() as u64,
+        envp_ptrs.as_ptr() as u64,
+    )
+}
+
+fn execute_command_with_redirects(
+    cmd: &SimpleCommand,
+    stdin_fd: Option<i64>,
+    stdout_fd: Option<i64>,
+) -> i32 {
     let saved_stdin = libwunix::dup(0);
     let saved_stdout = libwunix::dup(1);
+    let saved_stderr = libwunix::dup(2);
 
-    // Подключаем вход от предыдущего этапа конвейера
     if let Some(in_fd) = stdin_fd {
         let _ = libwunix::dup2(in_fd as u64, 0);
     }
-
-    // Подключаем выход к следующему этапу конвейера
     if let Some(out_fd) = stdout_fd {
         let _ = libwunix::dup2(out_fd as u64, 1);
     }
 
-    // Применяем явные перенаправления команды (>, >>, <)
-    let mut redirect_error = false;
-    for red in &cmd.redirects {
-        match red {
-            Redirect::Output(path) => {
-                let mut p_buf = [0u8; PATH_BUFFER_CAPACITY];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_TRUNC) as u64;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 1);
-                        let _ = libwunix::close(fd as u64);
-                    } else {
-                        libwunix::write(libwunix::STDERR_FILENO, b"wsh: cannot create file: ");
-                        libwunix::write(libwunix::STDERR_FILENO, path.as_bytes());
-                        libwunix::write(libwunix::STDERR_FILENO, b"\n");
-                        redirect_error = true;
-                        break;
-                    }
-                }
-            }
-            Redirect::AppendOutput(path) => {
-                let mut p_buf = [0u8; PATH_BUFFER_CAPACITY];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_APPEND) as u64;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 1);
-                        let _ = libwunix::close(fd as u64);
-                    } else {
-                        libwunix::write(libwunix::STDERR_FILENO, b"wsh: cannot open file: ");
-                        libwunix::write(libwunix::STDERR_FILENO, path.as_bytes());
-                        libwunix::write(libwunix::STDERR_FILENO, b"\n");
-                        redirect_error = true;
-                        break;
-                    }
-                }
-            }
-            Redirect::Input(path) => {
-                let mut p_buf = [0u8; PATH_BUFFER_CAPACITY];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], libwunix::O_RDONLY as u64, 0);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 0);
-                        let _ = libwunix::close(fd as u64);
-                    } else {
-                        libwunix::write(libwunix::STDERR_FILENO, b"wsh: cannot open file: ");
-                        libwunix::write(libwunix::STDERR_FILENO, path.as_bytes());
-                        libwunix::write(libwunix::STDERR_FILENO, b"\n");
-                        redirect_error = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    let redirect_error = !apply_redirects(&cmd.redirects);
 
     let status = if redirect_error {
         1
     } else {
-        let ret = libwunix::execve(
-            &null_term_path[..path_bytes.len() + 1],
-            argv_ptrs.as_ptr() as u64,
-            envp_ptrs.as_ptr() as u64,
-        );
-
+        let ret = execve_command(cmd);
         if ret < 0 {
             let not_found_prefix = libwunix::t("команда не найдена: ", "command not found: ");
             libwunix::write(libwunix::STDERR_FILENO, not_found_prefix.as_bytes());
@@ -487,7 +494,6 @@ fn execute_command_with_redirects(
         }
     };
 
-    // Восстанавливаем сохраненные стандартные дескрипторы шелла
     if saved_stdin >= 0 {
         let _ = libwunix::dup2(saved_stdin as u64, 0);
         let _ = libwunix::close(saved_stdin as u64);
@@ -496,8 +502,63 @@ fn execute_command_with_redirects(
         let _ = libwunix::dup2(saved_stdout as u64, 1);
         let _ = libwunix::close(saved_stdout as u64);
     }
+    if saved_stderr >= 0 {
+        let _ = libwunix::dup2(saved_stderr as u64, 2);
+        let _ = libwunix::close(saved_stderr as u64);
+    }
 
     status
+}
+
+pub fn apply_redirects(redirects: &[Redirect]) -> bool {
+    for red in redirects {
+        match red {
+            Redirect::Output { fd: target_fd, path, append } => {
+                let mut p_buf = [0u8; PATH_BUFFER_CAPACITY];
+                let b = path.as_bytes();
+                if b.len() >= p_buf.len() {
+                    return false;
+                }
+                p_buf[..b.len()].copy_from_slice(b);
+                p_buf[b.len()] = 0;
+                let mode_flag = if *append { libwunix::O_APPEND } else { libwunix::O_TRUNC };
+                let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | mode_flag) as u64;
+                let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
+                if fd >= 0 {
+                    let _ = libwunix::dup2(fd as u64, *target_fd);
+                    let _ = libwunix::close(fd as u64);
+                } else {
+                    libwunix::write(libwunix::STDERR_FILENO, b"wsh: cannot open file: ");
+                    libwunix::write(libwunix::STDERR_FILENO, path.as_bytes());
+                    libwunix::write(libwunix::STDERR_FILENO, b"\n");
+                    return false;
+                }
+            }
+            Redirect::Input { fd: target_fd, path } => {
+                let mut p_buf = [0u8; PATH_BUFFER_CAPACITY];
+                let b = path.as_bytes();
+                if b.len() >= p_buf.len() {
+                    return false;
+                }
+                p_buf[..b.len()].copy_from_slice(b);
+                p_buf[b.len()] = 0;
+                let fd = libwunix::open(&p_buf[..b.len() + 1], libwunix::O_RDONLY as u64, 0);
+                if fd >= 0 {
+                    let _ = libwunix::dup2(fd as u64, *target_fd);
+                    let _ = libwunix::close(fd as u64);
+                } else {
+                    libwunix::write(libwunix::STDERR_FILENO, b"wsh: cannot open file: ");
+                    libwunix::write(libwunix::STDERR_FILENO, path.as_bytes());
+                    libwunix::write(libwunix::STDERR_FILENO, b"\n");
+                    return false;
+                }
+            }
+            Redirect::DupFd { src_fd, dst_fd } => {
+                let _ = libwunix::dup2(*dst_fd, *src_fd);
+            }
+        }
+    }
+    true
 }
 
 pub fn read_file(path: &str) -> Option<String> {

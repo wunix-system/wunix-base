@@ -27,14 +27,53 @@ pub fn execute_chain_with_env<F>(
     line: &str,
     env_lookup: &F,
     history: &mut History,
-    mut last_status: i32,
+    last_status: i32,
     should_exit: &mut bool,
 ) -> i32
 where
     F: Fn(&str) -> Option<String>,
 {
-    let tokens = Parser::tokenize(line);
-    let chain = match Parser::parse_chain(&tokens, env_lookup, last_status) {
+    let mut no_sub = |cmd: &str| -> String {
+        let mut h = History::new(10);
+        let mut se = false;
+        platform::capture_stdout(|| {
+            crate::script::run_bash_script(cmd, "wsh", &[], &mut h, 0, &mut se)
+        }).1
+    };
+    execute_chain_with_ctx(line, env_lookup, &mut no_sub, history, last_status, should_exit)
+}
+
+/// Исполняет строку команд с пользовательским обработчиком переменных и подстановки команд `$(...)`.
+pub fn execute_chain_with_ctx<F, S>(
+    line: &str,
+    env_lookup: &F,
+    run_sub: &mut S,
+    history: &mut History,
+    last_status: i32,
+    should_exit: &mut bool,
+) -> i32
+where
+    F: Fn(&str) -> Option<String>,
+    S: FnMut(&str) -> String,
+{
+    execute_chain_with_ctx_opts(line, env_lookup, run_sub, history, last_status, should_exit, false)
+}
+
+pub fn execute_chain_with_ctx_opts<F, S>(
+    line: &str,
+    env_lookup: &F,
+    run_sub: &mut S,
+    history: &mut History,
+    mut last_status: i32,
+    should_exit: &mut bool,
+    pipefail: bool,
+) -> i32
+where
+    F: Fn(&str) -> Option<String>,
+    S: FnMut(&str) -> String,
+{
+    let tokens = Parser::tokenize_words(line);
+    let chain = match Parser::parse_chain_words(&tokens, env_lookup, run_sub, last_status) {
         Some(c) => c,
         None => return 0,
     };
@@ -60,7 +99,13 @@ where
             }
         }
 
-        last_status = execute_single_pipeline(&item.pipeline, history, last_status, should_exit);
+        last_status = execute_single_pipeline_opts(
+            &item.pipeline,
+            history,
+            last_status,
+            should_exit,
+            pipefail,
+        );
 
         if item.op != ChainOp::Always {
             skip_cond = Some(item.op);
@@ -76,6 +121,16 @@ pub fn execute_single_pipeline(
     history: &mut History,
     last_status: i32,
     should_exit: &mut bool,
+) -> i32 {
+    execute_single_pipeline_opts(pipeline, history, last_status, should_exit, false)
+}
+
+fn execute_single_pipeline_opts(
+    pipeline: &Pipeline,
+    history: &mut History,
+    last_status: i32,
+    should_exit: &mut bool,
+    pipefail: bool,
 ) -> i32 {
     if pipeline.commands.is_empty() {
         return 0;
@@ -112,7 +167,13 @@ pub fn execute_single_pipeline(
         }
     }
 
-    platform::execute_pipeline(pipeline)
+    platform::execute_pipeline_with_runner(pipeline, pipefail, |cmd| {
+        if Builtins::is_builtin(&cmd.name) {
+            Some(execute_builtin_with_redirects(cmd, history, last_status, should_exit))
+        } else {
+            None
+        }
+    })
 }
 
 /// Выполняет команду от имени Builtin (например, из 'command' или 'if')
@@ -135,7 +196,7 @@ pub fn execute_subcommand(
 }
 
 /// Выполняет встроенную команду с учетом перенаправлений ввода/вывода
-fn execute_builtin_with_redirects(
+pub fn execute_builtin_with_redirects(
     cmd: &SimpleCommand,
     history: &mut History,
     last_status: i32,
@@ -145,8 +206,13 @@ fn execute_builtin_with_redirects(
     {
         let saved_in = libwunix::dup(0);
         let saved_out = libwunix::dup(1);
-        apply_command_redirects(&cmd.redirects);
-        let res = Builtins::execute(cmd, history, last_status, should_exit);
+        let saved_err = libwunix::dup(2);
+        let ok = platform::apply_redirects(&cmd.redirects);
+        let res = if ok {
+            Builtins::execute(cmd, history, last_status, should_exit)
+        } else {
+            Some(1)
+        };
         if saved_in >= 0 {
             let _ = libwunix::dup2(saved_in as u64, 0);
             let _ = libwunix::close(saved_in as u64);
@@ -155,11 +221,71 @@ fn execute_builtin_with_redirects(
             let _ = libwunix::dup2(saved_out as u64, 1);
             let _ = libwunix::close(saved_out as u64);
         }
+        if saved_err >= 0 {
+            let _ = libwunix::dup2(saved_err as u64, 2);
+            let _ = libwunix::close(saved_err as u64);
+        }
         res.unwrap_or(0)
     }
     #[cfg(feature = "std")]
     {
-        Builtins::execute(cmd, history, last_status, should_exit).unwrap_or(0)
+        use std::fs::{File, OpenOptions};
+        use std::os::unix::io::AsRawFd;
+        if cmd.redirects.is_empty() {
+            return Builtins::execute(cmd, history, last_status, should_exit).unwrap_or(0);
+        }
+        unsafe {
+            let saved_in = libc::dup(0);
+            let saved_out = libc::dup(1);
+            let saved_err = libc::dup(2);
+            let mut ok = true;
+            for red in &cmd.redirects {
+                match red {
+                    crate::parser::Redirect::Output { fd, path, append } => {
+                        let f = if *append {
+                            OpenOptions::new().create(true).append(true).open(path)
+                        } else {
+                            File::create(path)
+                        };
+                        if let Ok(file) = f {
+                            libc::dup2(file.as_raw_fd(), *fd as i32);
+                        } else {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    crate::parser::Redirect::Input { fd, path } => {
+                        if let Ok(file) = File::open(path) {
+                            libc::dup2(file.as_raw_fd(), *fd as i32);
+                        } else {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    crate::parser::Redirect::DupFd { src_fd, dst_fd } => {
+                        libc::dup2(*dst_fd as i32, *src_fd as i32);
+                    }
+                }
+            }
+            let res = if ok {
+                Builtins::execute(cmd, history, last_status, should_exit).unwrap_or(0)
+            } else {
+                1
+            };
+            if saved_in >= 0 {
+                libc::dup2(saved_in, 0);
+                libc::close(saved_in);
+            }
+            if saved_out >= 0 {
+                libc::dup2(saved_out, 1);
+                libc::close(saved_out);
+            }
+            if saved_err >= 0 {
+                libc::dup2(saved_err, 2);
+                libc::close(saved_err);
+            }
+            res
+        }
     }
 }
 
@@ -191,20 +317,25 @@ pub fn is_script_control_or_brace(s: &str) -> bool {
         || clean.starts_with("elif ")
 }
 
-/// Проверяет прямое присваивание переменной вида `NAME=VALUE`
+/// Проверяет прямое присваивание переменных вида `NAME=VALUE` (одной или нескольких)
 fn check_variable_assignment(cmd: &SimpleCommand) -> Option<i32> {
-    if !cmd.args.is_empty() || !cmd.redirects.is_empty() {
+    if !cmd.redirects.is_empty() {
         return None;
     }
 
-    if let Some((k, v)) = cmd.name.split_once('=') {
-        if is_valid_identifier(k) {
-            platform::set_env(k, v);
-            return Some(0);
+    let mut pairs = Vec::new();
+    for word in core::iter::once(&cmd.name).chain(cmd.args.iter()) {
+        let (k, v) = word.split_once('=')?;
+        if !is_valid_identifier(k) {
+            return None;
         }
+        pairs.push((k, v));
     }
 
-    None
+    for (k, v) in pairs {
+        platform::set_env(k, v);
+    }
+    Some(0)
 }
 
 /// Проверяет корректность имени переменной окружения
@@ -218,55 +349,6 @@ fn is_valid_identifier(name: &str) -> bool {
         _ => return false,
     }
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-#[cfg(not(feature = "std"))]
-fn apply_command_redirects(redirects: &[crate::parser::Redirect]) {
-    for red in redirects {
-        match red {
-            crate::parser::Redirect::Output(path) => {
-                let mut p_buf = [0u8; 256];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_TRUNC) as u64;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 1);
-                        let _ = libwunix::close(fd as u64);
-                    }
-                }
-            }
-            crate::parser::Redirect::AppendOutput(path) => {
-                let mut p_buf = [0u8; 256];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let flags = (libwunix::O_CREAT | libwunix::O_WRONLY | libwunix::O_APPEND) as u64;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], flags, 0o666);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 1);
-                        let _ = libwunix::close(fd as u64);
-                    }
-                }
-            }
-            crate::parser::Redirect::Input(path) => {
-                let mut p_buf = [0u8; 256];
-                let b = path.as_bytes();
-                if b.len() < p_buf.len() {
-                    p_buf[..b.len()].copy_from_slice(b);
-                    p_buf[b.len()] = 0;
-                    let fd = libwunix::open(&p_buf[..b.len() + 1], libwunix::O_RDONLY as u64, 0);
-                    if fd >= 0 {
-                        let _ = libwunix::dup2(fd as u64, 0);
-                        let _ = libwunix::close(fd as u64);
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]

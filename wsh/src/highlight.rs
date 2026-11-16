@@ -13,7 +13,7 @@ use std::{string::String, vec::Vec};
 
 pub const BUILTINS: &[&str] = &[
     "cd", "pwd", "exit", "echo", "export", "unset", "env",
-    "history", "clear", "cls", "help", "type", "which", "whoami", "hostname",
+    "history", "clear", "cls", "help", "type", "which", "whoami", "id", "date", "wc", "hostname",
 ];
 
 pub const COMMON_COMMANDS: &[&str] = &[

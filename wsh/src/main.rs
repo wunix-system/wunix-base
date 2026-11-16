@@ -224,7 +224,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
 fn run_from_stdin() -> i32 {
     let mut history = History::new(100);
     let mut should_exit = false;
-    let mut script_buf = String::new();
+    let mut bytes_buf = alloc::vec::Vec::new();
     let mut chunk = [0u8; 1024];
 
     loop {
@@ -232,11 +232,10 @@ fn run_from_stdin() -> i32 {
         if n == 0 || (n as i64) < 0 {
             break;
         }
-        if let Ok(s) = core::str::from_utf8(&chunk[..n as usize]) {
-            script_buf.push_str(s);
-        }
+        bytes_buf.extend_from_slice(&chunk[..n as usize]);
     }
 
+    let script_buf = String::from_utf8_lossy(&bytes_buf);
     wsh::script::run_bash_script(&script_buf, "wsh", &[], &mut history, 0, &mut should_exit)
 }
 
