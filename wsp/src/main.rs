@@ -201,51 +201,67 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         "audit" => audit::run_audit(flag_verify),
         "check" => audit::run_check(flag_critical, flag_json),
         "update" => {
-            let base_url = libpackwunix::sources::get_wsp_system_repo().trim_end_matches('/');
-            let json_url = format!("{}/packages.json", base_url);
-            if !flag_quiet {
-                println!("wsp: синхронизация системного репозитория...");
-                println!("  Источник: {}", base_url);
-            }
-
-            let r = if root_dir == "/" { "" } else { root_dir.trim_end_matches('/') };
-            let dest_dir = format!("{}/var/lib/wsp/repo/system/x86_64", r);
-            let cache_dir = format!("{}/var/cache/wsp", r);
-            db::ensure_dir_recursive(&dest_dir);
-            db::ensure_dir_recursive(&cache_dir);
-
-            let dest_json = format!("{}/packages.json", dest_dir);
-            match http::fetch_to_file(&json_url, &dest_json, None, "packages.json") {
-                Ok(_) => {
-                    let cache_json = format!("{}/packages.json", cache_dir);
-                    let lib_json = format!("{}/var/lib/wsp/packages.json", r);
-                    let _ = db::copy_file(&dest_json, &cache_json);
-                    let _ = db::copy_file(&dest_json, &lib_json);
-
-                    let txt_url = format!("{}/index.txt", base_url);
-                    let txt_path = format!("{}/index.txt", dest_dir);
-                    let _ = http::fetch_to_file(&txt_url, &txt_path, None, "index.txt");
-
-                    let mut total_synced = 0;
-                    if let Ok(data) = unpack::read_file_to_vec(&dest_json) {
-                        if let Ok(s) = core::str::from_utf8(&data) {
-                            let pkgs = libpackwunix::sources::parse_repo_index(s);
-                            total_synced = pkgs.len();
-                        }
-                    }
-
-                    if !flag_quiet {
-                        println!("wsp: индекс системных пакетов успешно синхронизирован ({} компонентов доступно).", total_synced);
-                    }
-                    0
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("update", uid);
+                1
+            } else {
+                let base_url = libpackwunix::sources::get_wsp_system_repo().trim_end_matches('/');
+                let json_url = format!("{}/packages.json", base_url);
+                if !flag_quiet {
+                    println!("wsp: синхронизация системного репозитория...");
+                    println!("  Источник: {}", base_url);
                 }
-                Err(e) => {
-                    display::print_error(&format!("не удалось загрузить индекс системного репозитория: {:?}", e));
-                    1
+
+                let r = if root_dir == "/" { "" } else { root_dir.trim_end_matches('/') };
+                let dest_dir = format!("{}/var/lib/wsp/repo/system/x86_64", r);
+                let cache_dir = format!("{}/var/cache/wsp", r);
+                db::ensure_dir_recursive(&dest_dir);
+                db::ensure_dir_recursive(&cache_dir);
+
+                let dest_json = format!("{}/packages.json", dest_dir);
+                match http::fetch_to_file(&json_url, &dest_json, None, "packages.json") {
+                    Ok(_) => {
+                        let cache_json = format!("{}/packages.json", cache_dir);
+                        let lib_json = format!("{}/var/lib/wsp/packages.json", r);
+                        let _ = db::copy_file(&dest_json, &cache_json);
+                        let _ = db::copy_file(&dest_json, &lib_json);
+
+                        let txt_url = format!("{}/index.txt", base_url);
+                        let txt_path = format!("{}/index.txt", dest_dir);
+                        let _ = http::fetch_to_file(&txt_url, &txt_path, None, "index.txt");
+
+                        let mut total_synced = 0;
+                        if let Ok(data) = unpack::read_file_to_vec(&dest_json) {
+                            if let Ok(s) = core::str::from_utf8(&data) {
+                                let pkgs = libpackwunix::sources::parse_repo_index(s);
+                                total_synced = pkgs.len();
+                            }
+                        }
+
+                        if !flag_quiet {
+                            println!("wsp: индекс системных пакетов успешно синхронизирован ({} компонентов доступно).", total_synced);
+                        }
+                        0
+                    }
+                    Err(e) => {
+                        display::print_error(&format!("не удалось загрузить индекс системного репозитория: {:?}", e));
+                        1
+                    }
                 }
             }
         }
-        "upgrade" => upgrade::run_upgrade(root_dir, flag_critical, flag_yes, flag_dry_run),
+        "upgrade" => {
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("upgrade", uid);
+                1
+            } else {
+                upgrade::run_upgrade(root_dir, flag_critical, flag_yes, flag_dry_run)
+            }
+        }
         "list" | "ls" => list::run_list(false, flag_critical),
         "info" => {
             if let Some(pkg) = extra_arg {

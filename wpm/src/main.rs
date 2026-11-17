@@ -136,7 +136,13 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             0
         }
         "update" => {
-            let sources = repo_cmd::load_sources();
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("update", uid);
+                1
+            } else {
+                let sources = repo_cmd::load_sources();
             if !flag_quiet {
                 println!("wpm: синхронизация списков репозиториев...");
             }
@@ -192,17 +198,32 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 }
             }
 
-            if has_errors { 1 } else { 0 }
+                if has_errors { 1 } else { 0 }
+            }
         }
         "search" => {
             let q = if rest.is_empty() { "" } else { rest[0] };
             search::run_search(q)
         }
         "install" => {
-            install::run_install_in(rest, flag_root, flag_yes, flag_ignore_unsafe, flag_verbose, flag_reinstall)
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("install", uid);
+                1
+            } else {
+                install::run_install_in(rest, flag_root, flag_yes, flag_ignore_unsafe, flag_verbose, flag_reinstall)
+            }
         }
         "remove" | "rm" => {
-            install::run_remove(rest, flag_purge, flag_yes)
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("remove", uid);
+                1
+            } else {
+                install::run_remove(rest, flag_purge, flag_yes)
+            }
         }
         "upgrade" => {
             let uid = getuid();

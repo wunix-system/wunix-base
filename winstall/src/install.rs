@@ -33,7 +33,6 @@ pub const APP_PACKAGES: &[&str] = &[
     "nano",
     "openssh",
     "tar",
-    "tinycc",
     "wc",
     "zip",
 ];
@@ -242,6 +241,7 @@ fn copy_repo_metadata() {
     const WPM_CACHE_FILES: &[&[u8]] = &[
         b"archiveutils-1.0.0.wp\0",
         b"curl-1.0.0.wp\0",
+        b"git-2.43.0.wp\0",
         b"gzip-1.0.0.wp\0",
         b"nano-7.2.0.wp\0",
         b"openssh-9.8.0.wp\0",
