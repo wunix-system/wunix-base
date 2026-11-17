@@ -9,7 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use libwunix::{
     close, connect, open, read, resolve_host, socket, unlink, write,
-    SockAddrIn, AF_INET, O_CREAT, O_TRUNC, O_WRONLY, SOCK_STREAM,
+    SockAddrIn, AF_INET, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY, SOCK_STREAM,
 };
 use libwunix::crypto::{bytes_to_hex, Sha256};
 use crate::progress::ProgressBar;
@@ -395,7 +395,26 @@ pub fn fetch_to_file(
             let mut hex_buf = [0u8; 64];
             bytes_to_hex(&digest, &mut hex_buf);
             let calc_hex = core::str::from_utf8(&hex_buf).unwrap_or("");
-            if !calc_hex.eq_ignore_ascii_case(expected_hash) {
+            let mut matches_hash = calc_hex.eq_ignore_ascii_case(expected_hash);
+            if !matches_hash {
+                // Проверяем альтернативный хэш полезной нагрузки WSP1 из заголовка пакета
+                let check_fd = open(&null_target, O_RDONLY as u64, 0);
+                if check_fd >= 0 {
+                    let mut hdr = [0u8; 128];
+                    let rlen = libwunix::pread64(check_fd as u64, &mut hdr, 0);
+                    close(check_fd as u64);
+                    if rlen >= 72 && &hdr[0..4] == b"WSP1" {
+                        let mut payload_hex = [0u8; 64];
+                        bytes_to_hex(&hdr[40..72], &mut payload_hex);
+                        if let Ok(p_str) = core::str::from_utf8(&payload_hex) {
+                            if p_str.eq_ignore_ascii_case(expected_hash) {
+                                matches_hash = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if !matches_hash {
                 let _ = unlink(&null_target);
                 pb.finish(false, "контрольная сумма SHA-256 не совпадает!");
                 return Err(HttpError::ChecksumMismatch);
