@@ -23,12 +23,13 @@ use screens::{
     update_install_progress, update_partition_step, FinishChoice, PartitionMode,
     WelcomeChoice,
 };
-use tui::{clear_screen, hide_cursor, show_cursor, sleep_ms};
+use tui::{clear_screen, enter_raw_mode, hide_cursor, restore_termios, show_cursor, sleep_ms};
 
 use libwunix::{close, execve, exit, open, pread64, write, O_RDONLY, STDERR_FILENO, STDOUT_FILENO};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_argc: isize, _argv: *const *const u8) -> ! {
+    enter_raw_mode();
     hide_cursor();
     clear_screen();
 
@@ -266,6 +267,7 @@ fn run_install_wizard() -> ! {
 }
 
 fn do_shutdown() -> ! {
+    restore_termios();
     show_cursor();
     clear_screen();
     write(
@@ -278,6 +280,7 @@ fn do_shutdown() -> ! {
 }
 
 fn launch_shell() -> ! {
+    restore_termios();
     show_cursor();
     clear_screen();
     let inst_fd = open(b"/etc/installed\0", libwunix::O_RDONLY as u64, 0);
@@ -298,6 +301,7 @@ fn launch_shell() -> ! {
 }
 
 fn do_reboot() -> ! {
+    restore_termios();
     show_cursor();
     clear_screen();
     write(
@@ -311,6 +315,7 @@ fn do_reboot() -> ! {
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
+    restore_termios();
     show_cursor();
     write(STDERR_FILENO, b"\x1b[1;31m[winstall] PANIC\x1b[0m\n");
     exit(1);

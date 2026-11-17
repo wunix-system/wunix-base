@@ -1,7 +1,10 @@
 // Низкоуровневые TUI-примитивы для winstall.
 // Принцип: каждый экран = четкая сетка, точный подсчет символов Unicode.
 
-use libwunix::{get_terminal_size, nanosleep, read, write, STDIN_FILENO, STDOUT_FILENO};
+use libwunix::{
+    get_terminal_size, nanosleep, read, stdin_bytes_available, tcgetattr, tcsetattr, write,
+    Termios, ECHO, ICANON, ICRNL, IEXTEN, ISIG, IXON, STDIN_FILENO, STDOUT_FILENO, VMIN, VTIME,
+};
 
 pub const LOGO_ROW: usize = 3;
 
@@ -70,6 +73,35 @@ fn write_dec(mut n: u16) {
     wr(&buf[pos..]);
 }
 
+// ─── Raw-режим терминала ─────────────────────────────────────────────────────
+
+static mut ORIG_TERMIOS: Option<Termios> = None;
+
+pub fn enter_raw_mode() {
+    let mut orig = Termios::default();
+    if tcgetattr(STDIN_FILENO, &mut orig) == 0 {
+        unsafe {
+            ORIG_TERMIOS = Some(orig);
+        }
+        let mut raw = orig;
+        // Отключаем эхо и канонический режим, чтобы стрелки (\x1b[A, \x1b[B)
+        // передавались мгновенно и не выводились мусором "[A[B" на экран.
+        raw.c_lflag &= !(ECHO | ICANON | ISIG | IEXTEN);
+        raw.c_iflag &= !(IXON | ICRNL);
+        raw.c_cc[VMIN] = 1;
+        raw.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, 0, &raw);
+    }
+}
+
+pub fn restore_termios() {
+    unsafe {
+        if let Some(ref orig) = ORIG_TERMIOS {
+            tcsetattr(STDIN_FILENO, 0, orig);
+        }
+    }
+}
+
 // ─── Клавиши ─────────────────────────────────────────────────────────────────
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -98,19 +130,26 @@ pub fn read_key() -> Key {
     if b[0] == b'\x1b' {
         let mut seq = [0u8; 8];
         let mut total = 0;
-        // Даем короткое окно (до 30 мс) дочитать последовательность ANSI
-        for _ in 0..15 {
-            let m = read(STDIN_FILENO, &mut seq[total..]) as usize;
-            if m > 0 {
-                total += m;
-                if total >= 2 && (seq[0] == b'[' || seq[0] == b'O' || seq[0] == b'o') {
-                    let last = seq[total - 1];
-                    if (last >= b'A' && last <= b'Z') || (last >= b'a' && last <= b'z') || last == b'~' {
-                        break;
+        // Проверяем наличие последующих байт escape-последовательности (до 20 мс)
+        for _ in 0..10 {
+            if stdin_bytes_available() > 0 {
+                let m = read(STDIN_FILENO, &mut seq[total..]) as usize;
+                if m > 0 {
+                    total += m;
+                    if total >= 2 && (seq[0] == b'[' || seq[0] == b'O' || seq[0] == b'o') {
+                        let last = seq[total - 1];
+                        if (last >= b'A' && last <= b'Z') || (last >= b'a' && last <= b'z') || last == b'~' {
+                            break;
+                        }
                     }
                 }
+            } else if total > 0 {
+                sleep_ms(2);
             } else {
                 sleep_ms(2);
+                if stdin_bytes_available() == 0 {
+                    break;
+                }
             }
         }
 
@@ -131,13 +170,18 @@ pub fn read_key() -> Key {
     // Распознавание русской раскладки клавиатуры (двухбайтовый UTF-8)
     if b[0] == 0xD0 || b[0] == 0xD1 {
         let mut b2 = [0u8; 1];
-        let mut m = 0;
+        let mut got_b2 = false;
         for _ in 0..5 {
-            m = read(STDIN_FILENO, &mut b2) as usize;
-            if m > 0 { break; }
+            if stdin_bytes_available() > 0 {
+                let m = read(STDIN_FILENO, &mut b2) as usize;
+                if m > 0 {
+                    got_b2 = true;
+                    break;
+                }
+            }
             sleep_ms(2);
         }
-        if m > 0 {
+        if got_b2 {
             // 'ц'/'Ц' (W) -> Up, 'к'/'К' -> Up, 'л'/'Л' (K) -> Up
             if (b[0] == 0xD1 && b2[0] == 0x86) || (b[0] == 0xD0 && (b2[0] == 0xA6 || b2[0] == 0xBB || b2[0] == 0x9B)) {
                 return Key::Up;
