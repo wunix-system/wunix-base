@@ -4,7 +4,7 @@ use crate::disk::install_limine_bootloader;
 use crate::net::{apply_network_config, NetConfig};
 
 use libwunix::{
-    close, hash_password, mkdir, mount, open, pread64, pwrite64, symlink, umount2,
+    close, hash_password, mkdir, mount, open, pread64, pwrite64, symlink, umount2, unlink,
     O_APPEND, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
 };
 
@@ -585,6 +585,11 @@ directory = /\n";
         0o644,
     );
     done += 1;
+
+    // Гарантируем, что утилита установки и её документация не остаются в установленной системе
+    let _ = unlink(b"/mnt/bin/winstall\0");
+    let _ = unlink(b"/mnt/usr/share/man/man8/winstall.8\0");
+    let _ = unlink(b"/mnt/usr/share/man/ru/man8/winstall.8\0");
 
     // 10. Размонтирование файловой системы
     progress(94, "Сброс дискового кэша и размонтирование /mnt...", done, total);
