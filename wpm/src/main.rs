@@ -11,8 +11,10 @@ extern crate alloc;
 mod allocator;
 mod display;
 mod guard;
+mod http;
 mod install;
 mod list;
+mod progress;
 mod repo_cmd;
 mod search;
 mod unpack;
@@ -134,12 +136,63 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             0
         }
         "update" => {
+            let sources = repo_cmd::load_sources();
             if !flag_quiet {
                 println!("wpm: синхронизация списков репозиториев...");
-                display::print_step(1, 1, t("Синхронизация каталогов программ (200 OK)", "Synchronizing application catalogs (200 OK)"), true);
-                println!("wpm: каталоги программ успешно синхронизированы.");
             }
-            0
+            let mut total_synced = 0;
+            let mut has_errors = false;
+
+            let root_prefix = flag_root.unwrap_or("/");
+            let r = if root_prefix == "/" { "" } else { root_prefix.trim_end_matches('/') };
+
+            for section in &sources {
+                for server in &section.servers {
+                    let s_url = server.trim_end_matches('/');
+                    let json_url = format!("{}/packages.json", s_url);
+                    if !flag_quiet {
+                        println!("  [{}] {}", section.name, s_url);
+                    }
+
+                    let dest_dir = format!("{}/var/lib/wpm/repo/{}/x86_64", r, section.name);
+                    let cache_dir = format!("{}/var/cache/wpm", r);
+                    install::ensure_dir_recursive(&dest_dir);
+                    install::ensure_dir_recursive(&cache_dir);
+
+                    let dest_path = format!("{}/packages.json", dest_dir);
+                    match http::fetch_to_file(&json_url, &dest_path, None, "packages.json") {
+                        Ok(_) => {
+                            let cache_json = format!("{}/packages.json", cache_dir);
+                            let _ = install::copy_file(&dest_path, &cache_json);
+
+                            let txt_url = format!("{}/index.txt", s_url);
+                            let txt_path = format!("{}/index.txt", dest_dir);
+                            let _ = http::fetch_to_file(&txt_url, &txt_path, None, "index.txt");
+
+                            if let Ok(data) = unpack::read_file_to_vec(&dest_path) {
+                                if let Ok(s) = core::str::from_utf8(&data) {
+                                    let pkgs = libpackwunix::sources::parse_repo_index(s);
+                                    total_synced += pkgs.len();
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            has_errors = true;
+                            display::print_error(&format!("не удалось загрузить индекс с {}: {:?}", s_url, e));
+                        }
+                    }
+                }
+            }
+
+            if !flag_quiet {
+                if !has_errors {
+                    println!("wpm: каталоги программ успешно синхронизированы. Доступно пакетов: {}.", total_synced);
+                } else {
+                    display::print_warning("синхронизация завершена с ошибками для некоторых источников.");
+                }
+            }
+
+            if has_errors { 1 } else { 0 }
         }
         "search" => {
             let q = if rest.is_empty() { "" } else { rest[0] };

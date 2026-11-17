@@ -321,6 +321,11 @@ where
     let _ = libwunix::chmod(b"/mnt/tmp\0", 0o1777);
     let _ = libwunix::chmod(b"/mnt/root\0", 0o700);
     let _ = libwunix::chmod(b"/mnt/var/empty\0", 0o755);
+    let _ = libwunix::chmod(b"/mnt/var/cache/wpm\0", 0o777);
+    let _ = libwunix::chmod(b"/mnt/var/lib/wpm\0", 0o777);
+    let _ = libwunix::chmod(b"/mnt/var/lib/wpm/repo\0", 0o777);
+    let _ = libwunix::chmod(b"/mnt/var/lib/wpm/repo/apps\0", 0o777);
+    let _ = libwunix::chmod(b"/mnt/var/lib/wpm/repo/apps/x86_64\0", 0o777);
     copy_repo_metadata();
     done += 1;
 

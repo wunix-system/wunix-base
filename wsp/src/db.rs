@@ -64,6 +64,69 @@ pub fn ensure_db_dirs_in(root: &str) {
     }
 }
 
+pub fn ensure_dir_recursive(path: &str) {
+    let mut current = String::new();
+    if path.starts_with('/') {
+        current.push('/');
+    }
+    for comp in path.split('/') {
+        if comp.is_empty() {
+            continue;
+        }
+        if !current.ends_with('/') {
+            current.push('/');
+        }
+        current.push_str(comp);
+        let mut null_p = [0u8; 256];
+        let b = current.as_bytes();
+        let l = b.len().min(255);
+        null_p[..l].copy_from_slice(&b[..l]);
+        null_p[l] = 0;
+        let _ = mkdir(&null_p, 0o755);
+    }
+}
+
+pub fn copy_file(src: &str, dst: &str) -> bool {
+    let mut null_s = [0u8; 256];
+    let b = src.as_bytes();
+    let l = b.len().min(255);
+    null_s[..l].copy_from_slice(&b[..l]);
+    null_s[l] = 0;
+
+    let in_fd = open(&null_s, O_RDONLY as u64, 0);
+    if in_fd < 0 {
+        return false;
+    }
+
+    let mut null_d = [0u8; 256];
+    let b = dst.as_bytes();
+    let l = b.len().min(255);
+    null_d[..l].copy_from_slice(&b[..l]);
+    null_d[l] = 0;
+
+    let out_fd = open(&null_d, (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o644);
+    if out_fd < 0 {
+        close(in_fd as u64);
+        return false;
+    }
+
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = read(in_fd as u64, &mut buf);
+        if n <= 0 {
+            break;
+        }
+        let w = write(out_fd as u64, &buf[..n as usize]);
+        if w <= 0 {
+            break;
+        }
+    }
+
+    close(in_fd as u64);
+    close(out_fd as u64);
+    true
+}
+
 pub fn has_critical_alert() -> bool {
     has_critical_alert_in("")
 }

@@ -40,8 +40,71 @@ pub fn ensure_db_dir_in(root: &str) {
         let l = bytes.len().min(255);
         null_d[..l].copy_from_slice(&bytes[..l]);
         null_d[l] = 0;
-        let _ = mkdir(&null_d, 0o755);
+        let _ = mkdir(&null_d, 0o777);
     }
+}
+
+pub fn ensure_dir_recursive(path: &str) {
+    let mut current = String::new();
+    if path.starts_with('/') {
+        current.push('/');
+    }
+    for comp in path.split('/') {
+        if comp.is_empty() {
+            continue;
+        }
+        if !current.ends_with('/') {
+            current.push('/');
+        }
+        current.push_str(comp);
+        let mut null_p = [0u8; 256];
+        let b = current.as_bytes();
+        let l = b.len().min(255);
+        null_p[..l].copy_from_slice(&b[..l]);
+        null_p[l] = 0;
+        let _ = mkdir(&null_p, 0o777);
+    }
+}
+
+pub fn copy_file(src: &str, dst: &str) -> bool {
+    let mut null_s = [0u8; 256];
+    let b = src.as_bytes();
+    let l = b.len().min(255);
+    null_s[..l].copy_from_slice(&b[..l]);
+    null_s[l] = 0;
+
+    let in_fd = open(&null_s, O_RDONLY as u64, 0);
+    if in_fd < 0 {
+        return false;
+    }
+
+    let mut null_d = [0u8; 256];
+    let b = dst.as_bytes();
+    let l = b.len().min(255);
+    null_d[..l].copy_from_slice(&b[..l]);
+    null_d[l] = 0;
+
+    let out_fd = open(&null_d, (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o644);
+    if out_fd < 0 {
+        close(in_fd as u64);
+        return false;
+    }
+
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = read(in_fd as u64, &mut buf);
+        if n <= 0 {
+            break;
+        }
+        let w = write(out_fd as u64, &buf[..n as usize]);
+        if w <= 0 {
+            break;
+        }
+    }
+
+    close(in_fd as u64);
+    close(out_fd as u64);
+    true
 }
 
 #[allow(dead_code)]
@@ -416,6 +479,88 @@ struct PackageTarget {
     installed_size: u64,
 }
 
+pub fn find_repo_package(pkg: &str, root_opt: Option<&str>) -> Option<(libpackwunix::sources::RepoPackage, String)> {
+    let mut repo_dirs: Vec<String> = alloc::vec![
+        "/var/lib/wpm/repo/apps/x86_64".to_string(),
+        "/var/cache/wpm".to_string(),
+        "/repo/apps/x86_64".to_string(),
+        "/repositories/apps/x86_64".to_string(),
+    ];
+    if let Some(root) = root_opt {
+        if !root.is_empty() && root != "/" {
+            let r = root.trim_end_matches('/');
+            repo_dirs.insert(0, format!("{}/var/lib/wpm/repo/apps/x86_64", r));
+            repo_dirs.insert(1, format!("{}/var/cache/wpm", r));
+            repo_dirs.insert(2, format!("{}/repo/apps/x86_64", r));
+            repo_dirs.insert(3, format!("{}/repositories/apps/x86_64", r));
+        }
+    }
+
+    let pkg_id = match pkg {
+        "tcc" | "cc" => "tinycc",
+        "ar" | "cpio" | "unrar" => "archiveutils",
+        "unzip" => "zip",
+        "gunzip" => "gzip",
+        "ssh" | "sshd" | "scp" => "openssh",
+        other => other,
+    };
+
+    let sources = crate::repo_cmd::load_sources();
+    let server_url = sources
+        .first()
+        .and_then(|s| s.servers.first())
+        .map(|s| s.trim_end_matches('/'))
+        .unwrap_or("http://wunix.rusos.site/repo/apps/x86_64");
+
+    for dir in &repo_dirs {
+        let idx_path = format!("{}/packages.json", dir);
+        if let Ok(data) = read_file_to_vec(&idx_path) {
+            if let Ok(s) = core::str::from_utf8(&data) {
+                let pkgs = libpackwunix::sources::parse_repo_index(s);
+                for p in pkgs {
+                    if p.name == pkg_id || p.name == pkg {
+                        let download_url = format!("{}/{}", server_url, p.filename);
+                        return Some((p, download_url));
+                    }
+                }
+            }
+        }
+    }
+
+    // Резервный каталог официальных пакетов WPM на случай отсутствия локального packages.json
+    let fallback_data = match pkg_id {
+        "git" => Some(("git", "2.43.0", "git-2.43.0.wp", 1925203, "26818a878c233c8017938d59d38d4c73a9487de474834f09fe6a60c6221ed503")),
+        "curl" => Some(("curl", "1.0.0", "curl-1.0.0.wp", 2415523, "5a925a4c7efb2f586e30f64da0026d51ea0899bee1288197daec3baca3983c62")),
+        "tinycc" => Some(("tinycc", "0.9.27", "tinycc-0.9.27.wp", 244586, "7764258292f4320ecd4da8934287de05672c45ddc1caf5876f77c1c90909fea9")),
+        "nano" => Some(("nano", "7.2.0", "nano-7.2.0.wp", 866660, "b269ea7b3ad4cd4f485a6c9750cfb298946d6934c638e1277a856a5d33032554")),
+        "openssh" => Some(("openssh", "9.8.0", "openssh-9.8.0.wp", 12713083, "c68e22d8438d45ee9c74ae077f242f10b42ed7a0cea972a718719aed862c97ad")),
+        "archiveutils" => Some(("archiveutils", "1.0.0", "archiveutils-1.0.0.wp", 16911, "5faaeeae793d56cf44356bcb8c648d9b9cbf561b3966b706fb8eeadf751dea5b")),
+        "tar" => Some(("tar", "1.0.0", "tar-1.0.0.wp", 9408, "e7b4aeeec55fda71d104fe549fc95ad7262221d12128927993ed2cbae93dc0b9")),
+        "gzip" => Some(("gzip", "1.0.0", "gzip-1.0.0.wp", 15221, "0befdd0e455d3d50213dc62847f39c5a575b97fa458871eb72c1db51f48a718a")),
+        "zip" => Some(("zip", "1.0.0", "zip-1.0.0.wp", 17516, "216bbad31de9fac72c20e2a51f81c610336aaf9dbe788d4a23b9361ab7dbeacb")),
+        "wc" => Some(("wc", "1.0.0", "wc-1.0.0.wp", 6186, "4342103b0b667fffd177144f75dd71abb6adc88a0767938a13b4c6b4aa60a60f")),
+        _ => None,
+    };
+
+    if let Some((name, ver_s, fname, size, sha)) = fallback_data {
+        let p = libpackwunix::sources::RepoPackage {
+            name: name.to_string(),
+            version: libpackwunix::version::Version::parse(ver_s).unwrap_or(libpackwunix::version::Version::new(1, 0, 0)),
+            arch: "x86_64".to_string(),
+            tier: "optional".to_string(),
+            package_type: "user".to_string(),
+            description: String::new(),
+            filename: fname.to_string(),
+            size,
+            sha256: sha.to_string(),
+        };
+        let download_url = format!("{}/{}", server_url, fname);
+        return Some((p, download_url));
+    }
+
+    None
+}
+
 #[allow(dead_code)]
 pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, verbose: bool, reinstall: bool) -> i32 {
     run_install_in(packages, None, assume_yes, ignore_unsafe, verbose, reinstall)
@@ -465,12 +610,33 @@ pub fn run_install_in(
         let pkg_file_path = match locate_package_file_in(pkg, root_prefix) {
             Some(p) => p,
             None => {
-                print_error(&format!(
-                    "пакет '{}' не найден в каталоге прикладных программ WPM и локальном кэше /var/cache/wpm.",
-                    pkg
-                ));
-                println!("  Используйте 'wpm search <запрос>' для поиска доступных программ.");
-                return 1;
+                if let Some((repo_pkg, download_url)) = find_repo_package(pkg, root_prefix) {
+                    let cache_dir = if let Some(r) = root_prefix {
+                        format!("{}/var/cache/wpm", r.trim_end_matches('/'))
+                    } else {
+                        "/var/cache/wpm".to_string()
+                    };
+                    ensure_dir_recursive(&cache_dir);
+                    let target_dest = format!("{}/{}", cache_dir, repo_pkg.filename);
+
+                    println!("wpm: загрузка пакета '{}' из репозитория...", repo_pkg.name);
+                    match crate::http::fetch_to_file(&download_url, &target_dest, Some(&repo_pkg.sha256), &repo_pkg.filename) {
+                        Ok(_) => target_dest,
+                        Err(err) => {
+                            print_error(&format!("ошибка загрузки пакета '{}': {:?}", pkg, err));
+                            println!("  Проверьте подключение к сети или выполните 'wpm update'.");
+                            return 1;
+                        }
+                    }
+                } else {
+                    print_error(&format!(
+                        "пакет '{}' не найден в каталоге прикладных программ WPM и локальном кэше /var/cache/wpm.",
+                        pkg
+                    ));
+                    println!("  Используйте 'wpm update' для синхронизации каталогов репозиториев.");
+                    println!("  Используйте 'wpm search <запрос>' для поиска доступных программ.");
+                    return 1;
+                }
             }
         };
 

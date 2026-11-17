@@ -143,6 +143,21 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
             }
         }
 
+        if pkg_data.is_none() {
+            let base_url = libpackwunix::sources::get_wsp_system_repo().trim_end_matches('/');
+            let download_url = format!("{}/{}", base_url, item.filename);
+            let r = if root_dir == "/" { "" } else { root_dir.trim_end_matches('/') };
+            let cache_dir = format!("{}/var/cache/wsp", r);
+            crate::db::ensure_dir_recursive(&cache_dir);
+            let dest_path = format!("{}/{}", cache_dir, item.filename);
+            println!("wsp: загрузка компонента '{}' ({}) для обновления...", item.name, format_size(item.size));
+            if crate::http::fetch_to_file(&download_url, &dest_path, None, &item.filename).is_ok() {
+                if let Ok(d) = read_file_to_vec(&dest_path) {
+                    pkg_data = Some(d);
+                }
+            }
+        }
+
         if let Some(data) = pkg_data {
             if let Ok((manifest, files)) = unpack_wsp_package_to(&data, root_dir, false) {
                 if item.name == "wunix-kernel" {

@@ -1,4 +1,7 @@
 //! Модуль поиска прикладных программ WPM.
+//!
+//! Динамически считывает индекс репозитория packages.json из кэша и системных
+//! каталогов, сопоставляет запросы с именами, алиасами и описаниями программ.
 
 extern crate alloc;
 use alloc::format;
@@ -8,7 +11,10 @@ use libwunix::println;
 
 use crate::display::{COLOR_GREEN, COLOR_RESET};
 use crate::install::load_installed_apps;
+use crate::progress::format_bytes;
+use crate::unpack::read_file_to_vec;
 
+#[derive(Debug, Clone)]
 pub struct CatalogPackage {
     pub name: String,
     pub aliases: Vec<String>,
@@ -18,7 +24,58 @@ pub struct CatalogPackage {
     pub size: String,
 }
 
-pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
+pub fn get_aliases_for(name: &str) -> Vec<String> {
+    match name {
+        "tinycc" => alloc::vec!["tcc".to_string(), "cc".to_string()],
+        "archiveutils" => alloc::vec!["ar".to_string(), "cpio".to_string(), "unrar".to_string()],
+        "zip" => alloc::vec!["unzip".to_string()],
+        "gzip" => alloc::vec!["gunzip".to_string()],
+        "openssh" => alloc::vec!["ssh".to_string(), "sshd".to_string(), "scp".to_string()],
+        _ => Vec::new(),
+    }
+}
+
+pub fn load_wpm_catalog() -> Vec<CatalogPackage> {
+    let candidate_paths = [
+        "/var/lib/wpm/repo/apps/x86_64/packages.json",
+        "/var/cache/wpm/packages.json",
+        "/repo/apps/x86_64/packages.json",
+        "/repositories/apps/x86_64/packages.json",
+    ];
+
+    for path in &candidate_paths {
+        if let Ok(data) = read_file_to_vec(path) {
+            if let Ok(s) = core::str::from_utf8(&data) {
+                let pkgs = libpackwunix::sources::parse_repo_index(s);
+                if !pkgs.is_empty() {
+                    return pkgs
+                        .into_iter()
+                        .map(|p| {
+                            let aliases = get_aliases_for(&p.name);
+                            let category = if p.name == "tinycc" {
+                                "programs-dev".to_string()
+                            } else {
+                                "applications".to_string()
+                            };
+                            CatalogPackage {
+                                name: p.name,
+                                aliases,
+                                version: p.version.to_string(),
+                                category,
+                                description: p.description,
+                                size: format_bytes(p.size),
+                            }
+                        })
+                        .collect();
+                }
+            }
+        }
+    }
+
+    get_default_wpm_catalog()
+}
+
+pub fn get_default_wpm_catalog() -> Vec<CatalogPackage> {
     alloc::vec![
         CatalogPackage {
             name: "archiveutils".to_string(),
@@ -26,7 +83,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "1.0.0".to_string(),
             category: "applications".to_string(),
             description: "Пользовательские утилиты работы со специальными архивными контейнерами (ar, cpio, unrar)".to_string(),
-            size: "16.5 KiB".to_string(),
+            size: "16.5 КиБ".to_string(),
         },
         CatalogPackage {
             name: "curl".to_string(),
@@ -34,7 +91,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "1.0.0".to_string(),
             category: "applications".to_string(),
             description: "Сетевой клиент HTTP/HTTPS для передачи данных и API".to_string(),
-            size: "2.35 MiB".to_string(),
+            size: "2.35 МиБ".to_string(),
         },
         CatalogPackage {
             name: "git".to_string(),
@@ -42,7 +99,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "2.43.0".to_string(),
             category: "applications".to_string(),
             description: "Быстрая распределенная система управления версиями файлов Git".to_string(),
-            size: "1.84 MiB".to_string(),
+            size: "1.84 МиБ".to_string(),
         },
         CatalogPackage {
             name: "gzip".to_string(),
@@ -50,7 +107,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "1.0.0".to_string(),
             category: "applications".to_string(),
             description: "Утилиты потокового сжатия и распаковки gzip (gzip, gunzip)".to_string(),
-            size: "14.9 KiB".to_string(),
+            size: "14.9 КиБ".to_string(),
         },
         CatalogPackage {
             name: "nano".to_string(),
@@ -58,7 +115,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "7.2.0".to_string(),
             category: "applications".to_string(),
             description: "Текстовый редактор GNU nano для Wunix".to_string(),
-            size: "846.3 KiB".to_string(),
+            size: "846.3 КиБ".to_string(),
         },
         CatalogPackage {
             name: "openssh".to_string(),
@@ -66,7 +123,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "9.8.0".to_string(),
             category: "applications".to_string(),
             description: "Комплекс сетевого безопасного доступа OpenSSH (ssh, sshd, scp)".to_string(),
-            size: "12.1 MiB".to_string(),
+            size: "12.1 МиБ".to_string(),
         },
         CatalogPackage {
             name: "tar".to_string(),
@@ -74,7 +131,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "1.0.0".to_string(),
             category: "applications".to_string(),
             description: "Утилита работы со стандартными архивами tar".to_string(),
-            size: "9.2 KiB".to_string(),
+            size: "9.2 КиБ".to_string(),
         },
         CatalogPackage {
             name: "tinycc".to_string(),
@@ -82,7 +139,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "0.9.27".to_string(),
             category: "programs-dev".to_string(),
             description: "Быстрый и легковесный компилятор Си (tcc) для Wunix".to_string(),
-            size: "244.5 KiB".to_string(),
+            size: "244.5 КиБ".to_string(),
         },
         CatalogPackage {
             name: "wc".to_string(),
@@ -90,7 +147,7 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "1.0.0".to_string(),
             category: "applications".to_string(),
             description: "Пользовательская программа wc для подсчета строк, слов и байтов".to_string(),
-            size: "6.1 KiB".to_string(),
+            size: "6.1 КиБ".to_string(),
         },
         CatalogPackage {
             name: "zip".to_string(),
@@ -98,13 +155,13 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             version: "1.0.0".to_string(),
             category: "applications".to_string(),
             description: "Утилиты сжатия и распаковки ZIP архивов (zip, unzip)".to_string(),
-            size: "17.1 KiB".to_string(),
+            size: "17.1 КиБ".to_string(),
         },
     ]
 }
 
 pub fn run_search(query: &str) -> i32 {
-    let catalog = get_wpm_catalog();
+    let catalog = load_wpm_catalog();
     let installed = load_installed_apps();
 
     println!("Поиск программ по запросу: \"{}\"", query);
@@ -158,6 +215,7 @@ pub fn run_search(query: &str) -> i32 {
             println!("  Для установки: sudo wsp install {}", query);
         } else {
             println!("  Совпадений в каталоге программ не найдено.");
+            println!("  Подсказка: выполните 'wpm update' для обновления каталога из репозитория.");
         }
     } else {
         println!("Найдено программ: {} (для установки выполните: sudo wpm install <имя>)", found);

@@ -12,8 +12,10 @@ mod allocator;
 mod audit;
 mod db;
 mod display;
+mod http;
 mod kernel_cmd;
 mod list;
+mod progress;
 mod unpack;
 mod upgrade;
 
@@ -199,12 +201,49 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         "audit" => audit::run_audit(flag_verify),
         "check" => audit::run_check(flag_critical, flag_json),
         "update" => {
+            let base_url = libpackwunix::sources::get_wsp_system_repo().trim_end_matches('/');
+            let json_url = format!("{}/packages.json", base_url);
             if !flag_quiet {
                 println!("wsp: синхронизация системного репозитория...");
-                display::print_step(1, 1, t("Синхронизация индекса компонентов ядра (200 OK)", "Synchronizing kernel component index (200 OK)"), true);
-                println!("wsp: индекс системных пакетов актуален.");
+                println!("  Источник: {}", base_url);
             }
-            0
+
+            let r = if root_dir == "/" { "" } else { root_dir.trim_end_matches('/') };
+            let dest_dir = format!("{}/var/lib/wsp/repo/system/x86_64", r);
+            let cache_dir = format!("{}/var/cache/wsp", r);
+            db::ensure_dir_recursive(&dest_dir);
+            db::ensure_dir_recursive(&cache_dir);
+
+            let dest_json = format!("{}/packages.json", dest_dir);
+            match http::fetch_to_file(&json_url, &dest_json, None, "packages.json") {
+                Ok(_) => {
+                    let cache_json = format!("{}/packages.json", cache_dir);
+                    let lib_json = format!("{}/var/lib/wsp/packages.json", r);
+                    let _ = db::copy_file(&dest_json, &cache_json);
+                    let _ = db::copy_file(&dest_json, &lib_json);
+
+                    let txt_url = format!("{}/index.txt", base_url);
+                    let txt_path = format!("{}/index.txt", dest_dir);
+                    let _ = http::fetch_to_file(&txt_url, &txt_path, None, "index.txt");
+
+                    let mut total_synced = 0;
+                    if let Ok(data) = unpack::read_file_to_vec(&dest_json) {
+                        if let Ok(s) = core::str::from_utf8(&data) {
+                            let pkgs = libpackwunix::sources::parse_repo_index(s);
+                            total_synced = pkgs.len();
+                        }
+                    }
+
+                    if !flag_quiet {
+                        println!("wsp: индекс системных пакетов успешно синхронизирован ({} компонентов доступно).", total_synced);
+                    }
+                    0
+                }
+                Err(e) => {
+                    display::print_error(&format!("не удалось загрузить индекс системного репозитория: {:?}", e));
+                    1
+                }
+            }
         }
         "upgrade" => upgrade::run_upgrade(root_dir, flag_critical, flag_yes, flag_dry_run),
         "list" | "ls" => list::run_list(false, flag_critical),
@@ -225,7 +264,26 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             } else if positional.len() > 1 {
                 let mut status_code = 0;
                 for target in &positional[1..] {
-                    let resolved = locate_system_package(target, root_dir);
+                    let resolved = locate_system_package(target, root_dir).or_else(|| {
+                        let repo_pkgs = db::load_repo_packages(root_dir);
+                        if let Some(rp) = repo_pkgs.iter().find(|p| p.name == *target) {
+                            let base_url = libpackwunix::sources::get_wsp_system_repo().trim_end_matches('/');
+                            let download_url = format!("{}/{}", base_url, rp.filename);
+                            let cache_dir = format!("{}/var/cache/wsp", if root_dir.is_empty() { "" } else { root_dir.trim_end_matches('/') });
+                            db::ensure_dir_recursive(&cache_dir);
+                            let dest = format!("{}/{}", cache_dir, rp.filename);
+                            println!("wsp: загрузка системного пакета '{}' из репозитория...", rp.name);
+                            match http::fetch_to_file(&download_url, &dest, Some(&rp.sha256), &rp.filename) {
+                                Ok(_) => Some(dest),
+                                Err(e) => {
+                                    display::print_error(&format!("не удалось загрузить {}: {:?}", rp.filename, e));
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    });
                     if let Some(pkg_file) = resolved.as_deref() {
                         match unpack::read_file_to_vec(pkg_file) {
                             Ok(data) => {

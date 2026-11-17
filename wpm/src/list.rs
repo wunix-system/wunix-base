@@ -6,7 +6,7 @@ use libwunix::println;
 
 use crate::display::{print_error, COLOR_GREEN, COLOR_RESET};
 use crate::install::{load_installed_apps, load_installed_apps_from};
-use crate::search::get_wpm_catalog;
+use crate::search::load_wpm_catalog;
 
 pub fn run_list() -> i32 {
     run_list_in("/")
@@ -44,7 +44,7 @@ pub fn run_list_in(root: &str) -> i32 {
 
 pub fn run_info(name: &str) -> i32 {
     let installed = load_installed_apps();
-    let catalog = get_wpm_catalog();
+    let catalog = load_wpm_catalog();
 
     let pkg_id = match name {
         "tcc" => "tinycc",

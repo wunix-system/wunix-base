@@ -177,7 +177,44 @@ fn ping_repos(target: &str) -> i32 {
             continue;
         }
         for s in &r.servers {
-            println!("  [{}] {:<48} {}{}{}", r.name, s, COLOR_GREEN, t("доступен (200 OK)", "online (200 OK)"), COLOR_RESET);
+            let json_url = format!("{}/packages.json", s.trim_end_matches('/'));
+            match crate::http::parse_http_url(&json_url) {
+                Ok((host, port, _)) => {
+                    let proxy = crate::http::get_proxy_settings(host);
+                    let (target_host, target_port) = if let Some((ref p_host, p_port)) = proxy {
+                        (p_host.as_str(), p_port)
+                    } else {
+                        (host, port)
+                    };
+
+                    let ts1 = libwunix::time::clock_realtime();
+                    let res = libwunix::resolve_host(target_host);
+                    match res {
+                        Ok(ip) => {
+                            let fd = libwunix::socket(libwunix::AF_INET, libwunix::SOCK_STREAM, 0);
+                            let sockaddr = libwunix::SockAddrIn::new_v4(ip, target_port);
+                            if fd >= 0 && libwunix::connect(fd as u64, &sockaddr) >= 0 {
+                                libwunix::close(fd as u64);
+                                let ts2 = libwunix::time::clock_realtime();
+                                let ms = (ts2.tv_sec.saturating_sub(ts1.tv_sec) * 1000)
+                                    + ((ts2.tv_nsec.saturating_sub(ts1.tv_nsec)) / 1_000_000);
+                                println!("  [{}] {:<48} {}{}{} ({} мс)", r.name, s, COLOR_GREEN, t("доступен (200 OK)", "online (200 OK)"), COLOR_RESET, ms.max(1));
+                            } else {
+                                if fd >= 0 {
+                                    libwunix::close(fd as u64);
+                                }
+                                println!("  [{}] {:<48} {}{}{}", r.name, s, crate::display::COLOR_RED, t("недоступен (ошибка соединения)", "offline (connection error)"), COLOR_RESET);
+                            }
+                        }
+                        Err(_) => {
+                            println!("  [{}] {:<48} {}{}{}", r.name, s, crate::display::COLOR_RED, t("недоступен (DNS error)", "offline (DNS error)"), COLOR_RESET);
+                        }
+                    }
+                }
+                Err(_) => {
+                    println!("  [{}] {:<48} {}{}{}", r.name, s, crate::display::COLOR_RED, t("некорректный URL", "invalid URL"), COLOR_RESET);
+                }
+            }
         }
     }
     0
