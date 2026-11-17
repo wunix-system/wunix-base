@@ -6,8 +6,8 @@ use crate::net::{
 use crate::tui::{
     center_col, clear_screen, draw_box, draw_centered, draw_footer, draw_header,
     draw_input_field, draw_label, draw_logo, draw_separator, draw_status, goto,
-    hide_cursor, input_text, run_menu, wait_key, wr, wrs, MenuItem, BOLD, FG_GRAY,
-    FG_WHITE, FG_YELLOW, LOGO_ROW, RESET,
+    hide_cursor, input_text_nav, run_menu, wait_key, write_u64, wr, wrs, InputExit,
+    MenuItem, BOLD, FG_GRAY, FG_GREEN, FG_RED, FG_WHITE, FG_YELLOW, LOGO_ROW, RESET,
 };
 
 /// Экран выбора сетевого адаптера. Если адаптеров нет — информирует об автономном режиме.
@@ -136,8 +136,8 @@ pub fn screen_network_config(adapter: &NetAdapterInfo) -> Option<NetConfig> {
         }
     }
 
-    // Фоновая проверка сети без вывода деталей запросов
-    screen_network_check_quiet(&cfg);
+    // Проверка сетевого соединения
+    screen_network_check(&cfg);
 
     Some(cfg)
 }
@@ -165,58 +165,97 @@ fn screen_dhcp_summary(cfg: &NetConfig) {
 }
 
 fn screen_static_network_form(cfg: &mut NetConfig) -> bool {
-    hide_cursor();
-    clear_screen();
-    draw_header("  СТАТИЧЕСКАЯ НАСТРОЙКА СЕТИ  ");
-    draw_logo(LOGO_ROW);
+    let mut cur_field: usize = 0;
+    let mut ip_buf = [0u8; 32];
+    ip_buf[..cfg.ip_len].copy_from_slice(&cfg.ip[..cfg.ip_len]);
+    let mut nm_buf = [0u8; 32];
+    nm_buf[..cfg.netmask_len].copy_from_slice(&cfg.netmask[..cfg.netmask_len]);
+    let mut gw_buf = [0u8; 32];
+    gw_buf[..cfg.gateway_len].copy_from_slice(&cfg.gateway[..cfg.gateway_len]);
+    let mut dns_buf = [0u8; 32];
+    dns_buf[..cfg.dns_len].copy_from_slice(&cfg.dns[..cfg.dns_len]);
 
-    draw_centered(9, "Введите сетевые параметры вручную:");
+    loop {
+        hide_cursor();
+        clear_screen();
+        draw_header("  СТАТИЧЕСКАЯ НАСТРОЙКА СЕТИ  ");
+        draw_logo(LOGO_ROW);
 
-    let form_w = 54;
-    let base_col = center_col(form_w);
-    let label_col = base_col + 18;
-    let field_col = base_col + 20;
-    let field_w   = 28usize;
+        draw_centered(9, "Введите сетевые параметры вручную:");
 
-    draw_label(12, "IP-адрес", label_col);
-    draw_label(14, "Маска подсети", label_col);
-    draw_label(16, "Основной шлюз", label_col);
-    draw_label(18, "DNS-сервер", label_col);
+        let form_w = 54;
+        let base_col = center_col(form_w);
+        let label_col = base_col + 18;
+        let field_col = base_col + 20;
+        let field_w   = 28usize;
 
-    draw_input_field(12, field_col, field_w, &cfg.ip, cfg.ip_len);
-    draw_input_field(14, field_col, field_w, &cfg.netmask, cfg.netmask_len);
-    draw_input_field(16, field_col, field_w, &cfg.gateway, cfg.gateway_len);
-    draw_input_field(18, field_col, field_w, &cfg.dns, cfg.dns_len);
+        draw_label(12, "IP-адрес", label_col);
+        draw_label(14, "Маска подсети", label_col);
+        draw_label(16, "Основной шлюз", label_col);
+        draw_label(18, "DNS-сервер", label_col);
 
-    draw_separator();
-    draw_footer(" Enter Следующее поле    Esc Отмена ");
+        let l_ip = ip_buf.iter().position(|&b| b == 0).unwrap_or(ip_buf.len());
+        let l_nm = nm_buf.iter().position(|&b| b == 0).unwrap_or(nm_buf.len());
+        let l_gw = gw_buf.iter().position(|&b| b == 0).unwrap_or(gw_buf.len());
+        let l_dns = dns_buf.iter().position(|&b| b == 0).unwrap_or(dns_buf.len());
 
-    let mut buf = [0u8; 32];
-    buf[..cfg.ip_len].copy_from_slice(&cfg.ip[..cfg.ip_len]);
-    let l1 = input_text(12, field_col, &mut buf, field_w);
-    if l1 > 0 { cfg.ip[..l1].copy_from_slice(&buf[..l1]); cfg.ip_len = l1; }
+        draw_input_field(12, field_col, field_w, &ip_buf, l_ip);
+        draw_input_field(14, field_col, field_w, &nm_buf, l_nm);
+        draw_input_field(16, field_col, field_w, &gw_buf, l_gw);
+        draw_input_field(18, field_col, field_w, &dns_buf, l_dns);
 
-    buf = [0; 32];
-    buf[..cfg.netmask_len].copy_from_slice(&cfg.netmask[..cfg.netmask_len]);
-    let l2 = input_text(14, field_col, &mut buf, field_w);
-    if l2 > 0 { cfg.netmask[..l2].copy_from_slice(&buf[..l2]); cfg.netmask_len = l2; }
+        draw_separator();
+        draw_footer(" Enter Подтвердить    Tab/↑↓ Переключение полей    Esc Отмена ");
 
-    buf = [0; 32];
-    buf[..cfg.gateway_len].copy_from_slice(&cfg.gateway[..cfg.gateway_len]);
-    let l3 = input_text(16, field_col, &mut buf, field_w);
-    if l3 > 0 { cfg.gateway[..l3].copy_from_slice(&buf[..l3]); cfg.gateway_len = l3; }
-
-    buf = [0; 32];
-    buf[..cfg.dns_len].copy_from_slice(&cfg.dns[..cfg.dns_len]);
-    let l4 = input_text(18, field_col, &mut buf, field_w);
-    if l4 > 0 { cfg.dns[..l4].copy_from_slice(&buf[..l4]); cfg.dns_len = l4; }
-
-    true
+        match cur_field {
+            0 => {
+                let (len, exit) = input_text_nav(12, field_col, &mut ip_buf, field_w);
+                cfg.ip[..len].copy_from_slice(&ip_buf[..len]);
+                cfg.ip_len = len;
+                match exit {
+                    InputExit::Next | InputExit::Submit => cur_field = 1,
+                    InputExit::Prev => cur_field = 3,
+                    InputExit::Cancel => return false,
+                }
+            }
+            1 => {
+                let (len, exit) = input_text_nav(14, field_col, &mut nm_buf, field_w);
+                cfg.netmask[..len].copy_from_slice(&nm_buf[..len]);
+                cfg.netmask_len = len;
+                match exit {
+                    InputExit::Next | InputExit::Submit => cur_field = 2,
+                    InputExit::Prev => cur_field = 0,
+                    InputExit::Cancel => return false,
+                }
+            }
+            2 => {
+                let (len, exit) = input_text_nav(16, field_col, &mut gw_buf, field_w);
+                cfg.gateway[..len].copy_from_slice(&gw_buf[..len]);
+                cfg.gateway_len = len;
+                match exit {
+                    InputExit::Next | InputExit::Submit => cur_field = 3,
+                    InputExit::Prev => cur_field = 1,
+                    InputExit::Cancel => return false,
+                }
+            }
+            3 => {
+                let (len, exit) = input_text_nav(18, field_col, &mut dns_buf, field_w);
+                cfg.dns[..len].copy_from_slice(&dns_buf[..len]);
+                cfg.dns_len = len;
+                match exit {
+                    InputExit::Submit => return true,
+                    InputExit::Next => cur_field = 0,
+                    InputExit::Prev => cur_field = 2,
+                    InputExit::Cancel => return false,
+                }
+            }
+            _ => cur_field = 0,
+        }
+    }
 }
 
-/// Фоновая проверка подключения к сети:
-/// Запросы выполняются без вывода логов, выдается итоговый статус (ОК / Нестабильно / Плохо)
-fn screen_network_check_quiet(cfg: &NetConfig) {
+/// Проверка подключения к сети с отображением статусов в реальном времени
+pub fn screen_network_check(cfg: &NetConfig) {
     hide_cursor();
     clear_screen();
     draw_header("  ЭТАП 4: ПРОВЕРКА ПОДКЛЮЧЕНИЯ К СЕТИ  ");
@@ -226,7 +265,7 @@ fn screen_network_check_quiet(cfg: &NetConfig) {
 
     let items = [
         MenuItem {
-            label: "1. Выполнить проверку связи в фоновом режиме                 ",
+            label: "1. Выполнить проверку связи (Ping шлюза, DNS и внешних узлов)",
             disabled: false,
         },
         MenuItem {
@@ -236,46 +275,82 @@ fn screen_network_check_quiet(cfg: &NetConfig) {
     ];
 
     draw_separator();
-    draw_footer(" Enter Подтвердить    ↑↓ Навигация ");
+    draw_footer(" Enter Выбрать    Tab/↑↓ Переключение ");
 
-    let menu_w = 64;
+    let menu_w = 68;
     let col = center_col(menu_w);
     let choice = run_menu(11, col, &items, menu_w);
     if choice != Some(0) {
         return;
     }
 
-    // Очищаем область и выводим ненавязчивый индикатор ожидания
-    goto(11, 1); wr(b"\x1b[2K");
-    goto(12, 1); wr(b"\x1b[2K");
-    goto(13, 1); wr(b"\x1b[2K");
-    goto(14, 1); wr(b"\x1b[2K");
+    // Выполняем проверку
+    clear_screen();
+    draw_header("  ЭТАП 4: ПРОВЕРКА ПОДКЛЮЧЕНИЯ К СЕТИ  ");
+    draw_logo(LOGO_ROW);
 
-    draw_centered(12, "Выполняется быстрая фоновая проверка сетевого соединения...");
-    draw_centered(13, "Пожалуйста, подождите несколько секунд...");
+    draw_centered(9, "Диагностика сетевого стека и проверка связи:");
 
-    let mut successful = 0usize;
-    let _ = run_ping_four_packets(cfg, |_host, _seq, _total, res| {
-        if res.is_some() {
-            successful += 1;
-        }
-    });
+    let box_w = 64;
+    let bcol = center_col(box_w);
 
-    goto(12, 1); wr(b"\x1b[2K");
-    goto(13, 1); wr(b"\x1b[2K");
+    draw_box(11, bcol, box_w, 8);
+    goto(12, bcol + 4); wrs(FG_GRAY); wrs("Интерфейс : "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.adapter_str()); wrs(RESET);
+    wrs(FG_GREEN); wrs(" [UP]"); wrs(RESET);
 
-    let status_w = 50;
-    let scol = center_col(status_w);
+    goto(13, bcol + 4); wrs(FG_GRAY); wrs("IP-адрес  : "); wrs(RESET); wrs(FG_WHITE); wrs(BOLD); wrs(cfg.ip_str()); wrs(RESET);
+    if cfg.is_dhcp { wrs(FG_GRAY); wrs(" (DHCP)"); wrs(RESET); }
 
-    if successful >= 3 {
-        draw_status(12, scol, true, "Статус сети: Отлично (ОК)");
-        draw_centered(14, "Сетевое подключение настроено и работает стабильно.");
-    } else if successful >= 1 {
-        draw_status(12, scol, true, "Статус сети: Нестабильно");
-        draw_centered(14, "Связь обнаружена, но возможны задержки или потери пакетов.");
+    goto(14, bcol + 4); wrs(FG_GRAY); wrs("Шлюз      : "); wrs(RESET); wrs(FG_WHITE); wrs(cfg.gateway_str()); wrs(RESET);
+    wrs(FG_YELLOW); wrs(" (проверка...)"); wrs(RESET);
+
+    goto(15, bcol + 4); wrs(FG_GRAY); wrs("DNS       : "); wrs(RESET); wrs(FG_WHITE); wrs(cfg.dns_str()); wrs(RESET);
+    wrs(FG_YELLOW); wrs(" (проверка...)"); wrs(RESET);
+
+    goto(16, bcol + 4); wrs(FG_GRAY); wrs("Интернет  : "); wrs(RESET); wrs(FG_YELLOW); wrs("проверка..."); wrs(RESET);
+
+    draw_separator();
+    draw_footer(" Выполняется проверка связи... ");
+
+    let (res_gw, res_ext) = run_ping_four_packets(cfg, |_host, _seq, _total, _res| {});
+
+    // Обновляем статус шлюза
+    goto(14, bcol + 4); wr(b"\x1b[2K");
+    goto(14, bcol + 4); wrs(FG_GRAY); wrs("Шлюз      : "); wrs(RESET); wrs(FG_WHITE); wrs(cfg.gateway_str()); wrs(RESET);
+    if let Some(rtt) = res_gw.rtt1 {
+        wrs(FG_GREEN); wrs(" [OK] ("); write_u64(rtt); wrs(" мс)"); wrs(RESET);
     } else {
-        draw_status(12, scol, false, "Статус сети: Плохо (Нет связи)");
-        draw_centered(14, "Сетевые параметры сохранены для работы в локальной сети.");
+        wrs(FG_RED); wrs(" [Нет ответа]"); wrs(RESET);
+    }
+
+    // Обновляем статус DNS
+    goto(15, bcol + 4); wr(b"\x1b[2K");
+    goto(15, bcol + 4); wrs(FG_GRAY); wrs("DNS       : "); wrs(RESET); wrs(FG_WHITE); wrs(cfg.dns_str()); wrs(RESET);
+    if let Some(rtt) = res_gw.rtt2 {
+        wrs(FG_GREEN); wrs(" [OK] ("); write_u64(rtt); wrs(" мс)"); wrs(RESET);
+    } else if res_ext.dns_resolved {
+        wrs(FG_GREEN); wrs(" [OK]"); wrs(RESET);
+    } else {
+        wrs(FG_GRAY); wrs(" [Локальный]"); wrs(RESET);
+    }
+
+    // Обновляем статус Интернета
+    goto(16, bcol + 4); wr(b"\x1b[2K");
+    goto(16, bcol + 4); wrs(FG_GRAY); wrs("Интернет  : "); wrs(RESET);
+    if res_ext.dns_resolved || res_ext.rtt1.is_some() || res_ext.rtt2.is_some() {
+        wrs(FG_GREEN); wrs(BOLD); wrs("[OK] Доступен"); wrs(RESET);
+    } else if res_gw.rtt1.is_some() {
+        wrs(FG_YELLOW); wrs("[Локальная сеть]"); wrs(RESET);
+    } else {
+        wrs(FG_RED); wrs("[Автономный режим]"); wrs(RESET);
+    }
+
+    let status_w = 54;
+    let scol = center_col(status_w);
+    if res_gw.rtt1.is_some() || res_ext.dns_resolved {
+        draw_status(20, scol, true, "Сетевое подключение проверено и успешно работает");
+    } else {
+        draw_status(20, scol, false, "Связь со шлюзом отсутствует (автономный режим)");
     }
 
     draw_separator();

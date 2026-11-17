@@ -81,6 +81,7 @@ pub enum Key {
     Enter,
     Backspace,
     Tab,
+    BackTab,
     Esc,
     CtrlC,
     Char(u8),
@@ -95,28 +96,58 @@ pub fn read_key() -> Key {
     }
 
     if b[0] == b'\x1b' {
-        // Проверяем, является ли это последовательностью стрелок ANSI: \x1b[A, \x1b[B, \x1bOA...
-        let mut seq = [0u8; 2];
-        let mut m = read(STDIN_FILENO, &mut seq) as usize;
-        if m == 0 {
-            // Для медленных последовательностей терминала проверяем с небольшой паузой
-            for _ in 0..5 {
-                sleep_ms(3);
-                m = read(STDIN_FILENO, &mut seq) as usize;
-                if m > 0 { break; }
+        let mut seq = [0u8; 8];
+        let mut total = 0;
+        // Даем короткое окно (до 30 мс) дочитать последовательность ANSI
+        for _ in 0..15 {
+            let m = read(STDIN_FILENO, &mut seq[total..]) as usize;
+            if m > 0 {
+                total += m;
+                if total >= 2 && (seq[0] == b'[' || seq[0] == b'O' || seq[0] == b'o') {
+                    let last = seq[total - 1];
+                    if (last >= b'A' && last <= b'Z') || (last >= b'a' && last <= b'z') || last == b'~' {
+                        break;
+                    }
+                }
+            } else {
+                sleep_ms(2);
             }
         }
 
-        if m >= 2 && (seq[0] == b'[' || seq[0] == b'O' || seq[0] == b'o') {
-            return match seq[1] {
+        if total >= 2 && (seq[0] == b'[' || seq[0] == b'O' || seq[0] == b'o') {
+            let cmd = seq[total - 1];
+            return match cmd {
                 b'A' => Key::Up,
                 b'B' => Key::Down,
                 b'C' => Key::Right,
                 b'D' => Key::Left,
+                b'Z' => Key::BackTab, // Shift+Tab
                 _ => Key::Unknown,
             };
         }
         return Key::Esc;
+    }
+
+    // Распознавание русской раскладки клавиатуры (двухбайтовый UTF-8)
+    if b[0] == 0xD0 || b[0] == 0xD1 {
+        let mut b2 = [0u8; 1];
+        let mut m = 0;
+        for _ in 0..5 {
+            m = read(STDIN_FILENO, &mut b2) as usize;
+            if m > 0 { break; }
+            sleep_ms(2);
+        }
+        if m > 0 {
+            // 'ц'/'Ц' (W) -> Up, 'к'/'К' -> Up, 'л'/'Л' (K) -> Up
+            if (b[0] == 0xD1 && b2[0] == 0x86) || (b[0] == 0xD0 && (b2[0] == 0xA6 || b2[0] == 0xBB || b2[0] == 0x9B)) {
+                return Key::Up;
+            }
+            // 'ы'/'Ы' (S) -> Down, 'о'/'О' (J) -> Down
+            if (b[0] == 0xD1 && b2[0] == 0x8B) || (b[0] == 0xD0 && (b2[0] == 0xAB || b2[0] == 0xBE || b2[0] == 0x9E)) {
+                return Key::Down;
+            }
+            return Key::Char(b2[0]);
+        }
     }
 
     match b[0] {
@@ -275,6 +306,7 @@ pub fn run_menu(
     loop {
         match read_key() {
             Key::Up
+            | Key::BackTab
             | Key::Char(b'k')
             | Key::Char(b'K')
             | Key::Char(b'w')
@@ -380,6 +412,7 @@ pub fn run_menu_compact(
     loop {
         match read_key() {
             Key::Up
+            | Key::BackTab
             | Key::Char(b'k')
             | Key::Char(b'K')
             | Key::Char(b'w')
@@ -459,12 +492,21 @@ pub fn draw_password_field(row: usize, col: usize, width: usize, len: usize) {
     wrs(RESET);
 }
 
-pub fn input_text(row: usize, col: usize, buf: &mut [u8], field_width: usize) -> usize {
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum InputExit {
+    Next,
+    Prev,
+    Submit,
+    Cancel,
+}
+
+pub fn input_text_nav(row: usize, col: usize, buf: &mut [u8], field_width: usize) -> (usize, InputExit) {
     let max = (field_width.saturating_sub(2)).min(buf.len().saturating_sub(1));
     let mut len = 0usize;
     while len < max && buf[len] != 0 {
         len += 1;
     }
+    let exit;
     loop {
         hide_cursor();
         draw_input_field(row, col, field_width, buf, len);
@@ -478,8 +520,10 @@ pub fn input_text(row: usize, col: usize, buf: &mut [u8], field_width: usize) ->
         hide_cursor();
 
         match key {
-            Key::Enter => break,
-            Key::Esc | Key::CtrlC => { len = 0; break; }
+            Key::Enter => { exit = InputExit::Submit; break; }
+            Key::Tab | Key::Down => { exit = InputExit::Next; break; }
+            Key::BackTab | Key::Up => { exit = InputExit::Prev; break; }
+            Key::Esc | Key::CtrlC => { exit = InputExit::Cancel; break; }
             Key::Backspace => {
                 if len > 0 {
                     while len > 0 && (buf[len - 1] & 0xC0) == 0x80 {
@@ -499,12 +543,21 @@ pub fn input_text(row: usize, col: usize, buf: &mut [u8], field_width: usize) ->
         }
     }
     draw_input_field(row, col, field_width, buf, len);
-    len
+    (len, exit)
 }
 
-pub fn input_password(row: usize, col: usize, buf: &mut [u8], field_width: usize) -> usize {
+#[allow(dead_code)]
+pub fn input_text(row: usize, col: usize, buf: &mut [u8], field_width: usize) -> usize {
+    input_text_nav(row, col, buf, field_width).0
+}
+
+pub fn input_password_nav(row: usize, col: usize, buf: &mut [u8], field_width: usize) -> (usize, InputExit) {
     let max = (field_width.saturating_sub(2)).min(buf.len().saturating_sub(1));
     let mut len = 0usize;
+    while len < max && buf[len] != 0 {
+        len += 1;
+    }
+    let exit;
     loop {
         hide_cursor();
         draw_password_field(row, col, field_width, len);
@@ -515,18 +568,14 @@ pub fn input_password(row: usize, col: usize, buf: &mut [u8], field_width: usize
         hide_cursor();
 
         match key {
-            Key::Enter => break,
-            Key::Esc | Key::CtrlC => { len = 0; break; }
+            Key::Enter => { exit = InputExit::Submit; break; }
+            Key::Tab | Key::Down => { exit = InputExit::Next; break; }
+            Key::BackTab | Key::Up => { exit = InputExit::Prev; break; }
+            Key::Esc | Key::CtrlC => { exit = InputExit::Cancel; break; }
             Key::Backspace => {
                 if len > 0 {
-                    while len > 0 && (buf[len - 1] & 0xC0) == 0x80 {
-                        len -= 1;
-                        buf[len] = 0;
-                    }
-                    if len > 0 {
-                        len -= 1;
-                        buf[len] = 0;
-                    }
+                    len -= 1;
+                    buf[len] = 0;
                 }
             }
             Key::Char(ch) if ch >= 0x20 && ch != 0x7f => {
@@ -536,7 +585,12 @@ pub fn input_password(row: usize, col: usize, buf: &mut [u8], field_width: usize
         }
     }
     draw_password_field(row, col, field_width, len);
-    len
+    (len, exit)
+}
+
+#[allow(dead_code)]
+pub fn input_password(row: usize, col: usize, buf: &mut [u8], field_width: usize) -> usize {
+    input_password_nav(row, col, buf, field_width).0
 }
 
 // ─── Прогресс-бар ────────────────────────────────────────────────────────────

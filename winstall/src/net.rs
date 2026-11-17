@@ -416,7 +416,7 @@ pub fn ping_one_packet(fd: i32, target_ip: [u8; 4], seq: u16) -> Option<u64> {
     let dest = SockAddrIn {
         sin_family: AF_INET,
         sin_port: 0,
-        sin_addr: u32::from_be_bytes(target_ip),
+        sin_addr: u32::from_ne_bytes(target_ip),
         sin_zero: [0; 8],
     };
 
@@ -481,7 +481,7 @@ pub struct HostPingResult {
     pub rtt2: Option<u64>,
 }
 
-/// Проверка соединения: отправляет 4 пакета — 2 на ya.ru и 2 на google.com
+/// Проверка соединения: отправляет 4 пакета — на шлюз, DNS и внешние узлы
 pub fn run_ping_four_packets<F>(
     cfg: &NetConfig,
     mut on_step: F,
@@ -489,18 +489,19 @@ pub fn run_ping_four_packets<F>(
 where
     F: FnMut(&str, usize, usize, Option<u64>),
 {
+    let gw_ip = parse_ipv4(cfg.gateway_str()).unwrap_or([10, 0, 2, 2]);
     let dns_ip = parse_ipv4(cfg.dns_str()).unwrap_or([10, 0, 2, 3]);
 
-    let mut res_ya = HostPingResult {
-        host: "ya.ru",
-        ip: [0, 0, 0, 0],
-        dns_resolved: false,
+    let mut res_gw = HostPingResult {
+        host: "шлюз",
+        ip: gw_ip,
+        dns_resolved: true,
         rtt1: None,
         rtt2: None,
     };
 
-    let mut res_goog = HostPingResult {
-        host: "google.com",
+    let mut res_ext = HostPingResult {
+        host: "ya.ru",
         ip: [0, 0, 0, 0],
         dns_resolved: false,
         rtt1: None,
@@ -509,55 +510,52 @@ where
 
     let fd = socket(AF_INET, SOCK_RAW as u32, IPPROTO_ICMP);
 
-    // 1. Резолв ya.ru
-    if let Ok(ip) = resolve_host_with_server("ya.ru", dns_ip) {
-        res_ya.ip = ip;
-        res_ya.dns_resolved = true;
-    } else {
-        // Запасной IP для ya.ru (Yandex DNS / fallback)
-        res_ya.ip = [77, 88, 55, 242];
-    }
-
-    // 2. Резолв google.com
-    if let Ok(ip) = resolve_host_with_server("google.com", dns_ip) {
-        res_goog.ip = ip;
-        res_goog.dns_resolved = true;
-    } else {
-        // Запасной IP для google.com (Google DNS)
-        res_goog.ip = [8, 8, 8, 8];
-    }
-
     if fd >= 0 {
-        // Пакет 1 na ya.ru
-        let r1 = ping_one_packet(fd as i32, res_ya.ip, 1);
-        res_ya.rtt1 = r1;
-        on_step("ya.ru", 1, 4, r1);
-        sleep_ms(30);
+        // Пакет 1: Пинг основного шлюза (локальная сеть / QEMU host)
+        let r1 = ping_one_packet(fd as i32, gw_ip, 1);
+        res_gw.rtt1 = r1;
+        on_step(cfg.gateway_str(), 1, 4, r1);
+        sleep_ms(20);
 
-        // Пакет 2 na ya.ru
-        let r2 = ping_one_packet(fd as i32, res_ya.ip, 2);
-        res_ya.rtt2 = r2;
-        on_step("ya.ru", 2, 4, r2);
-        sleep_ms(30);
+        // Пакет 2: Пинг DNS-сервера
+        let r2 = ping_one_packet(fd as i32, dns_ip, 2);
+        res_gw.rtt2 = r2;
+        on_step(cfg.dns_str(), 2, 4, r2);
+        sleep_ms(20);
 
-        // Пакет 3 na google.com
-        let r3 = ping_one_packet(fd as i32, res_goog.ip, 3);
-        res_goog.rtt1 = r3;
-        on_step("google.com", 3, 4, r3);
-        sleep_ms(30);
+        // Пакет 3: Резолв и пинг ya.ru
+        if let Ok(ip) = resolve_host_with_server("ya.ru", dns_ip) {
+            res_ext.ip = ip;
+            res_ext.dns_resolved = true;
+            let r3 = ping_one_packet(fd as i32, ip, 3);
+            res_ext.rtt1 = r3;
+            on_step("ya.ru", 3, 4, r3);
+        } else {
+            res_ext.ip = [77, 88, 55, 242];
+            let r3 = ping_one_packet(fd as i32, res_ext.ip, 3);
+            res_ext.rtt1 = r3;
+            on_step("ya.ru", 3, 4, r3);
+        }
+        sleep_ms(20);
 
-        // Пакет 4 na google.com
-        let r4 = ping_one_packet(fd as i32, res_goog.ip, 4);
-        res_goog.rtt2 = r4;
-        on_step("google.com", 4, 4, r4);
+        // Пакет 4: Резолв и пинг google.com
+        if let Ok(ip) = resolve_host_with_server("google.com", dns_ip) {
+            let r4 = ping_one_packet(fd as i32, ip, 4);
+            res_ext.rtt2 = r4;
+            on_step("google.com", 4, 4, r4);
+        } else {
+            let r4 = ping_one_packet(fd as i32, [8, 8, 8, 8], 4);
+            res_ext.rtt2 = r4;
+            on_step("google.com", 4, 4, r4);
+        }
 
         close(fd as u64);
     } else {
-        on_step("ya.ru", 1, 4, None);
-        on_step("ya.ru", 2, 4, None);
-        on_step("google.com", 3, 4, None);
+        on_step(cfg.gateway_str(), 1, 4, None);
+        on_step(cfg.dns_str(), 2, 4, None);
+        on_step("ya.ru", 3, 4, None);
         on_step("google.com", 4, 4, None);
     }
 
-    (res_ya, res_goog)
+    (res_gw, res_ext)
 }

@@ -3,7 +3,7 @@
 use crate::tui::{
     center_col, clear_screen, draw_centered, draw_footer, draw_header, draw_info,
     draw_input_field, draw_label, draw_logo, draw_password_field, draw_separator,
-    hide_cursor, input_password, input_text, FG_RED, LOGO_ROW,
+    hide_cursor, input_password_nav, input_text_nav, InputExit, FG_RED, LOGO_ROW,
 };
 
 pub struct UserHostnameConfig {
@@ -34,6 +34,16 @@ impl Default for UserHostnameConfig {
 pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
     let mut cfg = UserHostnameConfig::default();
     let mut error_msg: Option<&str> = None;
+    let mut cur_field: usize = 0;
+
+    let mut ubuf = [0u8; 64];
+    ubuf[..5].copy_from_slice(b"admin");
+    let mut pass1 = [0u8; 128];
+    let mut pass1_len = 0;
+    let mut pass2 = [0u8; 128];
+    let mut pass2_len = 0;
+    let mut hbuf = [0u8; 64];
+    hbuf[..5].copy_from_slice(b"wunix");
 
     loop {
         hide_cursor();
@@ -54,10 +64,13 @@ pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
         draw_label(15, "Повтор пароля", label_col);
         draw_label(17, "Имя хоста (Hostname)", label_col);
 
-        draw_input_field(11, field_col, field_w, &cfg.username, cfg.username_len);
-        draw_password_field(13, field_col, field_w, cfg.password_len);
-        draw_password_field(15, field_col, field_w, 0);
-        draw_input_field(17, field_col, field_w, &cfg.hostname, cfg.hostname_len);
+        let u_len = ubuf.iter().position(|&b| b == 0).unwrap_or(ubuf.len());
+        let h_len = hbuf.iter().position(|&b| b == 0).unwrap_or(hbuf.len());
+
+        draw_input_field(11, field_col, field_w, &ubuf, u_len);
+        draw_password_field(13, field_col, field_w, pass1_len);
+        draw_password_field(15, field_col, field_w, pass2_len);
+        draw_input_field(17, field_col, field_w, &hbuf, h_len);
 
         draw_centered(19, "Пользователь получит права администратора sudo (группа wheel).");
         draw_centered(20, "Пароль суперпользователя root совпадает с паролем администратора.");
@@ -67,46 +80,69 @@ pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
         }
 
         draw_separator();
-        draw_footer(" Enter Следующее поле    Esc Назад ");
+        draw_footer(" Enter Подтвердить    Tab/↑↓ Переключение полей    Esc Назад ");
 
-        // 1. Имя пользователя
-        cfg.username = [0; 64];
-        let mut ubuf = [0u8; 64];
-        ubuf[..5].copy_from_slice(b"admin");
-        cfg.username_len = input_text(11, field_col, &mut ubuf, field_w);
-        if cfg.username_len == 0 {
-            cfg.username[..5].copy_from_slice(b"admin");
-            cfg.username_len = 5;
-        } else {
-            cfg.username[..cfg.username_len].copy_from_slice(&ubuf[..cfg.username_len]);
+        match cur_field {
+            0 => {
+                let (len, exit) = input_text_nav(11, field_col, &mut ubuf, field_w);
+                cfg.username_len = len;
+                match exit {
+                    InputExit::Next | InputExit::Submit => cur_field = 1,
+                    InputExit::Prev => cur_field = 3,
+                    InputExit::Cancel => return None,
+                }
+            }
+            1 => {
+                let (len, exit) = input_password_nav(13, field_col, &mut pass1, field_w);
+                pass1_len = len;
+                match exit {
+                    InputExit::Next | InputExit::Submit => cur_field = 2,
+                    InputExit::Prev => cur_field = 0,
+                    InputExit::Cancel => return None,
+                }
+            }
+            2 => {
+                let (len, exit) = input_password_nav(15, field_col, &mut pass2, field_w);
+                pass2_len = len;
+                match exit {
+                    InputExit::Next | InputExit::Submit => cur_field = 3,
+                    InputExit::Prev => cur_field = 1,
+                    InputExit::Cancel => return None,
+                }
+            }
+            3 => {
+                let (len, exit) = input_text_nav(17, field_col, &mut hbuf, field_w);
+                cfg.hostname_len = len;
+                match exit {
+                    InputExit::Submit => {
+                        if pass1[..pass1_len] != pass2[..pass2_len] {
+                            error_msg = Some("Пароли не совпадают! Повторите ввод пароля.");
+                            cur_field = 1;
+                            continue;
+                        }
+                        if cfg.username_len == 0 {
+                            cfg.username[..5].copy_from_slice(b"admin");
+                            cfg.username_len = 5;
+                        } else {
+                            cfg.username[..cfg.username_len].copy_from_slice(&ubuf[..cfg.username_len]);
+                        }
+                        cfg.password[..pass1_len].copy_from_slice(&pass1[..pass1_len]);
+                        cfg.password_len = pass1_len;
+
+                        if cfg.hostname_len == 0 {
+                            cfg.hostname[..5].copy_from_slice(b"wunix");
+                            cfg.hostname_len = 5;
+                        } else {
+                            cfg.hostname[..cfg.hostname_len].copy_from_slice(&hbuf[..cfg.hostname_len]);
+                        }
+                        return Some(cfg);
+                    }
+                    InputExit::Next => cur_field = 0,
+                    InputExit::Prev => cur_field = 2,
+                    InputExit::Cancel => return None,
+                }
+            }
+            _ => cur_field = 0,
         }
-
-        // 2. Пароль
-        cfg.password = [0; 128];
-        cfg.password_len = input_password(13, field_col, &mut cfg.password, field_w);
-
-        // 3. Повтор пароля
-        let mut pass2 = [0u8; 128];
-        let pass2_len = input_password(15, field_col, &mut pass2, field_w);
-
-        if cfg.password[..cfg.password_len] != pass2[..pass2_len] {
-            error_msg = Some("Пароли не совпадают! Повторите ввод пароля.");
-            cfg.password_len = 0;
-            continue;
-        }
-
-        // 4. Hostname
-        cfg.hostname = [0; 64];
-        let mut hbuf = [0u8; 64];
-        hbuf[..5].copy_from_slice(b"wunix");
-        cfg.hostname_len = input_text(17, field_col, &mut hbuf, field_w);
-        if cfg.hostname_len == 0 {
-            cfg.hostname[..5].copy_from_slice(b"wunix");
-            cfg.hostname_len = 5;
-        } else {
-            cfg.hostname[..cfg.hostname_len].copy_from_slice(&hbuf[..cfg.hostname_len]);
-        }
-
-        return Some(cfg);
     }
 }
