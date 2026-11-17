@@ -360,13 +360,19 @@ where
         done += 1;
     }
 
-    // Настраиваем системные симлинки совместимости
+    // Настраиваем системные симлинки совместимости и бинарники сетевых служб
     let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/sh\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib/ld-musl-x86_64.so.1\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib64/ld-musl-x86_64.so.1\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib/ld-wunix.so.1\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib64/ld-wunix.so.1\0");
+    copy_file(b"/bin/sshd\0", b"/mnt/bin/sshd\0", 0o755);
+    copy_file(b"/bin/ssh\0", b"/mnt/bin/ssh\0", 0o755);
+    copy_file(b"/bin/ssh-keygen\0", b"/mnt/bin/ssh-keygen\0", 0o755);
+    copy_file(b"/bin/scp\0", b"/mnt/bin/scp\0", 0o755);
+    copy_file(b"/bin/sshd-session\0", b"/mnt/bin/sshd-session\0", 0o755);
     copy_file(b"/bin/sshd-session\0", b"/mnt/usr/libexec/sshd-session\0", 0o755);
+    copy_file(b"/bin/sftp-server\0", b"/mnt/bin/sftp-server\0", 0o755);
     copy_file(b"/bin/sftp-server\0", b"/mnt/usr/libexec/sftp-server\0", 0o755);
 
     // 3. Копирование файлов ядра и загрузчика (/boot)

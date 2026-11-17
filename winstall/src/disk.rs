@@ -225,17 +225,22 @@ pub fn validate_partition_plan(plans: &[PartitionPlan], count: usize) -> Partiti
 
 // ─── Запись MBR и форматирование ─────────────────────────────────────────────
 
-/// Зачищает первые 64 сектора диска для удаления старых таблиц MBR/GPT/сигнатур
+/// Зачищает первые 64 сектора диска (32 КиБ) для удаления старых таблиц MBR/GPT/сигнатур
 pub fn wipe_disk_signatures(disk_path: &[u8]) -> bool {
     let fd = open(disk_path, O_RDWR as u64, 0);
     if fd < 0 { return false; }
 
-    let zero = [0u8; 512];
-    for sec in 0..64 {
-        let _ = pwrite64(fd as u64, &zero, sec * 512);
+    let zero = [0u8; 4096];
+    let mut ok = true;
+    for chunk in 0..8 {
+        let n = pwrite64(fd as u64, &zero, chunk * 4096);
+        if n != 4096 {
+            ok = false;
+            break;
+        }
     }
     close(fd as u64);
-    true
+    ok
 }
 
 /// Записывает MBR таблицу разделов в сектор 0 целевого диска
