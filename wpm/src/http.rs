@@ -352,7 +352,12 @@ pub fn fetch_to_file(
         null_target[..l].copy_from_slice(&b[..l]);
         null_target[l] = 0;
 
-        let out_fd = open(&null_target, (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o644);
+        let mut out_fd = open(&null_target, (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o666);
+        if out_fd < 0 {
+            // Если файл уже существовал и был защищен от перезаписи, пробуем удалить его и создать заново
+            let _ = libwunix::unlink(&null_target);
+            out_fd = open(&null_target, (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o666);
+        }
         if out_fd < 0 {
             close(fd as u64);
             pb.finish(false, "не удалось открыть файл для записи");

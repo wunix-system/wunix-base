@@ -104,7 +104,11 @@ pub fn copy_file(src: &str, dst: &str) -> bool {
     null_d[..l].copy_from_slice(&b[..l]);
     null_d[l] = 0;
 
-    let out_fd = open(&null_d, (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o644);
+    let mut out_fd = open(&null_d, (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o666);
+    if out_fd < 0 {
+        let _ = libwunix::unlink(&null_d);
+        out_fd = open(&null_d, (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o666);
+    }
     if out_fd < 0 {
         close(in_fd as u64);
         return false;
