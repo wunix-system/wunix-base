@@ -37,6 +37,14 @@ pub fn get_wpm_catalog() -> Vec<CatalogPackage> {
             size: "2.35 MiB".to_string(),
         },
         CatalogPackage {
+            name: "git".to_string(),
+            aliases: alloc::vec![],
+            version: "2.43.0".to_string(),
+            category: "applications".to_string(),
+            description: "Быстрая распределенная система управления версиями файлов Git".to_string(),
+            size: "1.84 MiB".to_string(),
+        },
+        CatalogPackage {
             name: "gzip".to_string(),
             aliases: alloc::vec!["gunzip".to_string()],
             version: "1.0.0".to_string(),
