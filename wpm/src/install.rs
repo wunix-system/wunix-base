@@ -440,7 +440,9 @@ pub fn locate_package_file_in(pkg: &str, root_opt: Option<&str>) -> Option<Strin
 
     candidates.push(format!("/var/cache/wpm/{}.wp", pkg_id));
     candidates.push(format!("/var/cache/wpm/{}-1.0.0.wp", pkg_id));
+    candidates.push(format!("/var/cache/wpm/{}-1.0.1.wp", pkg_id));
     candidates.push(format!("/var/lib/wpm/repo/apps/x86_64/{}.wp", pkg_id));
+    candidates.push(format!("/var/lib/wpm/repo/apps/x86_64/{}-1.0.1.wp", pkg_id));
     candidates.push(format!("/repo/apps/x86_64/{}.wp", pkg_id));
     candidates.push(format!("/repositories/apps/x86_64/{}.wp", pkg_id));
     candidates.push(format!("/usr/share/wpm/packages/{}.wp", pkg_id));
@@ -451,6 +453,7 @@ pub fn locate_package_file_in(pkg: &str, root_opt: Option<&str>) -> Option<Strin
             let r = root.trim_end_matches('/');
             candidates.push(format!("{}/var/cache/wpm/{}.wp", r, pkg_id));
             candidates.push(format!("{}/var/cache/wpm/{}-1.0.0.wp", r, pkg_id));
+            candidates.push(format!("{}/var/cache/wpm/{}-1.0.1.wp", r, pkg_id));
             candidates.push(format!("{}/var/lib/wpm/repo/apps/x86_64/{}.wp", r, pkg_id));
             candidates.push(format!("{}/repo/apps/x86_64/{}.wp", r, pkg_id));
             candidates.push(format!("{}/repositories/apps/x86_64/{}.wp", r, pkg_id));

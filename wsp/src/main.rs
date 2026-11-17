@@ -60,17 +60,22 @@ fn locate_system_package(pkg: &str, root_dir: &str) -> Option<alloc::string::Str
     let mut candidates = alloc::vec![
         alloc::format!("/var/cache/wsp/{}.wp", pkg),
         alloc::format!("/var/cache/wsp/{}-1.0.0.wp", pkg),
+        alloc::format!("/var/cache/wsp/{}-1.0.1.wp", pkg),
         alloc::format!("/var/lib/wsp/repo/system/x86_64/{}.wp", pkg),
         alloc::format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.0.wp", pkg),
+        alloc::format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.1.wp", pkg),
         alloc::format!("/repositories/system/x86_64/{}.wp", pkg),
         alloc::format!("/repositories/system/x86_64/{}-1.0.0.wp", pkg),
+        alloc::format!("/repositories/system/x86_64/{}-1.0.1.wp", pkg),
     ];
 
     if !root_dir.is_empty() && root_dir != "/" {
         let r = root_dir.trim_end_matches('/');
         candidates.push(alloc::format!("{}/var/cache/wsp/{}.wp", r, pkg));
         candidates.push(alloc::format!("{}/var/cache/wsp/{}-1.0.0.wp", r, pkg));
+        candidates.push(alloc::format!("{}/var/cache/wsp/{}-1.0.1.wp", r, pkg));
         candidates.push(alloc::format!("{}/var/lib/wsp/repo/system/x86_64/{}.wp", r, pkg));
+        candidates.push(alloc::format!("{}/var/lib/wsp/repo/system/x86_64/{}-1.0.1.wp", r, pkg));
     }
 
     let repo_pkgs = db::load_repo_packages(root_dir);
