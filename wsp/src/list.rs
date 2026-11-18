@@ -8,7 +8,11 @@ use crate::db::load_installed_packages;
 use crate::display::{print_error, COLOR_GREEN, COLOR_RED, COLOR_RESET};
 
 /// Выводит список установленных пакетов ядра и базы
-pub fn run_list(_upgradable_only: bool, critical_only: bool) -> i32 {
+pub fn run_list(upgradable_only: bool, critical_only: bool) -> i32 {
+    if upgradable_only {
+        return crate::audit::run_check(critical_only, false);
+    }
+
     let packages = load_installed_packages();
 
     println!("Реестр компонентов базовой системы и ядра Wunix:");

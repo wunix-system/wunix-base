@@ -113,6 +113,15 @@ fn do_update(root_prefix: Option<&str>, flag_quiet: bool) -> i32 {
                 installed.len(),
                 upgradable_count
             );
+            if upgradable_count > 0 {
+                println!(
+                    "  {}",
+                    t(
+                        "Для просмотра доступных обновлений выполните: wpm check",
+                        "Run 'wpm check' to view available updates."
+                    )
+                );
+            }
         } else {
             display::print_warning("синхронизация завершена с ошибками для некоторых источников.");
         }
@@ -143,6 +152,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let mut flag_quiet = false;
     let mut flag_verbose = false;
     let mut flag_reinstall = false;
+    let mut flag_upgradable = false;
     let mut flag_root: Option<&str> = None;
 
     // Pacman-флаги операций
@@ -184,6 +194,8 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             flag_quiet = true;
         } else if a == "--purge" {
             flag_purge = true;
+        } else if a == "-u" || a == "--upgradable" || a == "--updates" {
+            flag_upgradable = true;
         } else if a == "--reinstall" {
             flag_reinstall = true;
         } else if a == "--ignore-critical-unsafe" {
@@ -253,6 +265,8 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             Some("info")
         } else if has_mod_s {
             Some("search")
+        } else if has_mod_u {
+            Some("check")
         } else {
             Some("list")
         }
@@ -284,6 +298,9 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             display::print_version();
             0
         }
+        "check" | "updates" => {
+            list::run_check(flag_root)
+        }
         "update" => do_update(flag_root, flag_quiet),
         "upgrade" => {
             upgrade::run_upgrade(flag_root, flag_yes, flag_ignore_unsafe, flag_verbose)
@@ -307,7 +324,9 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             install::run_remove(rest, flag_purge, flag_yes)
         }
         "list" | "ls" => {
-            if let Some(root) = flag_root {
+            if flag_upgradable {
+                list::run_check(flag_root)
+            } else if let Some(root) = flag_root {
                 list::run_list_in(root)
             } else {
                 list::run_list()

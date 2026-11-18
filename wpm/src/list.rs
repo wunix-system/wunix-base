@@ -2,11 +2,39 @@
 
 extern crate alloc;
 use alloc::format;
-use libwunix::println;
+use libwunix::{println, t};
+use libpackwunix::version::Version;
 
 use crate::display::{print_error, COLOR_GREEN, COLOR_RESET};
 use crate::install::{load_installed_apps, load_installed_apps_from};
-use crate::search::load_wpm_catalog;
+use crate::search::{load_wpm_catalog, load_wpm_catalog_from};
+
+pub fn run_check(root_prefix: Option<&str>) -> i32 {
+    let root_str = root_prefix.unwrap_or("/");
+    let installed = load_installed_apps_from(root_str);
+    let catalog = load_wpm_catalog_from(root_str);
+
+    let mut count = 0;
+    for app in &installed {
+        let clean_ver = app.version.trim_start_matches(|c| c == 'v' || c == 'V');
+        let app_ver = Version::parse(clean_ver).unwrap_or(Version::new(0, 1, 0));
+        if let Some(cat_pkg) = catalog.iter().find(|p| p.name == app.name || p.aliases.iter().any(|a| a == &app.name)) {
+            let cat_clean = cat_pkg.version.trim_start_matches(|c| c == 'v' || c == 'V');
+            if let Ok(cat_ver) = Version::parse(cat_clean) {
+                if cat_ver.is_newer_than(&app_ver) {
+                    println!("- {:<16} v{} -> v{}", cat_pkg.name, app_ver, cat_ver);
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    if count == 0 {
+        println!("{}", t("wpm: все установленные программы обновлены до актуальных версий.", "wpm: all installed programs are up to date."));
+    }
+
+    0
+}
 
 pub fn run_list() -> i32 {
     run_list_in("/")

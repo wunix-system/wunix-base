@@ -110,6 +110,15 @@ fn do_update(root_dir: &str, flag_quiet: bool) -> i32 {
                     installed.len(),
                     upgradable_count
                 );
+                if upgradable_count > 0 {
+                    println!(
+                        "  {}",
+                        t(
+                            "Для просмотра доступных обновлений выполните: wsp check",
+                            "Run 'wsp check' to view available updates."
+                        )
+                    );
+                }
             }
             0
         }
@@ -144,6 +153,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let mut flag_files = false;
     let mut flag_quiet = false;
     let mut flag_reinstall = false;
+    let mut flag_upgradable = false;
     let mut flag_root: Option<&str> = None;
 
     // Pacman-флаги операций
@@ -190,6 +200,8 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             flag_dry_run = true;
         } else if a == "--json" {
             flag_json = true;
+        } else if a == "-u" || a == "--upgradable" || a == "--updates" {
+            flag_upgradable = true;
         } else if a == "-f" || a == "--files" {
             flag_files = true;
         } else if a == "-r" || a == "--root" {
@@ -254,6 +266,8 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     } else if has_q_op {
         if has_mod_i {
             Some("info")
+        } else if has_mod_u {
+            Some("check")
         } else {
             Some("list")
         }
@@ -289,7 +303,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             0
         }
         "audit" => audit::run_audit(flag_verify),
-        "check" => audit::run_check(flag_critical, flag_json),
+        "check" | "updates" => audit::run_check(flag_critical, flag_json),
         "update" => do_update(root_dir, flag_quiet),
         "upgrade" => {
             upgrade::run_upgrade(root_dir, flag_critical, flag_yes, flag_dry_run)
@@ -302,7 +316,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 res
             }
         }
-        "list" | "ls" => list::run_list(false, flag_critical),
+        "list" | "ls" => list::run_list(flag_upgradable, flag_critical),
         "info" => {
             if let Some(pkg) = extra_arg {
                 list::run_info(pkg, flag_files)

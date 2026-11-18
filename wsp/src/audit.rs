@@ -104,7 +104,8 @@ pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
     let mut details: alloc::vec::Vec<alloc::string::String> = alloc::vec::Vec::new();
 
     for inst in &installed {
-        let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(0, 1, 0));
+        let clean_ver = inst.version.trim_start_matches(|c| c == 'v' || c == 'V');
+        let inst_ver = Version::parse(clean_ver).unwrap_or(Version::new(0, 1, 0));
         if let Some(rp) = repo_packages.iter().find(|p| p.name == inst.name) {
             if rp.version.is_newer_than(&inst_ver) {
                 let is_critical = rp.tier == "critical" || rp.name == "wunix-kernel";
@@ -115,7 +116,7 @@ pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
                 if is_critical {
                     critical_count += 1;
                 }
-                details.push(format!("    - {:<16} {} -> {} [{}]", inst.name, inst.version, rp.version, rp.tier));
+                details.push(format!("- {:<16} v{} -> v{}", inst.name, inst_ver, rp.version));
             }
         }
     }
@@ -124,7 +125,7 @@ pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
         if let Some(rp) = repo_packages.iter().find(|p| p.name == "wunix-kernel") {
             updates_available += 1;
             critical_count += 1;
-            details.push(format!("    - {:<16} {} -> {} [critical]", "wunix-kernel", "0.1.0", rp.version));
+            details.push(format!("- {:<16} v{} -> v{}", "wunix-kernel", "0.1.0", rp.version));
         }
     }
 
@@ -137,31 +138,18 @@ pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
             println!("{{\"updates_available\": false, \"critical\": false, \"count\": 0}}");
         }
     } else if updates_available > 0 {
-        if critical_count > 0 {
-            println!("{}{}Внимание:{} {}", COLOR_BOLD, COLOR_YELLOW, COLOR_RESET, t("доступны критические системные обновления ядра!", "critical kernel updates are available!"));
-        } else {
-            println!("{}{}Доступны системные обновления WSP:{} ({} компонентов)", COLOR_BOLD, COLOR_GREEN, COLOR_RESET, updates_available);
-        }
         for d in &details {
             println!("{}", d);
-        }
-        println!();
-        if critical_count > 0 {
-            println!("  Выполните: sudo wsp upgrade --critical");
-        } else {
-            println!("  Выполните: sudo wsp upgrade");
         }
     } else if has_alert {
         println!("{}{}Внимание:{} {}", COLOR_BOLD, COLOR_YELLOW, COLOR_RESET, t("доступны критические системные обновления ядра!", "critical kernel updates are available!"));
         println!("  Выполните: sudo wsp upgrade --critical");
     } else if !critical_only {
-        println!("wsp: базовая система Wunix полностью актуальна.");
+        println!("{}", t("wsp: базовая система Wunix полностью актуальна.", "wsp: Wunix base system is completely up to date."));
     }
 
     if has_alert {
         2
-    } else if updates_available > 0 {
-        1
     } else {
         0
     }
