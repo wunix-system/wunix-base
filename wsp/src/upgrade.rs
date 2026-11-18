@@ -176,11 +176,18 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
             let dest_path = format!("{}/{}", cache_dir, item.filename);
             println!("wsp: загрузка компонента '{}' ({}) для обновления...", item.name, format_size(item.size));
             let sha_opt = if item.sha256.is_empty() { None } else { Some(item.sha256.as_str()) };
-            if crate::http::fetch_to_file(&download_url, &dest_path, sha_opt, &item.filename).is_ok() {
-                if let Ok(d) = read_file_to_vec(&dest_path) {
-                    if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
-                        pkg_data = Some(d);
+            match crate::http::fetch_to_file(&download_url, &dest_path, sha_opt, &item.filename) {
+                Ok(_) => {
+                    if let Ok(d) = read_file_to_vec(&dest_path) {
+                        if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
+                            pkg_data = Some(d);
+                        } else {
+                            crate::display::print_error("поврежден контейнер загруженного пакета");
+                        }
                     }
+                }
+                Err(e) => {
+                    crate::display::print_error(&format!("ошибка сети при загрузке: {:?}", e));
                 }
             }
         }

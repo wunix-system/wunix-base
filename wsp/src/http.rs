@@ -390,6 +390,12 @@ fn fetch_to_file_single(
         let content_len = parse_content_length(hdr_str);
         let mut pb = ProgressBar::new(display_name, content_len);
 
+        if let Some(idx) = target_path.rfind('/') {
+            if idx > 0 {
+                crate::db::ensure_dir_recursive(&target_path[..idx]);
+            }
+        }
+
         let mut null_target = [0u8; 256];
         let b = target_path.as_bytes();
         let l = b.len().min(255);
@@ -403,7 +409,8 @@ fn fetch_to_file_single(
         }
         if out_fd < 0 {
             close(fd as u64);
-            pb.finish(false, "не удалось открыть файл для записи");
+            let err_msg = format!("не удалось открыть файл '{}' для записи (код {})", target_path, out_fd);
+            pb.finish(false, &err_msg);
             return Err(HttpError::IoError);
         }
 
