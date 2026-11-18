@@ -46,7 +46,7 @@ pub fn check_system_updates(verbose: bool) -> CheckResult {
     // Проверяем наличие обновленных пакетов в локальном репозитории и кэше WSP
     for pkg in &installed {
         if let Some(repo_pkg) = repo_packages.iter().find(|rp| rp.name == pkg.name) {
-            if repo_pkg.version > pkg.version {
+            if repo_pkg.version.is_newer_than(&pkg.version) {
                 result.updates_available += 1;
                 let is_critical = pkg.tier == "critical" || pkg.name == "wunix-kernel";
                 if is_critical {

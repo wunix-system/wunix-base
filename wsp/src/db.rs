@@ -205,7 +205,7 @@ pub fn load_installed_packages_from(root: &str) -> Vec<SystemPackageEntry> {
                     0,
                     SystemPackageEntry {
                         name: "wunix-kernel".to_string(),
-                        version: "1.0.0".to_string(),
+                        version: "0.1.0".to_string(),
                         tier: "critical".to_string(),
                         description: "Монолитное ядро Wunix с VFS и вытесняющим планировщиком процессов".to_string(),
                         files: alloc::vec![
@@ -296,7 +296,7 @@ pub fn get_default_base_packages() -> Vec<SystemPackageEntry> {
     vec![
         SystemPackageEntry {
             name: "wunix-kernel".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.1.0".to_string(),
             tier: "critical".to_string(),
             description: "Монолитное ядро Wunix с VFS и вытесняющим планировщиком процессов".to_string(),
             files: vec![
@@ -306,7 +306,7 @@ pub fn get_default_base_packages() -> Vec<SystemPackageEntry> {
         },
         SystemPackageEntry {
             name: "libwunix".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.1.0".to_string(),
             tier: "critical".to_string(),
             description: "Базовый системный рантайм и API системных вызовов Ring 3".to_string(),
             files: vec![
@@ -315,7 +315,7 @@ pub fn get_default_base_packages() -> Vec<SystemPackageEntry> {
         },
         SystemPackageEntry {
             name: "libpackwunix".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.1.0".to_string(),
             tier: "critical".to_string(),
             description: "Библиотека контейнеров .wp и управления пакетами WSP/WPM".to_string(),
             files: vec![
@@ -324,7 +324,7 @@ pub fn get_default_base_packages() -> Vec<SystemPackageEntry> {
         },
         SystemPackageEntry {
             name: "libcwunix".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.1.0".to_string(),
             tier: "base".to_string(),
             description: "Стандартная библиотека Си libc для программ Wunix".to_string(),
             files: vec![
@@ -333,7 +333,7 @@ pub fn get_default_base_packages() -> Vec<SystemPackageEntry> {
         },
         SystemPackageEntry {
             name: "wunix-base".to_string(),
-            version: "1.0.0".to_string(),
+            version: "0.1.0".to_string(),
             tier: "base".to_string(),
             description: "Базовый системный образ Wunix OS (init, wsh, wsp, wpm, wspd, shell)".to_string(),
             files: vec![

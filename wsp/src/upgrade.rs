@@ -42,9 +42,9 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
 
     let mut upgradable: Vec<UpgradableItem> = Vec::new();
     for inst in &installed {
-        let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(1, 0, 0));
+        let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(0, 1, 0));
         if let Some(repo_pkg) = repo_packages.iter().find(|p| p.name == inst.name) {
-            if repo_pkg.version > inst_ver {
+            if repo_pkg.version.is_newer_than(&inst_ver) {
                 if critical_only && repo_pkg.tier != "critical" && repo_pkg.name != "wunix-kernel" {
                     continue;
                 }
@@ -66,8 +66,8 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
             let fd = crate::db::open_c(&k_path, libwunix::O_RDONLY as u64, 0);
             if fd >= 0 {
                 libwunix::close(fd as u64);
-                let inst_ver = Version::new(1, 0, 0);
-                if repo_pkg.version > inst_ver {
+                let inst_ver = Version::new(0, 1, 0);
+                if repo_pkg.version.is_newer_than(&inst_ver) {
                     upgradable.push(UpgradableItem {
                         name: "wunix-kernel".to_string(),
                         old_version: inst_ver,

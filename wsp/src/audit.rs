@@ -75,9 +75,9 @@ pub fn run_audit(verify_files: bool) -> i32 {
         let repo_pkgs = load_repo_packages("");
         let mut listed = 0;
         for inst in &packages {
-            let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(1, 0, 0));
+            let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(0, 1, 0));
             if let Some(rp) = repo_pkgs.iter().find(|p| p.name == inst.name) {
-                if rp.version > inst_ver {
+                if rp.version.is_newer_than(&inst_ver) {
                     println!("    - {} {} -> {} [{}]", inst.name, inst.version, rp.version, rp.tier);
                     listed += 1;
                 }
@@ -104,9 +104,9 @@ pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
     let mut details: alloc::vec::Vec<alloc::string::String> = alloc::vec::Vec::new();
 
     for inst in &installed {
-        let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(1, 0, 0));
+        let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(0, 1, 0));
         if let Some(rp) = repo_packages.iter().find(|p| p.name == inst.name) {
-            if rp.version > inst_ver {
+            if rp.version.is_newer_than(&inst_ver) {
                 let is_critical = rp.tier == "critical" || rp.name == "wunix-kernel";
                 if critical_only && !is_critical {
                     continue;
@@ -124,7 +124,7 @@ pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
         if let Some(rp) = repo_packages.iter().find(|p| p.name == "wunix-kernel") {
             updates_available += 1;
             critical_count += 1;
-            details.push(format!("    - {:<16} {} -> {} [critical]", "wunix-kernel", "1.0.0", rp.version));
+            details.push(format!("    - {:<16} {} -> {} [critical]", "wunix-kernel", "0.1.0", rp.version));
         }
     }
 
