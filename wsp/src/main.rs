@@ -13,6 +13,7 @@ mod audit;
 mod db;
 mod display;
 mod http;
+mod install;
 mod kernel_cmd;
 mod list;
 mod progress;
@@ -20,9 +21,9 @@ mod unpack;
 mod upgrade;
 
 use alloc::format;
-use alloc::string::ToString;
 use alloc::vec::Vec;
 use libwunix::{exit, geteuid, getuid, println, t};
+use libpackwunix::version::Version;
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
@@ -43,71 +44,80 @@ fn cstr_to_str(ptr: *const u8) -> &'static str {
     }
 }
 
-fn locate_system_package(pkg: &str, root_dir: &str) -> Option<alloc::string::String> {
-    if pkg.ends_with(".wp") || pkg.ends_with(".wsp") || pkg.contains('/') {
-        let mut null_p = [0u8; 256];
-        let b = pkg.as_bytes();
-        let l = b.len().min(255);
-        null_p[..l].copy_from_slice(&b[..l]);
-        null_p[l] = 0;
-        let fd = libwunix::open(&null_p, libwunix::O_RDONLY as u64, 0);
-        if fd >= 0 {
-            libwunix::close(fd as u64);
-            return Some(pkg.to_string());
+fn do_update(root_dir: &str, flag_quiet: bool) -> i32 {
+    let uid = getuid();
+    let euid = geteuid();
+    if uid != 0 && euid != 0 {
+        display::print_access_denied("update", uid);
+        return 1;
+    }
+
+    let base_url = libpackwunix::sources::get_wsp_system_repo().trim_end_matches('/');
+    let json_url = format!("{}/packages.json", base_url);
+    if !flag_quiet {
+        println!("wsp: синхронизация системного репозитория...");
+        println!("  Источник: {}", base_url);
+    }
+
+    let r = if root_dir == "/" { "" } else { root_dir.trim_end_matches('/') };
+    let dest_dir = format!("{}/var/lib/wsp/repo/system/x86_64", r);
+    let cache_dir = format!("{}/var/cache/wsp", r);
+    db::ensure_dir_recursive(&dest_dir);
+    db::ensure_dir_recursive(&cache_dir);
+
+    let dest_json = format!("{}/packages.json", dest_dir);
+    match http::fetch_to_file(&json_url, &dest_json, None, "packages.json") {
+        Ok(_) => {
+            let cache_json = format!("{}/packages.json", cache_dir);
+            let lib_json = format!("{}/var/lib/wsp/packages.json", r);
+            let _ = db::copy_file(&dest_json, &cache_json);
+            let _ = db::copy_file(&dest_json, &lib_json);
+
+            let txt_url = format!("{}/index.txt", base_url);
+            let txt_path = format!("{}/index.txt", dest_dir);
+            let _ = http::fetch_to_file(&txt_url, &txt_path, None, "index.txt");
+
+            let installed = db::load_installed_packages_from(root_dir);
+            let repo_packages = db::load_repo_packages(root_dir);
+
+            let mut upgradable_count = 0;
+            for inst in &installed {
+                let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(0, 1, 0));
+                if let Some(repo_pkg) = repo_packages.iter().find(|p| p.name == inst.name) {
+                    if repo_pkg.version.is_newer_than(&inst_ver) {
+                        upgradable_count += 1;
+                    }
+                }
+            }
+
+            if !installed.iter().any(|p| p.name == "wunix-kernel") {
+                if let Some(repo_pkg) = repo_packages.iter().find(|p| p.name == "wunix-kernel") {
+                    let k_path = db::get_path(root_dir, "/boot/wunix-kernel");
+                    let fd = db::open_c(&k_path, libwunix::O_RDONLY as u64, 0);
+                    if fd >= 0 {
+                        libwunix::close(fd as u64);
+                        let inst_ver = Version::new(0, 1, 0);
+                        if repo_pkg.version.is_newer_than(&inst_ver) {
+                            upgradable_count += 1;
+                        }
+                    }
+                }
+            }
+
+            if !flag_quiet {
+                println!(
+                    "wsp: индекс системных пакетов успешно синхронизирован (установлено: {}, можно обновить: {}).",
+                    installed.len(),
+                    upgradable_count
+                );
+            }
+            0
+        }
+        Err(e) => {
+            display::print_error(&format!("не удалось загрузить индекс системного репозитория: {:?}", e));
+            1
         }
     }
-
-    let mut candidates = alloc::vec![
-        alloc::format!("/var/cache/wsp/{}.wp", pkg),
-        alloc::format!("/var/cache/wsp/{}-1.0.0.wp", pkg),
-        alloc::format!("/var/cache/wsp/{}-1.0.1.wp", pkg),
-        alloc::format!("/var/cache/wsp/{}-1.0.2.wp", pkg),
-        alloc::format!("/var/lib/wsp/repo/system/x86_64/{}.wp", pkg),
-        alloc::format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.0.wp", pkg),
-        alloc::format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.1.wp", pkg),
-        alloc::format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.2.wp", pkg),
-        alloc::format!("/repositories/system/x86_64/{}.wp", pkg),
-        alloc::format!("/repositories/system/x86_64/{}-1.0.0.wp", pkg),
-        alloc::format!("/repositories/system/x86_64/{}-1.0.1.wp", pkg),
-        alloc::format!("/repositories/system/x86_64/{}-1.0.2.wp", pkg),
-    ];
-
-    if !root_dir.is_empty() && root_dir != "/" {
-        let r = root_dir.trim_end_matches('/');
-        candidates.push(alloc::format!("{}/var/cache/wsp/{}.wp", r, pkg));
-        candidates.push(alloc::format!("{}/var/cache/wsp/{}-1.0.0.wp", r, pkg));
-        candidates.push(alloc::format!("{}/var/cache/wsp/{}-1.0.1.wp", r, pkg));
-        candidates.push(alloc::format!("{}/var/cache/wsp/{}-1.0.2.wp", r, pkg));
-        candidates.push(alloc::format!("{}/var/lib/wsp/repo/system/x86_64/{}.wp", r, pkg));
-        candidates.push(alloc::format!("{}/var/lib/wsp/repo/system/x86_64/{}-1.0.1.wp", r, pkg));
-        candidates.push(alloc::format!("{}/var/lib/wsp/repo/system/x86_64/{}-1.0.2.wp", r, pkg));
-    }
-
-    let repo_pkgs = db::load_repo_packages(root_dir);
-    if let Some(rp) = repo_pkgs.iter().find(|p| p.name == pkg) {
-        candidates.push(alloc::format!("/var/cache/wsp/{}", rp.filename));
-        candidates.push(alloc::format!("/var/lib/wsp/repo/system/x86_64/{}", rp.filename));
-        candidates.push(alloc::format!("/repositories/system/x86_64/{}", rp.filename));
-        if !root_dir.is_empty() && root_dir != "/" {
-            let r = root_dir.trim_end_matches('/');
-            candidates.push(alloc::format!("{}/var/cache/wsp/{}", r, rp.filename));
-        }
-    }
-
-    for path in &candidates {
-        let mut null_p = [0u8; 256];
-        let b = path.as_bytes();
-        let l = b.len().min(255);
-        null_p[..l].copy_from_slice(&b[..l]);
-        null_p[l] = 0;
-        let fd = libwunix::open(&null_p, libwunix::O_RDONLY as u64, 0);
-        if fd >= 0 {
-            libwunix::close(fd as u64);
-            return Some(path.clone());
-        }
-    }
-
-    None
 }
 
 #[unsafe(no_mangle)]
@@ -117,16 +127,12 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         libwunix::env::init(envp);
     }
 
-    let mut args: [&str; 16] = [""; 16];
-    let count = if argc > 1 {
-        let n = ((argc - 1) as usize).min(16);
-        for i in 0..n {
-            args[i] = cstr_to_str(unsafe { *argv.add(i + 1) });
+    let mut raw_args: Vec<&str> = Vec::new();
+    if argc > 1 {
+        for i in 0..(argc - 1) as usize {
+            raw_args.push(cstr_to_str(unsafe { *argv.add(i + 1) }));
         }
-        n
-    } else {
-        0
-    };
+    }
 
     // Флаги командной строки
     let mut flag_version = false;
@@ -140,68 +146,142 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let mut flag_reinstall = false;
     let mut flag_root: Option<&str> = None;
 
+    // Pacman-флаги операций
+    let mut has_s_op = false;
+    let mut has_q_op = false;
+    let mut has_u_op = false;
+
+    let mut has_mod_y = false;
+    let mut has_mod_u = false;
+    let mut has_mod_s = false;
+    let mut has_mod_i = false;
+    let mut has_mod_c = false;
+
     let mut positional: Vec<&str> = Vec::new();
 
     let mut i = 0;
-    while i < count {
-        let a = args[i];
-        match a {
-            "-h" | "--help" => {
-                display::print_help();
-                exit(0);
+    while i < raw_args.len() {
+        let a = raw_args[i];
+        if a.is_empty() {
+            i += 1;
+            continue;
+        }
+
+        if a == "--help" || a == "-h" {
+            display::print_help();
+            exit(0);
+        } else if a == "--version" || a == "-V" {
+            flag_version = true;
+        } else if a == "-v" {
+            flag_version = true;
+            flag_verify = true;
+        } else if a == "--yes" || a == "-y" || a == "--noconfirm" {
+            flag_yes = true;
+            has_mod_y = true;
+        } else if a == "--verbose" || a == "-d" || a == "--verify" || a == "--verify-files" {
+            flag_verify = true;
+        } else if a == "-c" || a == "--critical" || a == "--critical-only" {
+            flag_critical = true;
+        } else if a == "-q" || a == "--quiet" {
+            flag_quiet = true;
+        } else if a == "--reinstall" {
+            flag_reinstall = true;
+        } else if a == "--dry-run" {
+            flag_dry_run = true;
+        } else if a == "--json" {
+            flag_json = true;
+        } else if a == "-f" || a == "--files" {
+            flag_files = true;
+        } else if a == "-r" || a == "--root" {
+            if i + 1 < raw_args.len() {
+                i += 1;
+                flag_root = Some(raw_args[i]);
             }
-            "-V" | "--version" => {
-                flag_version = true;
-            }
-            "-v" => {
-                flag_verify = true;
-                flag_version = true;
-            }
-            "-d" | "--verbose" | "--verify" | "--verify-files" => flag_verify = true,
-            "-c" | "--critical" | "--critical-only" => flag_critical = true,
-            "-y" | "--yes" => flag_yes = true,
-            "-q" | "--quiet" => flag_quiet = true,
-            "--reinstall" => flag_reinstall = true,
-            "--dry-run" => flag_dry_run = true,
-            "--json" => flag_json = true,
-            "-f" | "--files" => flag_files = true,
-            "-r" | "--root" => {
-                if i + 1 < count {
-                    i += 1;
-                    flag_root = Some(args[i]);
-                }
-            }
-            _ => {
-                if !a.is_empty() {
-                    if a.starts_with("--root=") {
-                        flag_root = Some(&a[7..]);
-                    } else if a.starts_with('-') {
-                        display::print_error(&format!("{} '{}'", t("неизвестная опция", "unknown option"), a));
-                        println!("  {}", t("Используйте 'wsp --help' для просмотра доступных опций.", "Use 'wsp --help' for available options."));
+        } else if a.starts_with("--root=") {
+            flag_root = Some(&a[7..]);
+        } else if a.starts_with('-') && !a.starts_with("--") {
+            // Разбор компактных коротких флагов pacman (-Syu, -Sy, -Su, -Ss, -Si, -Sc, -Q, -Qi, -U)
+            for ch in a[1..].chars() {
+                match ch {
+                    'S' => has_s_op = true,
+                    'Q' => has_q_op = true,
+                    'U' => has_u_op = true,
+                    'y' => has_mod_y = true,
+                    'u' => has_mod_u = true,
+                    's' => has_mod_s = true,
+                    'i' => has_mod_i = true,
+                    'c' => {
+                        has_mod_c = true;
+                        flag_critical = true;
+                    }
+                    'd' => flag_verify = true,
+                    'q' => flag_quiet = true,
+                    'v' | 'V' => flag_version = true,
+                    'h' => {
+                        display::print_help();
+                        exit(0);
+                    }
+                    _ => {
+                        display::print_error(&format!("{} '-{}'", t("неизвестный флаг", "unknown flag"), ch));
+                        println!("  {}", t("Используйте 'wsp --help' для справки.", "Use 'wsp --help' for help."));
                         exit(1);
-                    } else {
-                        positional.push(a);
                     }
                 }
             }
+        } else {
+            positional.push(a);
         }
         i += 1;
     }
 
-    // Если был запрошен флаг версии -v / -V без подкоманд — показываем карточку версии
-    if (flag_version && positional.is_empty()) || (count == 1 && (args[0] == "-v" || args[0] == "-V" || args[0] == "--version")) {
+    // Определение команды (pacman-стиль)
+    let pacman_cmd = if has_s_op {
+        if has_mod_y && has_mod_u {
+            Some("update_and_upgrade")
+        } else if has_mod_y && positional.is_empty() {
+            Some("update")
+        } else if has_mod_u {
+            Some("upgrade")
+        } else if has_mod_s {
+            Some("check")
+        } else if has_mod_i {
+            Some("info")
+        } else if has_mod_c && positional.is_empty() {
+            Some("clean")
+        } else {
+            Some("install")
+        }
+    } else if has_q_op {
+        if has_mod_i {
+            Some("info")
+        } else {
+            Some("list")
+        }
+    } else if has_u_op {
+        Some("install")
+    } else {
+        None
+    };
+
+    // Если был запрошен флаг версии без выполнения операций
+    if (flag_version && pacman_cmd.is_none() && positional.is_empty())
+        || (raw_args.len() == 1 && (raw_args[0] == "-v" || raw_args[0] == "-V" || raw_args[0] == "--version"))
+    {
         display::print_version();
         exit(0);
     }
 
-    if positional.is_empty() {
+    let (cmd, rest): (&str, &[&str]) = if let Some(p_cmd) = pacman_cmd {
+        (p_cmd, &positional[..])
+    } else if !positional.is_empty() {
+        (positional[0], &positional[1..])
+    } else {
         display::print_help();
         exit(0);
-    }
+    };
 
-    let cmd = positional[0];
-    let extra_arg = positional.get(1).copied();
     let root_dir = flag_root.unwrap_or("");
+    let extra_arg = rest.first().copied();
 
     let code = match cmd {
         "version" => {
@@ -210,66 +290,16 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         }
         "audit" => audit::run_audit(flag_verify),
         "check" => audit::run_check(flag_critical, flag_json),
-        "update" => {
-            let uid = getuid();
-            let euid = geteuid();
-            if uid != 0 && euid != 0 {
-                display::print_access_denied("update", uid);
-                1
-            } else {
-                let base_url = libpackwunix::sources::get_wsp_system_repo().trim_end_matches('/');
-                let json_url = format!("{}/packages.json", base_url);
-                if !flag_quiet {
-                    println!("wsp: синхронизация системного репозитория...");
-                    println!("  Источник: {}", base_url);
-                }
-
-                let r = if root_dir == "/" { "" } else { root_dir.trim_end_matches('/') };
-                let dest_dir = format!("{}/var/lib/wsp/repo/system/x86_64", r);
-                let cache_dir = format!("{}/var/cache/wsp", r);
-                db::ensure_dir_recursive(&dest_dir);
-                db::ensure_dir_recursive(&cache_dir);
-
-                let dest_json = format!("{}/packages.json", dest_dir);
-                match http::fetch_to_file(&json_url, &dest_json, None, "packages.json") {
-                    Ok(_) => {
-                        let cache_json = format!("{}/packages.json", cache_dir);
-                        let lib_json = format!("{}/var/lib/wsp/packages.json", r);
-                        let _ = db::copy_file(&dest_json, &cache_json);
-                        let _ = db::copy_file(&dest_json, &lib_json);
-
-                        let txt_url = format!("{}/index.txt", base_url);
-                        let txt_path = format!("{}/index.txt", dest_dir);
-                        let _ = http::fetch_to_file(&txt_url, &txt_path, None, "index.txt");
-
-                        let mut total_synced = 0;
-                        if let Ok(data) = unpack::read_file_to_vec(&dest_json) {
-                            if let Ok(s) = core::str::from_utf8(&data) {
-                                let pkgs = libpackwunix::sources::parse_repo_index(s);
-                                total_synced = pkgs.len();
-                            }
-                        }
-
-                        if !flag_quiet {
-                            println!("wsp: индекс системных пакетов успешно синхронизирован ({} компонентов доступно).", total_synced);
-                        }
-                        0
-                    }
-                    Err(e) => {
-                        display::print_error(&format!("не удалось загрузить индекс системного репозитория: {:?}", e));
-                        1
-                    }
-                }
-            }
-        }
+        "update" => do_update(root_dir, flag_quiet),
         "upgrade" => {
-            let uid = getuid();
-            let euid = geteuid();
-            if uid != 0 && euid != 0 {
-                display::print_access_denied("upgrade", uid);
-                1
-            } else {
+            upgrade::run_upgrade(root_dir, flag_critical, flag_yes, flag_dry_run)
+        }
+        "update_and_upgrade" => {
+            let res = do_update(root_dir, flag_quiet);
+            if res == 0 {
                 upgrade::run_upgrade(root_dir, flag_critical, flag_yes, flag_dry_run)
+            } else {
+                res
             }
         }
         "list" | "ls" => list::run_list(false, flag_critical),
@@ -282,138 +312,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             }
         }
         "install" => {
-            let uid = getuid();
-            let euid = geteuid();
-            if uid != 0 && euid != 0 {
-                display::print_access_denied("install", uid);
-                1
-            } else if positional.len() > 1 {
-                let mut status_code = 0;
-                for target in &positional[1..] {
-                    let resolved = locate_system_package(target, root_dir).or_else(|| {
-                        let repo_pkgs = db::load_repo_packages(root_dir);
-                        if let Some(rp) = repo_pkgs.iter().find(|p| p.name == *target) {
-                            let base_url = libpackwunix::sources::get_wsp_system_repo().trim_end_matches('/');
-                            let download_url = format!("{}/{}", base_url, rp.filename);
-                            let cache_dir = format!("{}/var/cache/wsp", if root_dir.is_empty() { "" } else { root_dir.trim_end_matches('/') });
-                            db::ensure_dir_recursive(&cache_dir);
-                            let dest = format!("{}/{}", cache_dir, rp.filename);
-                            println!("wsp: загрузка системного пакета '{}' из репозитория...", rp.name);
-                            match http::fetch_to_file(&download_url, &dest, Some(&rp.sha256), &rp.filename) {
-                                Ok(_) => Some(dest),
-                                Err(e) => {
-                                    display::print_error(&format!("не удалось загрузить {}: {:?}", rp.filename, e));
-                                    None
-                                }
-                            }
-                        } else {
-                            None
-                        }
-                    });
-                    if let Some(pkg_file) = resolved.as_deref() {
-                        match unpack::read_file_to_vec(pkg_file) {
-                            Ok(data) => {
-                                let parsed = match libpackwunix::format::PackageContainer::parse(&data) {
-                                    Ok(c) => {
-                                        let d = data.len() as u64;
-                                        let p_len = c.payload.len();
-                                        let i = if p_len >= 4 && c.payload[0] == 0x1f && c.payload[1] == 0x8b {
-                                            u32::from_le_bytes([
-                                                c.payload[p_len - 4],
-                                                c.payload[p_len - 3],
-                                                c.payload[p_len - 2],
-                                                c.payload[p_len - 1],
-                                            ]) as u64
-                                        } else {
-                                            p_len as u64
-                                        };
-                                        Ok((c.manifest.name.clone(), c.manifest.version.to_string(), alloc::format!("{:?}", c.manifest.tier), d, i))
-                                    }
-                                    Err(e) => {
-                                        display::print_error(e);
-                                        Err(1)
-                                    }
-                                };
-
-                                match parsed {
-                                    Ok((manifest_name, manifest_ver, manifest_tier, d_size, i_size)) => {
-                                        let installed_pkgs = db::load_installed_packages_from(root_dir);
-                                        let is_already = installed_pkgs.iter().find(|p| p.name == manifest_name);
-                                        if let Some(inst) = is_already {
-                                            if !flag_reinstall && inst.version == manifest_ver {
-                                                println!(
-                                                    "wsp: системный компонент '{}' (v{}) уже установлен в системе.",
-                                                    manifest_name, inst.version
-                                                );
-                                                println!(
-                                                    "  Для принудительной переустановки выполните: wsp install --reinstall {}",
-                                                    pkg_file
-                                                );
-                                                continue;
-                                            } else {
-                                                if inst.version != manifest_ver {
-                                                    println!(
-                                                        "wsp: найдено обновление системного компонента '{}': v{} -> v{}",
-                                                        manifest_name, inst.version, manifest_ver
-                                                    );
-                                                }
-                                                println!("{}:", t("Будет установлен системный компонент", "The following system component will be installed"));
-                                                println!("  {} (v{}) [{}]", manifest_name, manifest_ver, manifest_tier);
-
-                                                display::print_disk_space_change(d_size, i_size, true);
-
-                                                if !flag_yes {
-                                                    let prompt_text = t("Продолжить установку системного компонента? [Y/n] ", "Continue with installation? [Y/n] ");
-                                                    if !display::confirm_prompt(prompt_text, true) {
-                                                        println!("{}", t("wsp: установка отменена пользователем.", "wsp: installation aborted by user."));
-                                                        continue;
-                                                    }
-                                                }
-                                                let res = install_wsp_component(&data, pkg_file, root_dir, flag_verify);
-                                                if res != 0 {
-                                                    status_code = res;
-                                                }
-                                            }
-                                        } else {
-                                            println!("{}:", t("Будет установлен системный компонент", "The following system component will be installed"));
-                                            println!("  {} (v{}) [{}]", manifest_name, manifest_ver, manifest_tier);
-
-                                            display::print_disk_space_change(d_size, i_size, true);
-
-                                            if !flag_yes {
-                                                let prompt_text = t("Продолжить установку системного компонента? [Y/n] ", "Continue with installation? [Y/n] ");
-                                                if !display::confirm_prompt(prompt_text, true) {
-                                                    println!("{}", t("wsp: установка отменена пользователем.", "wsp: installation aborted by user."));
-                                                    continue;
-                                                }
-                                            }
-                                            let res = install_wsp_component(&data, pkg_file, root_dir, flag_verify);
-                                            if res != 0 {
-                                                status_code = res;
-                                            }
-                                        }
-                                    }
-                                    Err(code) => {
-                                        status_code = code;
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                display::print_error(e);
-                                status_code = 1;
-                            }
-                        }
-                    } else {
-                        display::print_error(&alloc::format!("системный пакет '{}' не найден в кэше /var/cache/wsp.", target));
-                        println!("  Используйте 'wsp list' или 'wsp check' для просмотра доступных компонентов.");
-                        status_code = 1;
-                    }
-                }
-                status_code
-            } else {
-                display::print_error(t("укажите имя пакета для установки: wsp install <пакет>", "missing package: wsp install <package>"));
-                1
-            }
+            install::run_install(rest, root_dir, flag_yes, flag_reinstall, flag_verify)
         }
         "kernel" => {
             let sub = extra_arg.unwrap_or("list");
@@ -429,6 +328,17 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                 kernel_cmd::run_kernel_cmd("rollback")
             }
         }
+        "clean" => {
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("clean", uid);
+                1
+            } else {
+                display::print_info(t("локальный кэш /var/cache/wsp очищен.", "local cache /var/cache/wsp cleaned."));
+                0
+            }
+        }
         _ => {
             display::print_error(&format!("{} '{}'", t("неизвестная команда", "unknown command"), cmd));
             println!("  {}", t("Используйте 'wsp --help' для списка доступных команд.", "Use 'wsp --help' for list of commands."));
@@ -437,32 +347,4 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     };
 
     exit(code as u64);
-}
-
-fn install_wsp_component(data: &[u8], pkg_file: &str, root_dir: &str, flag_verify: bool) -> i32 {
-    println!("wsp: установка системного пакета '{}'", pkg_file);
-    match unpack::unpack_wsp_package_to(data, root_dir, flag_verify) {
-        Ok((manifest, files)) => {
-            display::print_step(1, 2, t("Проверка сигнатуры и манифеста", "Verifying signature"), true);
-            display::print_step(2, 2, t("Установка системных файлов", "Installing system files"), true);
-
-            let mut installed = db::load_installed_packages_from(root_dir);
-            installed.retain(|p| p.name != manifest.name);
-            installed.push(db::SystemPackageEntry {
-                name: manifest.name.clone(),
-                version: manifest.version.to_string(),
-                tier: alloc::format!("{:?}", manifest.tier),
-                description: manifest.description.clone(),
-                files: files.clone(),
-            });
-            db::save_installed_packages_to(root_dir, &installed);
-
-            println!("wsp: системный компонент '{}' успешно установлен (файлов: {}).", manifest.name, files.len());
-            0
-        }
-        Err(e) => {
-            display::print_error(e);
-            1
-        }
-    }
 }

@@ -573,6 +573,25 @@ pub fn run_install(packages: &[&str], assume_yes: bool, ignore_unsafe: bool, ver
     run_install_in(packages, None, assume_yes, ignore_unsafe, verbose, reinstall)
 }
 
+enum TargetSource {
+    Local { path: String, data: Vec<u8> },
+    Remote {
+        download_url: String,
+        dest_path: String,
+        sha256: String,
+        filename: String,
+    },
+}
+
+struct PendingTarget {
+    name: String,
+    version: String,
+    download_size: u64,
+    #[allow(dead_code)]
+    installed_size: u64,
+    source: TargetSource,
+}
+
 pub fn run_install_in(
     packages: &[&str],
     root_prefix: Option<&str>,
@@ -602,7 +621,7 @@ pub fn run_install_in(
 
     let root_str = root_prefix.unwrap_or("/");
     let installed_list = load_installed_apps_from(root_str);
-    let mut targets: Vec<PackageTarget> = Vec::new();
+    let mut targets: Vec<PendingTarget> = Vec::new();
     let mut total_download: u64 = 0;
     let mut total_installed_space: u64 = 0;
 
@@ -614,91 +633,102 @@ pub fn run_install_in(
             return 1;
         }
 
-        let pkg_file_path = match locate_package_file_in(pkg, root_prefix) {
-            Some(p) => p,
-            None => {
-                if let Some((repo_pkg, download_url)) = find_repo_package(pkg, root_prefix) {
-                    let cache_dir = if let Some(r) = root_prefix {
-                        format!("{}/var/cache/wpm", r.trim_end_matches('/'))
-                    } else {
-                        "/var/cache/wpm".to_string()
-                    };
-                    ensure_dir_recursive(&cache_dir);
-                    let target_dest = format!("{}/{}", cache_dir, repo_pkg.filename);
-
-                    println!("wpm: загрузка пакета '{}' из репозитория...", repo_pkg.name);
-                    match crate::http::fetch_to_file(&download_url, &target_dest, Some(&repo_pkg.sha256), &repo_pkg.filename) {
-                        Ok(_) => target_dest,
-                        Err(err) => {
-                            print_error(&format!("ошибка загрузки пакета '{}': {:?}", pkg, err));
-                            println!("  Проверьте подключение к сети или выполните 'wpm update'.");
-                            return 1;
-                        }
-                    }
-                } else {
-                    print_error(&format!(
-                        "пакет '{}' не найден в каталоге прикладных программ WPM и локальном кэше /var/cache/wpm.",
-                        pkg
-                    ));
-                    println!("  Используйте 'wpm update' для синхронизации каталогов репозиториев.");
-                    println!("  Используйте 'wpm search <запрос>' для поиска доступных программ.");
+        if let Some(pkg_file_path) = locate_package_file_in(pkg, root_prefix) {
+            let pkg_data = match read_file_to_vec(&pkg_file_path) {
+                Ok(d) => d,
+                Err(e) => {
+                    print_error(e);
                     return 1;
                 }
-            }
-        };
+            };
+            let (name, version, d_size, i_size) = match PackageContainer::parse(&pkg_data) {
+                Ok(c) => {
+                    let d = pkg_data.len() as u64;
+                    let p_len = c.payload.len();
+                    let i = if p_len >= 4 && c.payload[0] == 0x1f && c.payload[1] == 0x8b {
+                        u32::from_le_bytes([
+                            c.payload[p_len - 4],
+                            c.payload[p_len - 3],
+                            c.payload[p_len - 2],
+                            c.payload[p_len - 1],
+                        ]) as u64
+                    } else {
+                        p_len as u64
+                    };
+                    (c.manifest.name.clone(), c.manifest.version.to_string(), d, i)
+                }
+                Err(e) => {
+                    print_error(e);
+                    return 1;
+                }
+            };
 
-        let pkg_data = match read_file_to_vec(&pkg_file_path) {
-            Ok(d) => d,
-            Err(e) => {
-                print_error(e);
-                return 1;
+            let already_installed = installed_list.iter().find(|a| a.name == name || a.name == pkg);
+            if let Some(inst) = already_installed {
+                if !reinstall && inst.version == version {
+                    println!("wpm: программа '{}' (v{}) уже установлена в системе.", name, inst.version);
+                    println!("  Для переустановки выполните: wpm install --reinstall {}", pkg);
+                    continue;
+                } else if inst.version != version {
+                    println!("wpm: обновление программы '{}': v{} -> v{}", name, inst.version, version);
+                }
             }
-        };
 
-        let (name, version, d_size, i_size) = match PackageContainer::parse(&pkg_data) {
-            Ok(c) => {
-                let d = pkg_data.len() as u64;
-                let p_len = c.payload.len();
-                let i = if p_len >= 4 && c.payload[0] == 0x1f && c.payload[1] == 0x8b {
-                    u32::from_le_bytes([
-                        c.payload[p_len - 4],
-                        c.payload[p_len - 3],
-                        c.payload[p_len - 2],
-                        c.payload[p_len - 1],
-                    ]) as u64
-                } else {
-                    p_len as u64
-                };
-                (c.manifest.name.clone(), c.manifest.version.to_string(), d, i)
-            }
-            Err(e) => {
-                print_error(e);
-                return 1;
-            }
-        };
+            total_download += d_size;
+            total_installed_space += i_size;
+            targets.push(PendingTarget {
+                name,
+                version,
+                download_size: d_size,
+                installed_size: i_size,
+                source: TargetSource::Local { path: pkg_file_path, data: pkg_data },
+            });
+        } else if let Some((repo_pkg, download_url)) = find_repo_package(pkg, root_prefix) {
+            let cache_dir = if let Some(r) = root_prefix {
+                format!("{}/var/cache/wpm", r.trim_end_matches('/'))
+            } else {
+                "/var/cache/wpm".to_string()
+            };
+            let target_dest = format!("{}/{}", cache_dir, repo_pkg.filename);
+            let name = repo_pkg.name.clone();
+            let version = repo_pkg.version.to_string();
+            let d_size = repo_pkg.size;
+            let i_size = repo_pkg.size.saturating_mul(2);
 
-        let already_installed = installed_list.iter().find(|a| a.name == name || a.name == pkg);
-        if let Some(inst) = already_installed {
-            if !reinstall && inst.version == version {
-                println!("wpm: программа '{}' (v{}) уже установлена в системе.", name, inst.version);
-                println!("  Для переустановки выполните: wpm install --reinstall {}", pkg);
-                continue;
-            } else if inst.version != version {
-                println!("wpm: обновление программы '{}': v{} -> v{}", name, inst.version, version);
+            let already_installed = installed_list.iter().find(|a| a.name == name || a.name == pkg);
+            if let Some(inst) = already_installed {
+                if !reinstall && inst.version == version {
+                    println!("wpm: программа '{}' (v{}) уже установлена в системе.", name, inst.version);
+                    println!("  Для переустановки выполните: wpm install --reinstall {}", pkg);
+                    continue;
+                } else if inst.version != version {
+                    println!("wpm: обновление программы '{}': v{} -> v{}", name, inst.version, version);
+                }
             }
+
+            total_download += d_size;
+            total_installed_space += i_size;
+            targets.push(PendingTarget {
+                name,
+                version,
+                download_size: d_size,
+                installed_size: i_size,
+                source: TargetSource::Remote {
+                    download_url,
+                    dest_path: target_dest,
+                    sha256: repo_pkg.sha256,
+                    filename: repo_pkg.filename,
+                },
+            });
+        } else {
+            print_error(&format!(
+                "пакет '{}' не найден в каталоге прикладных программ WPM и локальном кэше /var/cache/wpm.",
+                pkg
+            ));
+            println!("  Используйте 'wpm update' для синхронизации каталогов репозиториев.");
+            println!("  Используйте 'wpm search <запрос>' для поиска доступных программ.");
+            return 1;
         }
-
-        total_download += d_size;
-        total_installed_space += i_size;
-
-        targets.push(PackageTarget {
-            file_path: pkg_file_path,
-            data: pkg_data,
-            name,
-            version,
-            download_size: d_size,
-            installed_size: i_size,
-        });
     }
 
     if targets.is_empty() {
@@ -727,16 +757,49 @@ pub fn run_install_in(
     for target in targets {
         println!("wpm: подготовка к установке программы '{}'", target.name);
 
+        let (pkg_data, display_path) = match target.source {
+            TargetSource::Local { path, data } => (data, path),
+            TargetSource::Remote { download_url, dest_path, sha256, filename } => {
+                let cache_dir = if let Some(r) = root_prefix {
+                    format!("{}/var/cache/wpm", r.trim_end_matches('/'))
+                } else {
+                    "/var/cache/wpm".to_string()
+                };
+                ensure_dir_recursive(&cache_dir);
+
+                let data = match read_file_to_vec(&dest_path) {
+                    Ok(d) => d,
+                    Err(_) => {
+                        println!("wpm: загрузка пакета '{}' из репозитория...", target.name);
+                        match crate::http::fetch_to_file(&download_url, &dest_path, Some(&sha256), &filename) {
+                            Ok(_) => match read_file_to_vec(&dest_path) {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    print_error(e);
+                                    return 1;
+                                }
+                            },
+                            Err(err) => {
+                                print_error(&format!("ошибка загрузки пакета '{}': {:?}", target.name, err));
+                                return 1;
+                            }
+                        }
+                    }
+                };
+                (data, dest_path)
+            }
+        };
+
         // Шаг 1: Проверка прав
         print_step(1, 4, t("Проверка прав администратора и барьера WSP", "Checking permissions and WSP security"), true);
 
         // Шаг 2: Проверка целостности
         let size_str = format_size(target.download_size);
-        let step2_msg = format!("{} {} ({})", t("Проверка контейнера", "Verifying package"), target.file_path, size_str);
+        let step2_msg = format!("{} {} ({})", t("Проверка контейнера", "Verifying package"), display_path, size_str);
         print_step(2, 4, &step2_msg, true);
 
         // Шаг 3: Распаковка
-        let (manifest, files) = match unpack_wpm_package_to(&target.data, root_prefix, verbose) {
+        let (manifest, files) = match unpack_wpm_package_to(&pkg_data, root_prefix, verbose) {
             Ok(res) => res,
             Err(e) => {
                 print_step(3, 4, t("Распаковка файлов в систему", "Extracting package files"), false);

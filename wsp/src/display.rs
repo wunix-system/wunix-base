@@ -6,7 +6,6 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use libwunix::{print, println, read_line, t};
-use libpackwunix::sources::get_wsp_system_repo;
 
 pub const COLOR_RESET: &str = "\x1b[0m";
 pub const COLOR_BOLD: &str = "\x1b[1m";
@@ -99,53 +98,60 @@ pub fn confirm_prompt(prompt: &str, default_yes: bool) -> bool {
 
 pub fn print_version() {
     println!("wsp (Wunix System Package) 0.1-{} (x86_64)", env!("WUNIX_GIT_COMMIT"));
-    println!("  {:<18} {}", t("Платформа:", "Platform:"), "Wunix OS (Long Mode)");
-    println!("  {:<18} {}", t("Назначение:", "Scope:"), t("Ядро и базовые системные библиотеки Ring 3", "Monolithic kernel and base runtime"));
-    println!("  {:<18} {}", t("Формат пакетов:", "Format:"), "Wunix Package (.wp)");
-    println!("  {:<18} {} {}", t("Репозиторий:", "Repository:"), get_wsp_system_repo(), t("[встроенный, защищен]", "[builtin, immutable]"));
-    println!("  {:<18} {}", t("Конфигурация:", "Config:"), "/etc/wsp/wsp.conf");
 }
 
 pub fn print_help() {
     println!("{}", t(
         "Использование: wsp [ОПЦИИ]... [КОМАНДА] [АРГУМЕНТЫ]...\n\
          Системный диспетчер ядра и базовых компонентов .wp в ОС Wunix.\n\n\
-         Команды:\n\
-           audit                    Полный аудит ядра, файлов и безопасности\n\
-           check                    Быстрая проверка наличия обновлений ядра\n\
-           upgrade                  Применение обновлений ядра с созданием точки отката\n\
-           list                     Список установленных системных компонентов\n\
-           info <пакет>             Подробная информация о компоненте\n\
-           install <пакет.wp>       Установка системного компонента из файла .wp\n\
-           kernel [list|rollback]   Управление ядрами в каталоге /boot\n\
-           rollback                 Откат к предыдущей версии ядра\n\
-           update                   Синхронизация индекса системного репозитория\n\n\
+         Команды и короткие флаги (стиль pacman):\n\
+           -S, install <пакет>...       Установка системного компонента\n\
+           -Syu                         Синхронизация и обновление базы/ядра\n\
+           -Sy, update                  Синхронизация индекса системного репозитория\n\
+           -Su, upgrade                 Применение обновлений ядра и базовой системы\n\
+           -Ss, check                   Проверка наличия обновлений базовой системы\n\
+           -Si, info <пакет>            Подробная информация о компоненте\n\
+           -Sc                          Очистка кэша /var/cache/wsp\n\
+           -Q, list                     Список установленных системных компонентов\n\
+           -Qi <пакет>                  Информация об установленном компоненте\n\
+           -U <файл.wp>...              Установка из локального файла пакета\n\
+           audit                        Полный аудит ядра, файлов и безопасности\n\
+           kernel [list|rollback]       Управление ядрами в каталоге /boot\n\
+           rollback                     Откат к предыдущей версии ядра\n\n\
          Опции:\n\
-           -v, -V, --version        Показать версию утилиты\n\
-           -h, --help               Показать эту справку\n\
-           -c, --critical           Работать только с критическими пакетами базы\n\
-           -y, --yes                Подтверждать операции без запроса\n\
-           -d, --verbose            Подробный вывод процесса проверки файлов\n\
-           --dry-run                Режим симуляции без изменения файлов на диске",
+           -v, -V, --version            Показать версию утилиты\n\
+           -h, --help                   Показать эту справку\n\
+           -c, --critical               Работать только с критическими пакетами базы\n\
+           -y, --yes, --noconfirm       Подтверждать операции без запроса\n\
+           -d, --verbose                Подробный вывод процесса\n\
+           -q, --quiet                  Минимальный вывод сообщений\n\
+           --reinstall                  Переустановить уже установленные компоненты\n\
+           --dry-run                    Режим симуляции без изменения файлов на диске",
         "Usage: wsp [OPTIONS]... [COMMAND] [ARGS]...\n\
          Kernel and base system package manager for Wunix OS (.wp).\n\n\
-         Commands:\n\
-           audit                    Full audit of kernel and base files\n\
-           check                    Fast check for available kernel updates\n\
-           upgrade                  Upgrade kernel and base system\n\
-           list                     List installed base components\n\
-           info <pkg>               Detailed component info\n\
-           install <pkg.wp>         Install system package from .wp file\n\
-           kernel [list|rollback]   Manage kernel versions in /boot\n\
-           rollback                 Rollback to fallback kernel\n\
-           update                   Synchronize system repository index\n\n\
+         Commands and short flags (pacman style):\n\
+           -S, install <pkg>...         Install system component\n\
+           -Syu                         Synchronize and upgrade kernel and base\n\
+           -Sy, update                  Synchronize system repository index\n\
+           -Su, upgrade                 Upgrade kernel and base system\n\
+           -Ss, check                   Check for available base updates\n\
+           -Si, info <pkg>              Detailed component info\n\
+           -Sc                          Clean /var/cache/wsp\n\
+           -Q, list                     List installed base components\n\
+           -Qi <pkg>                    Show details of installed component\n\
+           -U <file.wp>...              Install component from local package file\n\
+           audit                        Full audit of kernel and base files\n\
+           kernel [list|rollback]       Manage kernel versions in /boot\n\
+           rollback                     Rollback to fallback kernel\n\n\
          Options:\n\
-           -v, -V, --version        Show version information\n\
-           -h, --help               Show this help message\n\
-           -c, --critical           Target critical base components only\n\
-           -y, --yes                Do not prompt for confirmation\n\
-           -d, --verbose            Verbose execution details\n\
-           --dry-run                Simulation mode without disk writes"
+           -v, -V, --version            Show version information\n\
+           -h, --help                   Show this help message\n\
+           -c, --critical               Target critical base components only\n\
+           -y, --yes, --noconfirm       Do not prompt for confirmation\n\
+           -d, --verbose                Verbose execution details\n\
+           -q, --quiet                  Quiet mode\n\
+           --reinstall                  Reinstall already installed components\n\
+           --dry-run                    Simulation mode without disk writes"
     ));
 }
 

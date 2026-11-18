@@ -99,52 +99,58 @@ pub fn confirm_prompt(prompt: &str, default_yes: bool) -> bool {
 
 pub fn print_version() {
     println!("wpm (Wunix Package Manager) 0.1-{} (x86_64)", env!("WUNIX_GIT_COMMIT"));
-    println!("  {:<18} {}", t("Платформа:", "Platform:"), "Wunix OS");
-    println!("  {:<18} {}", t("Назначение:", "Scope:"), t("Пользовательские программы и утилиты", "User applications and tools"));
-    println!("  {:<18} {}", t("Формат пакетов:", "Format:"), "Wunix Package (.wp)");
-    println!("  {:<18} {}", t("Конфигурация:", "Config:"), "/etc/wpm/wpm.conf");
-    println!("  {:<18} {}", t("Источники:", "Sources:"), "/etc/wpm/sources.conf");
-    println!("  {:<18} {}", t("Кэш пакетов:", "Cache:"), "/var/cache/wpm/");
 }
 
 pub fn print_help() {
     println!("{}", t(
         "Использование: wpm [ОПЦИИ]... [КОМАНДА] [АРГУМЕНТЫ]...\n\
          Менеджер пользовательских программ и пакетов .wp в ОС Wunix.\n\n\
-         Команды:\n\
-           search <запрос>          Поиск программ в каталоге репозиториев\n\
-           install <пакет>...       Установка программ из локального кэша или файла .wp\n\
-           remove <пакет>...        Удаление установленных программ\n\
-           upgrade                  Обновление установленных программ\n\
-           list                     Список установленных программ\n\
-           info <пакет>             Подробная информация о программе\n\
-           repo [list|add|rm]       Управление источниками репозиториев\n\
-           update                   Синхронизация индексов репозиториев\n\
-           clean                    Очистка кэша /var/cache/wpm\n\n\
+         Команды и короткие флаги (стиль pacman):\n\
+           -S, install <пакет>...       Установка программ\n\
+           -Syu                         Синхронизация и обновление всех программ\n\
+           -Sy, update                  Синхронизация списков репозиториев\n\
+           -Su, upgrade                 Обновление установленных программ\n\
+           -Ss, search <запрос>         Поиск программ в репозиториях\n\
+           -Si, info <пакет>            Информация о программе\n\
+           -Sc, clean                   Очистка локального кэша /var/cache/wpm\n\
+           -R, remove <пакет>...        Удаление установленных программ\n\
+           -Q, list                     Список установленных программ\n\
+           -Qi <пакет>                  Информация об установленной программе\n\
+           -U <файл.wp>...              Установка из локального файла пакета\n\
+           repo [list|add|rm]           Управление источниками репозиториев\n\n\
          Опции:\n\
-           -v, -V, --version        Показать версию утилиты\n\
-           -h, --help               Показать эту справку\n\
-           -y, --yes                Подтверждать операции без запроса\n\
-           -d, --verbose            Подробный вывод процесса распаковки\n\
-           --ignore-critical-unsafe Игнорировать защитный барьер безопасности WSP",
+           -v, -V, --version            Показать версию утилиты\n\
+           -h, --help                   Показать эту справку\n\
+           -y, --yes, --noconfirm       Подтверждать операции без запроса\n\
+           -d, --verbose                Подробный вывод процесса\n\
+           -q, --quiet                  Минимальный вывод сообщений\n\
+           --reinstall                  Переустановить уже установленные программы\n\
+           --purge                      Удалить конфигурационные файлы при удалении\n\
+           --ignore-critical-unsafe     Игнорировать защитный барьер безопасности WSP",
         "Usage: wpm [OPTIONS]... [COMMAND] [ARGS]...\n\
          User package manager for Wunix OS (.wp).\n\n\
-         Commands:\n\
-           search <query>           Search available applications\n\
-           install <pkg>...         Install software from local cache or .wp file\n\
-           remove <pkg>...          Remove installed software\n\
-           upgrade                  Upgrade installed software\n\
-           list                     List installed software\n\
-           info <pkg>               Show details for a package\n\
-           repo [list|add|rm]       Manage repository sources\n\
-           update                   Synchronize repository indexes\n\
-           clean                    Clean /var/cache/wpm\n\n\
+         Commands and short flags (pacman style):\n\
+           -S, install <pkg>...         Install software\n\
+           -Syu                         Synchronize and upgrade all packages\n\
+           -Sy, update                  Synchronize repository indexes\n\
+           -Su, upgrade                 Upgrade installed software\n\
+           -Ss, search <query>          Search available applications\n\
+           -Si, info <pkg>              Show details for a package\n\
+           -Sc, clean                   Clean /var/cache/wpm\n\
+           -R, remove <pkg>...          Remove installed software\n\
+           -Q, list                     List installed software\n\
+           -Qi <pkg>                    Show details of installed software\n\
+           -U <file.wp>...              Install software from local package file\n\
+           repo [list|add|rm]           Manage repository sources\n\n\
          Options:\n\
-           -v, -V, --version        Show version information\n\
-           -h, --help               Show this help message\n\
-           -y, --yes                Do not prompt for confirmation\n\
-           -d, --verbose            Verbose extraction logs\n\
-           --ignore-critical-unsafe Override WSP base security check"
+           -v, -V, --version            Show version information\n\
+           -h, --help                   Show this help message\n\
+           -y, --yes, --noconfirm       Do not prompt for confirmation\n\
+           -d, --verbose                Verbose logs\n\
+           -q, --quiet                  Quiet mode\n\
+           --reinstall                  Reinstall already installed packages\n\
+           --purge                      Purge config files on remove\n\
+           --ignore-critical-unsafe     Override WSP base security check"
     ));
 }
 

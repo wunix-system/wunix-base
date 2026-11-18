@@ -36,11 +36,18 @@ pub fn get_aliases_for(name: &str) -> Vec<String> {
 }
 
 pub fn load_wpm_catalog() -> Vec<CatalogPackage> {
+    load_wpm_catalog_from("/")
+}
+
+pub fn load_wpm_catalog_from(root: &str) -> Vec<CatalogPackage> {
+    let r = if root.is_empty() || root == "/" { "" } else { root.trim_end_matches('/') };
     let candidate_paths = [
-        "/var/lib/wpm/repo/apps/x86_64/packages.json",
-        "/var/cache/wpm/packages.json",
-        "/repo/apps/x86_64/packages.json",
-        "/repositories/apps/x86_64/packages.json",
+        format!("{}/var/lib/wpm/repo/apps/x86_64/packages.json", r),
+        format!("{}/var/cache/wpm/packages.json", r),
+        format!("{}/repo/apps/x86_64/packages.json", r),
+        format!("{}/repositories/apps/x86_64/packages.json", r),
+        "/var/lib/wpm/repo/apps/x86_64/packages.json".to_string(),
+        "/var/cache/wpm/packages.json".to_string(),
     ];
 
     for path in &candidate_paths {
