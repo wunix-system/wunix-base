@@ -29,12 +29,19 @@ pub fn read_file_to_vec(path: &str) -> Result<Vec<u8>, &'static str> {
     let mut chunk = [0u8; 8192];
     loop {
         let n = read(fd as u64, &mut chunk);
-        if n == 0 {
+        if (n as i64) <= 0 {
             break;
         }
         result.extend_from_slice(&chunk[..n as usize]);
     }
     close(fd as u64);
+
+    if result.is_empty() {
+        return Err("Файл системного пакета пуст");
+    }
+    if result.len() < 16 {
+        return Err("Файл системного пакета поврежден (слишком короткий буфер)");
+    }
 
     Ok(result)
 }

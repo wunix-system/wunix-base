@@ -4,7 +4,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libwunix::{close, geteuid, getuid, open, println, t, O_RDONLY};
+use libwunix::{geteuid, getuid, println, t};
 use libpackwunix::sources::RepoPackage;
 
 use crate::db::{self, load_installed_packages_from, load_repo_packages, save_installed_packages_to, SystemPackageEntry};
@@ -14,15 +14,10 @@ use crate::unpack::{self, read_file_to_vec};
 
 pub fn locate_system_package(pkg: &str, root_dir: &str) -> Option<String> {
     if pkg.ends_with(".wp") || pkg.ends_with(".wsp") || pkg.contains('/') {
-        let mut null_p = [0u8; 256];
-        let b = pkg.as_bytes();
-        let l = b.len().min(255);
-        null_p[..l].copy_from_slice(&b[..l]);
-        null_p[l] = 0;
-        let fd = open(&null_p, O_RDONLY as u64, 0);
-        if fd >= 0 {
-            close(fd as u64);
-            return Some(pkg.to_string());
+        if let Ok(d) = read_file_to_vec(pkg) {
+            if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
+                return Some(pkg.to_string());
+            }
         }
     }
 
@@ -64,15 +59,10 @@ pub fn locate_system_package(pkg: &str, root_dir: &str) -> Option<String> {
     }
 
     for path in &candidates {
-        let mut null_p = [0u8; 256];
-        let b = path.as_bytes();
-        let l = b.len().min(255);
-        null_p[..l].copy_from_slice(&b[..l]);
-        null_p[l] = 0;
-        let fd = open(&null_p, O_RDONLY as u64, 0);
-        if fd >= 0 {
-            close(fd as u64);
-            return Some(path.clone());
+        if let Ok(d) = read_file_to_vec(path) {
+            if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
+                return Some(path.clone());
+            }
         }
     }
 

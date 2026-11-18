@@ -24,6 +24,7 @@ struct UpgradableItem {
     new_version: Version,
     tier: String,
     size: u64,
+    sha256: String,
     filename: String,
 }
 
@@ -54,6 +55,7 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
                     new_version: repo_pkg.version,
                     tier: repo_pkg.tier.clone(),
                     size: repo_pkg.size,
+                    sha256: repo_pkg.sha256.clone(),
                     filename: repo_pkg.filename.clone(),
                 });
             }
@@ -74,6 +76,7 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
                         new_version: repo_pkg.version,
                         tier: repo_pkg.tier.clone(),
                         size: repo_pkg.size,
+                        sha256: repo_pkg.sha256.clone(),
                         filename: repo_pkg.filename.clone(),
                     });
                 }
@@ -141,8 +144,6 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
 
     for item in &upgradable {
         let step_label = format!("Обновление компонента {}", item.name);
-        print_step(current_step, total_steps, &step_label, true);
-        current_step += 1;
 
         let candidate_paths = [
             format!("/var/cache/wsp/{}", item.filename),
@@ -159,8 +160,10 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
         let mut pkg_data = None;
         for cp in &candidate_paths {
             if let Ok(d) = read_file_to_vec(cp) {
-                pkg_data = Some(d);
-                break;
+                if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
+                    pkg_data = Some(d);
+                    break;
+                }
             }
         }
 
@@ -172,37 +175,56 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
             crate::db::ensure_dir_recursive(&cache_dir);
             let dest_path = format!("{}/{}", cache_dir, item.filename);
             println!("wsp: загрузка компонента '{}' ({}) для обновления...", item.name, format_size(item.size));
-            if crate::http::fetch_to_file(&download_url, &dest_path, None, &item.filename).is_ok() {
+            let sha_opt = if item.sha256.is_empty() { None } else { Some(item.sha256.as_str()) };
+            if crate::http::fetch_to_file(&download_url, &dest_path, sha_opt, &item.filename).is_ok() {
                 if let Ok(d) = read_file_to_vec(&dest_path) {
-                    pkg_data = Some(d);
+                    if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
+                        pkg_data = Some(d);
+                    }
                 }
             }
         }
 
+        let mut step_ok = false;
         if let Some(data) = pkg_data {
             if item.name == "wunix-kernel" {
                 let cur_k = crate::db::get_path(root_dir, "/boot/wunix-kernel");
                 let old_k = crate::db::get_path(root_dir, "/boot/wunix-kernel.old");
                 let _ = crate::db::copy_file(&cur_k, &old_k);
             }
-            if let Ok((manifest, files)) = unpack_wsp_package_to(&data, root_dir, false) {
-                if item.name == "wunix-kernel" {
-                    apply_kernel_rotation_with(
-                        &item.new_version,
-                        &item.old_version,
-                        root_dir,
-                    );
+            match unpack_wsp_package_to(&data, root_dir, false) {
+                Ok((manifest, files)) => {
+                    if item.name == "wunix-kernel" {
+                        apply_kernel_rotation_with(
+                            &item.new_version,
+                            &item.old_version,
+                            root_dir,
+                        );
+                    }
+                    new_installed.retain(|p| p.name != item.name);
+                    new_installed.push(SystemPackageEntry {
+                        name: item.name.clone(),
+                        version: item.new_version.to_string(),
+                        tier: item.tier.clone(),
+                        description: manifest.description.clone(),
+                        files,
+                    });
+                    step_ok = true;
                 }
-                new_installed.retain(|p| p.name != item.name);
-                new_installed.push(SystemPackageEntry {
-                    name: item.name.clone(),
-                    version: item.new_version.to_string(),
-                    tier: item.tier.clone(),
-                    description: manifest.description.clone(),
-                    files,
-                });
+                Err(e) => {
+                    print_step(current_step, total_steps, &step_label, false);
+                    crate::display::print_error(&format!("ошибка распаковки {}: {}", item.name, e));
+                }
             }
+        } else {
+            print_step(current_step, total_steps, &step_label, false);
+            crate::display::print_error(&format!("не удалось загрузить или прочитать пакет {}", item.filename));
         }
+
+        if step_ok {
+            print_step(current_step, total_steps, &step_label, true);
+        }
+        current_step += 1;
     }
 
     save_installed_packages_to(root_dir, &new_installed);

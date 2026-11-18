@@ -119,7 +119,7 @@ fn write_all(fd: i64, data: &[u8]) -> bool {
     let mut remaining = data;
     while !remaining.is_empty() {
         let n = write(fd as u64, remaining);
-        if n <= 0 {
+        if (n as i64) <= 0 {
             return false;
         }
         remaining = &remaining[n as usize..];
@@ -161,8 +161,29 @@ fn parse_location(headers: &str) -> Option<String> {
     None
 }
 
+fn sleep_ms(ms: u64) {
+    let req: [u64; 2] = [ms / 1000, (ms % 1000) * 1_000_000];
+    let _ = libwunix::nanosleep(req.as_ptr() as *const u8, core::ptr::null_mut());
+}
+
 #[allow(dead_code)]
 pub fn fetch_to_vec(url: &str, display_name: &str) -> Result<Vec<u8>, HttpError> {
+    let mut last_err = HttpError::ConnectionFailed;
+    for attempt in 0..3 {
+        if attempt > 0 {
+            sleep_ms(150);
+        }
+        match fetch_to_vec_single(url, display_name) {
+            Ok(body) => return Ok(body),
+            Err(e) => {
+                last_err = e;
+            }
+        }
+    }
+    Err(last_err)
+}
+
+fn fetch_to_vec_single(url: &str, display_name: &str) -> Result<Vec<u8>, HttpError> {
     let mut current_url = url.to_string();
     let mut redirects = 0;
 
@@ -198,7 +219,7 @@ pub fn fetch_to_vec(url: &str, display_name: &str) -> Result<Vec<u8>, HttpError>
 
         while hdr_len < hdr_buf.len() {
             let n = read(fd as u64, &mut hdr_buf[hdr_len..hdr_len + 1]);
-            if n <= 0 {
+            if (n as i64) <= 0 {
                 break;
             }
             hdr_len += 1;
@@ -243,7 +264,7 @@ pub fn fetch_to_vec(url: &str, display_name: &str) -> Result<Vec<u8>, HttpError>
 
         loop {
             let n = read(fd as u64, &mut chunk);
-            if n <= 0 {
+            if (n as i64) <= 0 {
                 break;
             }
             body.extend_from_slice(&chunk[..n as usize]);
@@ -256,12 +277,39 @@ pub fn fetch_to_vec(url: &str, display_name: &str) -> Result<Vec<u8>, HttpError>
         }
 
         close(fd as u64);
+
+        if body.is_empty() || (content_len.is_some() && (body.len() as u64) < content_len.unwrap()) {
+            pb.finish(false, "неполные данные или соединение разорвано");
+            return Err(HttpError::ReadError);
+        }
+
         pb.finish(true, "");
         return Ok(body);
     }
 }
 
 pub fn fetch_to_file(
+    url: &str,
+    target_path: &str,
+    expected_sha256: Option<&str>,
+    display_name: &str,
+) -> Result<u64, HttpError> {
+    let mut last_err = HttpError::ConnectionFailed;
+    for attempt in 0..3 {
+        if attempt > 0 {
+            sleep_ms(150);
+        }
+        match fetch_to_file_single(url, target_path, expected_sha256, display_name) {
+            Ok(bytes) => return Ok(bytes),
+            Err(e) => {
+                last_err = e;
+            }
+        }
+    }
+    Err(last_err)
+}
+
+fn fetch_to_file_single(
     url: &str,
     target_path: &str,
     expected_sha256: Option<&str>,
@@ -302,7 +350,7 @@ pub fn fetch_to_file(
 
         while hdr_len < hdr_buf.len() {
             let n = read(fd as u64, &mut hdr_buf[hdr_len..hdr_len + 1]);
-            if n <= 0 {
+            if (n as i64) <= 0 {
                 break;
             }
             hdr_len += 1;
@@ -365,13 +413,13 @@ pub fn fetch_to_file(
 
         loop {
             let n = read(fd as u64, &mut chunk);
-            if n <= 0 {
+            if (n as i64) <= 0 {
                 break;
             }
             let slice = &chunk[..n as usize];
             hasher.update(slice);
             let written = write(out_fd as u64, slice);
-            if written <= 0 {
+            if (written as i64) <= 0 || (written as usize) != slice.len() {
                 close(out_fd as u64);
                 close(fd as u64);
                 let _ = unlink(&null_target);
@@ -389,6 +437,12 @@ pub fn fetch_to_file(
 
         close(out_fd as u64);
         close(fd as u64);
+
+        if total_written == 0 || (content_len.is_some() && total_written < content_len.unwrap()) {
+            let _ = unlink(&null_target);
+            pb.finish(false, "неполный файл или соединение прервано");
+            return Err(HttpError::ReadError);
+        }
 
         if let Some(expected_hash) = expected_sha256 {
             let digest = hasher.finalize();

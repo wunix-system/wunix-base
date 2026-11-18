@@ -370,11 +370,20 @@ where
             }
             let res = execve_command(cmd);
             if res < 0 {
-                let not_found_prefix = libwunix::t("команда не найдена: ", "command not found: ");
-                libwunix::write(libwunix::STDERR_FILENO, not_found_prefix.as_bytes());
-                libwunix::write(libwunix::STDERR_FILENO, cmd.name.as_bytes());
-                libwunix::write(libwunix::STDERR_FILENO, b"\n");
-                libwunix::exit(127);
+                let err = -res;
+                if err == 13 {
+                    let denied_prefix = libwunix::t("отказано в доступе: ", "permission denied: ");
+                    libwunix::write(libwunix::STDERR_FILENO, denied_prefix.as_bytes());
+                    libwunix::write(libwunix::STDERR_FILENO, cmd.name.as_bytes());
+                    libwunix::write(libwunix::STDERR_FILENO, b"\n");
+                    libwunix::exit(126);
+                } else {
+                    let not_found_prefix = libwunix::t("команда не найдена: ", "command not found: ");
+                    libwunix::write(libwunix::STDERR_FILENO, not_found_prefix.as_bytes());
+                    libwunix::write(libwunix::STDERR_FILENO, cmd.name.as_bytes());
+                    libwunix::write(libwunix::STDERR_FILENO, b"\n");
+                    libwunix::exit(127);
+                }
             }
             libwunix::exit(res as u64);
         }
@@ -484,11 +493,20 @@ fn execute_command_with_redirects(
     } else {
         let ret = execve_command(cmd);
         if ret < 0 {
-            let not_found_prefix = libwunix::t("команда не найдена: ", "command not found: ");
-            libwunix::write(libwunix::STDERR_FILENO, not_found_prefix.as_bytes());
-            libwunix::write(libwunix::STDERR_FILENO, cmd.name.as_bytes());
-            libwunix::write(libwunix::STDERR_FILENO, b"\n");
-            127
+            let err = -ret;
+            if err == 13 {
+                let denied_prefix = libwunix::t("отказано в доступе: ", "permission denied: ");
+                libwunix::write(libwunix::STDERR_FILENO, denied_prefix.as_bytes());
+                libwunix::write(libwunix::STDERR_FILENO, cmd.name.as_bytes());
+                libwunix::write(libwunix::STDERR_FILENO, b"\n");
+                126
+            } else {
+                let not_found_prefix = libwunix::t("команда не найдена: ", "command not found: ");
+                libwunix::write(libwunix::STDERR_FILENO, not_found_prefix.as_bytes());
+                libwunix::write(libwunix::STDERR_FILENO, cmd.name.as_bytes());
+                libwunix::write(libwunix::STDERR_FILENO, b"\n");
+                127
+            }
         } else {
             ret as i32
         }
