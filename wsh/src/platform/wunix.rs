@@ -700,5 +700,9 @@ pub fn resolve_in_path(cmd_name: &str) -> String {
         }
     }
 
+    if (cmd_name == "bash" || cmd_name == "sh") && file_exists("/bin/wsh") {
+        return String::from("/bin/wsh");
+    }
+
     String::from(cmd_name)
 }

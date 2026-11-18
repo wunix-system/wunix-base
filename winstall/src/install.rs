@@ -382,6 +382,12 @@ where
 
     // Настраиваем системные симлинки совместимости и бинарники сетевых служб
     let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/sh\0");
+    let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/bash\0");
+    let _ = symlink(b"/bin/wsh\0", b"/mnt/usr/bin/bash\0");
+    let _ = symlink(b"/bin/wsh\0", b"/mnt/usr/bin/sh\0");
+    let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/test\0");
+    let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/unalias\0");
+    let _ = symlink(b"/bin/wsh\0", b"/mnt/usr/bin/env\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib/ld-musl-x86_64.so.1\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib64/ld-musl-x86_64.so.1\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib/ld-wunix.so.1\0");
