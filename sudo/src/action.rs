@@ -1,9 +1,75 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use crate::terminal::read_password_line;
+use crate::ticket::{check_cached_auth, remove_cached_auth, touch_cached_auth};
 use libwunix::{
     execve, get_passwd_by_uid, getuid, setgid, setuid, t, user_in_group, verify_password, write,
     STDERR_FILENO, STDOUT_FILENO,
 };
 
+/// Сбрасывает сохранённые учетные данные пользователя (для `sudo -k`).
+pub fn run_reset_timestamp() -> bool {
+    let real_uid = getuid();
+    if real_uid == 0 {
+        return true;
+    }
+    if let Ok(Some(entry)) = get_passwd_by_uid(real_uid) {
+        remove_cached_auth(entry.username());
+    }
+    true
+}
+
+/// Проверяет или обновляет сохранённый билет без запуска команды (для `sudo -v`).
+pub fn run_validate() -> bool {
+    let real_uid = getuid();
+    if real_uid == 0 {
+        return true;
+    }
+
+    let user_entry = match get_passwd_by_uid(real_uid) {
+        Ok(Some(e)) => e,
+        _ => {
+            let err = t("sudo: текущий пользователь не найден\n", "sudo: current user not found\n");
+            write(STDERR_FILENO, err.as_bytes());
+            return false;
+        }
+    };
+    let username = user_entry.username();
+
+    if !user_in_group(username, "wheel") {
+        let err_pre = t("sudo: пользователь '", "sudo: user '");
+        let err_post = t("': отсутствует в файле sudoers (группа wheel)\n", "': is not in the sudoers file (wheel group)\n");
+        write(STDERR_FILENO, err_pre.as_bytes());
+        write(STDERR_FILENO, username.as_bytes());
+        write(STDERR_FILENO, err_post.as_bytes());
+        return false;
+    }
+
+    if check_cached_auth(username) {
+        touch_cached_auth(username);
+        return true;
+    }
+
+    let prompt_pre = t("[sudo] пароль для ", "[sudo] password for ");
+    let prompt_post = ": ";
+    write(STDOUT_FILENO, prompt_pre.as_bytes());
+    write(STDOUT_FILENO, username.as_bytes());
+    write(STDOUT_FILENO, prompt_post.as_bytes());
+
+    let mut pwd_buf = [0u8; 128];
+    let raw_pwd = read_password_line(&mut pwd_buf);
+
+    if verify_password(username, raw_pwd).is_err() {
+        let fail = t("sudo: неверный пароль\n", "sudo: Authentication failure: incorrect password\n");
+        write(STDERR_FILENO, fail.as_bytes());
+        return false;
+    }
+
+    touch_cached_auth(username);
+    true
+}
+
+/// Выполняет команду от имени root с проверкой прав, кэшированием пароля и эскалацией.
 pub fn run_sudo(cmd_path: &str, argv: *const *const u8, start_idx: usize, argc: usize) -> bool {
     let real_uid = getuid();
 
@@ -28,21 +94,29 @@ pub fn run_sudo(cmd_path: &str, argv: *const *const u8, start_idx: usize, argc: 
         return false;
     }
 
-    // 2. Аутентификация (запрос пароля текущего пользователя)
+    // 2. Аутентификация (запрос пароля только если нет действующего билета)
     if real_uid != 0 {
-        let prompt_pre = t("[sudo] пароль для ", "[sudo] password for ");
-        let prompt_post = ": ";
-        write(STDOUT_FILENO, prompt_pre.as_bytes());
-        write(STDOUT_FILENO, username.as_bytes());
-        write(STDOUT_FILENO, prompt_post.as_bytes());
+        if !check_cached_auth(username) {
+            let prompt_pre = t("[sudo] пароль для ", "[sudo] password for ");
+            let prompt_post = ": ";
+            write(STDOUT_FILENO, prompt_pre.as_bytes());
+            write(STDOUT_FILENO, username.as_bytes());
+            write(STDOUT_FILENO, prompt_post.as_bytes());
 
-        let mut pwd_buf = [0u8; 128];
-        let raw_pwd = read_password_line(&mut pwd_buf);
+            let mut pwd_buf = [0u8; 128];
+            let raw_pwd = read_password_line(&mut pwd_buf);
 
-        if verify_password(username, raw_pwd).is_err() {
-            let fail = t("sudo: неверный пароль\n", "sudo: Authentication failure: incorrect password\n");
-            write(STDERR_FILENO, fail.as_bytes());
-            return false;
+            if verify_password(username, raw_pwd).is_err() {
+                let fail = t("sudo: неверный пароль\n", "sudo: Authentication failure: incorrect password\n");
+                write(STDERR_FILENO, fail.as_bytes());
+                return false;
+            }
+
+            // Запоминаем успешную аутентификацию
+            touch_cached_auth(username);
+        } else {
+            // Продлеваем текущий активный сеанс sudo
+            touch_cached_auth(username);
         }
     }
 

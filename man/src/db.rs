@@ -3163,17 +3163,23 @@ whoami \- вывод имени текущего эффективного пол
         section: 8,
         desc_en: "execute a command as superuser root",
         desc_ru: "выполнение команды с привилегиями суперпользователя root",
-        roff_en: r#".TH SUDO 8 "2026-10-30" "Wunix" "System Administration Commands"
+        roff_en: r#".TH SUDO 8 "2026-11-18" "Wunix" "System Administration Commands"
 .SH NAME
 sudo \- execute a command as superuser root
 .SH SYNOPSIS
 \fBsudo\fR [\fIOPTION\fR] \fICOMMAND\fR [\fIARGUMENTS\fR...]
 .SH DESCRIPTION
-\fBsudo\fR allows a permitted user to execute a command with superuser privileges (as user root). If invoked by an unprivileged user, \fBsudo\fR checks membership in the administrative group (e.g. \fBwheel\fR) and prompts for the user's password before executing the target binary.
+\fBsudo\fR allows a permitted user to execute a command with superuser privileges (as user root). If invoked by an unprivileged user, \fBsudo\fR checks membership in the administrative group (\fBwheel\fR) and prompts for the user's password before executing the target binary. Upon successful authentication, a timestamp ticket is created in \fB/var/run/sudo/ts\fR, caching credentials for 15 minutes.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Display this help and exit.
+.TP
+\fB\-k\fR, \fB\-\-reset\-timestamp\fR
+Invalidate timestamp ticket, causing the next sudo command to prompt for password.
+.TP
+\fB\-v\fR, \fB\-\-validate\fR
+Update timestamp ticket without running a command, prompting for password if necessary.
 .SH EXAMPLES
 .TP
 sudo fdisk /dev/vda
@@ -3184,17 +3190,23 @@ sudo useradd newuser
 .SH "SEE ALSO"
 \fBsu\fR(1), \fBpasswd\fR(1), \fBid\fR(1)
 "#,
-        roff_ru: r#".TH SUDO 8 "2026-10-30" "Wunix" "Команды системного администрирования"
+        roff_ru: r#".TH SUDO 8 "2026-11-18" "Wunix" "Команды системного администрирования"
 .SH ИМЯ
 sudo \- выполнение команды с привилегиями суперпользователя root
 .SH СИНТАКСИС
 \fBsudo\fR [\fIОПЦИИ\fR] \fIКОМАНДА\fR [\fIАРГУМЕНТЫ\fR...]
 .SH ОПИСАНИЕ
-\fBsudo\fR позволяет авторизованному пользователю запускать системные команды с правами суперпользователя (root). При вызове непривилегированным пользователем проверяется принадлежность к административной группе \fBwheel\fR и запрашивается пароль текущего пользователя.
+\fBsudo\fR позволяет авторизованному пользователю запускать системные команды с правами суперпользователя (root). При вызове непривилегированным пользователем проверяется принадлежность к административной группе \fBwheel\fR и запрашивается пароль текущего пользователя. После успешной аутентификации создаётся билет в каталоге \fB/var/run/sudo/ts\fR, сохраняющий сессию на 15 минут без повторного запроса пароля.
 .SH ОПЦИИ
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Показать эту справку и выйти.
+.TP
+\fB\-k\fR, \fB\-\-reset\-timestamp\fR
+Сбросить сохранённый билет sudo (аннулировать кэш пароля).
+.TP
+\fB\-v\fR, \fB\-\-validate\fR
+Обновить сохранённый билет без запуска команды, запросив пароль при необходимости.
 .SH ПРИМЕРЫ
 .TP
 sudo fdisk /dev/vda

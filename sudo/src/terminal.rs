@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use libwunix::read_password_masked;
 
 /// Считывает пароль пользователя для sudo с отображением звёздочек '*' вместо скрытого ввода.
