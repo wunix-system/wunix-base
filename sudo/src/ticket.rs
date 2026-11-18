@@ -47,8 +47,16 @@ pub fn is_ticket_valid(ticket: &SudoTicket, now_mono: i64, now_boot: u64, timeou
     if ticket.magic != TICKET_MAGIC || ticket.version != TICKET_VERSION {
         return false;
     }
-    if now_boot != 0 && ticket.boot_epoch != 0 && ticket.boot_epoch != now_boot {
-        return false;
+    if now_boot != 0 && ticket.boot_epoch != 0 {
+        let diff = if now_boot >= ticket.boot_epoch {
+            now_boot - ticket.boot_epoch
+        } else {
+            ticket.boot_epoch - now_boot
+        };
+        // Разрешаем дрейф времени до 60 секунд (на случай подстройки часов NTP/timesyncd)
+        if diff > 60 {
+            return false;
+        }
     }
     if now_mono < ticket.monotonic_sec {
         return false;
@@ -60,6 +68,9 @@ pub fn is_ticket_valid(ticket: &SudoTicket, now_mono: i64, now_boot: u64, timeou
 }
 
 fn ensure_ticket_dir() {
+    let _ = mkdir(b"/run\0", 0o755);
+    let _ = mkdir(b"/run/sudo\0", 0o700);
+    let _ = mkdir(b"/run/sudo/ts\0", 0o700);
     let _ = mkdir(b"/var\0", 0o755);
     let _ = mkdir(b"/var/run\0", 0o755);
     let _ = mkdir(b"/var/run/sudo\0", 0o700);

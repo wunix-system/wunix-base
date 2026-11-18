@@ -121,7 +121,7 @@ fn write_all(fd: i64, data: &[u8]) -> bool {
     let mut remaining = data;
     while !remaining.is_empty() {
         let n = write(fd as u64, remaining);
-        if n <= 0 {
+        if (n as i64) <= 0 {
             return false;
         }
         remaining = &remaining[n as usize..];
@@ -201,7 +201,7 @@ pub fn fetch_to_vec(url: &str, display_name: &str) -> Result<Vec<u8>, HttpError>
 
         while hdr_len < hdr_buf.len() {
             let n = read(fd as u64, &mut hdr_buf[hdr_len..hdr_len + 1]);
-            if n <= 0 {
+            if (n as i64) <= 0 {
                 break;
             }
             hdr_len += 1;
@@ -246,7 +246,7 @@ pub fn fetch_to_vec(url: &str, display_name: &str) -> Result<Vec<u8>, HttpError>
 
         loop {
             let n = read(fd as u64, &mut chunk);
-            if n <= 0 {
+            if (n as i64) <= 0 {
                 break;
             }
             body.extend_from_slice(&chunk[..n as usize]);
@@ -305,7 +305,7 @@ pub fn fetch_to_file(
 
         while hdr_len < hdr_buf.len() {
             let n = read(fd as u64, &mut hdr_buf[hdr_len..hdr_len + 1]);
-            if n <= 0 {
+            if (n as i64) <= 0 {
                 break;
             }
             hdr_len += 1;
@@ -370,13 +370,13 @@ pub fn fetch_to_file(
 
         loop {
             let n = read(fd as u64, &mut chunk);
-            if n <= 0 {
+            if (n as i64) <= 0 {
                 break;
             }
             let slice = &chunk[..n as usize];
             hasher.update(slice);
             let written = write(out_fd as u64, slice);
-            if written <= 0 {
+            if (written as i64) <= 0 || (written as usize) != slice.len() {
                 close(out_fd as u64);
                 close(fd as u64);
                 let _ = unlink(&null_target);

@@ -388,16 +388,33 @@ pub fn format_ext4(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> bool
 
     let block_size = 4096u64;
     let total_blocks = (part_sectors / 8).max(1024) as u32;
-    let inodes_count = 2048u32;
-    let blocks_per_group = 32768u32.min(total_blocks);
-    let inodes_per_group = inodes_count;
+    let blocks_per_group = 32768u32;
+    let num_groups = ((total_blocks + blocks_per_group - 1) / blocks_per_group) as usize;
+    let inodes_per_group = 2048u32;
+    let inodes_count = (num_groups as u32) * inodes_per_group;
+
+    // Вычисляем свободные блоки для каждой группы
+    let blocks_in_grp0 = total_blocks.min(blocks_per_group);
+    let free_blocks_grp0 = blocks_in_grp0.saturating_sub(1150);
+    let free_inodes_grp0 = inodes_per_group.saturating_sub(11);
+
+    let mut total_free_blocks = free_blocks_grp0;
+    let mut total_free_inodes = free_inodes_grp0;
+
+    for g in 1..num_groups {
+        let group_start_block = (g as u32) * blocks_per_group;
+        let blocks_in_grp = (total_blocks.saturating_sub(group_start_block)).min(blocks_per_group);
+        let free_blocks_grp = blocks_in_grp.saturating_sub(130);
+        total_free_blocks += free_blocks_grp;
+        total_free_inodes += inodes_per_group;
+    }
 
     // 1. Суперблок Ext4 (LBA lba_offset + 2, байтовое смещение 1024 от начала раздела)
     let mut sb = [0u8; 1024];
     sb[0..4].copy_from_slice(&inodes_count.to_le_bytes());
     sb[4..8].copy_from_slice(&total_blocks.to_le_bytes());
-    sb[12..16].copy_from_slice(&(total_blocks.saturating_sub(1150)).to_le_bytes()); // free blocks
-    sb[16..20].copy_from_slice(&(inodes_count - 11).to_le_bytes());                 // free inodes
+    sb[12..16].copy_from_slice(&total_free_blocks.to_le_bytes());
+    sb[16..20].copy_from_slice(&total_free_inodes.to_le_bytes());
     sb[20..24].copy_from_slice(&0u32.to_le_bytes());                                // first data block (0 для 4K)
     sb[24..28].copy_from_slice(&2u32.to_le_bytes());                                // log_block_size = 2 (4096)
     sb[32..36].copy_from_slice(&blocks_per_group.to_le_bytes());
@@ -420,21 +437,41 @@ pub fn format_ext4(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> bool
         return false;
     }
 
-    // 2. Дескриптор группы блоков (блок 1, смещение 4096)
-    let mut bg_desc = [0u8; 32];
-    bg_desc[0..4].copy_from_slice(&2u32.to_le_bytes());  // block_bitmap = block 2
-    bg_desc[4..8].copy_from_slice(&3u32.to_le_bytes());  // inode_bitmap = block 3
-    bg_desc[8..12].copy_from_slice(&4u32.to_le_bytes()); // inode_table = block 4
-    bg_desc[12..14].copy_from_slice(&(total_blocks.saturating_sub(1150) as u16).to_le_bytes());
-    bg_desc[14..16].copy_from_slice(&((inodes_count - 11) as u16).to_le_bytes());
-    bg_desc[16..18].copy_from_slice(&2u16.to_le_bytes()); // used_dirs = 2
-
+    // 2. Дескрипторы групп блоков (блок 1, смещение 4096)
     let mut bg_buf = [0u8; 4096];
-    bg_buf[0..32].copy_from_slice(&bg_desc);
+
+    // Группа 0
+    bg_buf[0..4].copy_from_slice(&2u32.to_le_bytes());  // block_bitmap = block 2
+    bg_buf[4..8].copy_from_slice(&3u32.to_le_bytes());  // inode_bitmap = block 3
+    bg_buf[8..12].copy_from_slice(&4u32.to_le_bytes()); // inode_table = block 4
+    bg_buf[12..14].copy_from_slice(&(free_blocks_grp0.min(65535) as u16).to_le_bytes());
+    bg_buf[14..16].copy_from_slice(&(free_inodes_grp0 as u16).to_le_bytes());
+    bg_buf[16..18].copy_from_slice(&2u16.to_le_bytes()); // used_dirs = 2
+
+    // Группы 1..num_groups
+    for g in 1..num_groups {
+        let offset = g * 32;
+        if offset + 32 <= bg_buf.len() {
+            let group_start_block = (g as u32) * blocks_per_group;
+            let blocks_in_grp = (total_blocks.saturating_sub(group_start_block)).min(blocks_per_group);
+            let free_blocks_grp = blocks_in_grp.saturating_sub(130);
+            let bb = group_start_block;
+            let ib = group_start_block + 1;
+            let it = group_start_block + 2;
+
+            bg_buf[offset..offset + 4].copy_from_slice(&bb.to_le_bytes());
+            bg_buf[offset + 4..offset + 8].copy_from_slice(&ib.to_le_bytes());
+            bg_buf[offset + 8..offset + 12].copy_from_slice(&it.to_le_bytes());
+            bg_buf[offset + 12..offset + 14].copy_from_slice(&(free_blocks_grp.min(65535) as u16).to_le_bytes());
+            bg_buf[offset + 14..offset + 16].copy_from_slice(&(inodes_per_group as u16).to_le_bytes());
+            bg_buf[offset + 16..offset + 18].copy_from_slice(&0u16.to_le_bytes());
+        }
+    }
+
     let bg_offset = lba_offset * 512 + block_size;
     let _ = pwrite64(fd as u64, &bg_buf, bg_offset);
 
-    // 3. Битовая карта блоков (блок 2)
+    // 3. Битовая карта блоков группы 0 (блок 2)
     // Занято 1150 блоков: 0..131 (метаданные), 132 (root dir), 133..1132 (журнал)
     let mut block_bitmap = [0u8; 4096];
     for i in 0..144 {
@@ -443,7 +480,7 @@ pub fn format_ext4(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> bool
     let bb_offset = lba_offset * 512 + 2 * block_size;
     let _ = pwrite64(fd as u64, &block_bitmap, bb_offset);
 
-    // 4. Битовая карта инодов (блок 3)
+    // 4. Битовая карта инодов группы 0 (блок 3)
     // Заняты иноды 1..11 (биты 0..10)
     let mut inode_bitmap = [0u8; 4096];
     inode_bitmap[0] = 0xFF;
@@ -451,7 +488,7 @@ pub fn format_ext4(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> bool
     let ib_offset = lba_offset * 512 + 3 * block_size;
     let _ = pwrite64(fd as u64, &inode_bitmap, ib_offset);
 
-    // 5. Инициализация таблицы инодов (блок 4..131)
+    // 5. Инициализация таблицы инодов группы 0 (блок 4..131)
     let mut itbl_buf = [0u8; 4096];
 
     // Инод 2: Корневой каталог (смещение в первом блоке таблицы = 1 * 256 = 256)
@@ -523,10 +560,44 @@ pub fn format_ext4(disk_path: &[u8], lba_offset: u64, part_sectors: u64) -> bool
     j_sb[28..32].copy_from_slice(&0u32.to_be_bytes());        // s_start = 0 (журнал чист)
 
     let j_sb_offset = lba_offset * 512 + 133 * block_size;
-    let ok = pwrite64(fd as u64, &j_sb, j_sb_offset) == 4096;
+    let _ = pwrite64(fd as u64, &j_sb, j_sb_offset);
+
+    // 8. Инициализация групп 1..num_groups
+    for g in 1..num_groups {
+        let group_start_block = (g as u32) * blocks_per_group;
+        let blocks_in_grp = (total_blocks.saturating_sub(group_start_block)).min(blocks_per_group);
+
+        // Битовая карта блоков: первые 130 блоков заняты метаданными (блок-, инод-битовые карты и 128 блоков таблицы инодов)
+        let mut g_bb = [0u8; 4096];
+        for i in 0..16 {
+            g_bb[i] = 0xFF; // 16 * 8 = 128
+        }
+        g_bb[16] = 0x03; // биты 128, 129 -> всего 130 бит
+
+        // Если последняя группа неполная, помечаем заграничные биты как занятые
+        for b in blocks_in_grp..blocks_per_group {
+            let byte = (b / 8) as usize;
+            let bit = (b % 8) as u8;
+            if byte < 4096 {
+                g_bb[byte] |= 1 << bit;
+            }
+        }
+        let bb_off = lba_offset * 512 + (group_start_block as u64) * block_size;
+        let _ = pwrite64(fd as u64, &g_bb, bb_off);
+
+        // Битовая карта инодов: все иноды группы свободны
+        let g_ib = [0u8; 4096];
+        let ib_off = lba_offset * 512 + (group_start_block as u64 + 1) * block_size;
+        let _ = pwrite64(fd as u64, &g_ib, ib_off);
+
+        // Обнуляем первый блок таблицы инодов группы для чистоты структур
+        let zero_tbl = [0u8; 4096];
+        let it_off = lba_offset * 512 + (group_start_block as u64 + 2) * block_size;
+        let _ = pwrite64(fd as u64, &zero_tbl, it_off);
+    }
 
     close(fd as u64);
-    ok
+    true
 }
 
 /// Форматирует раздел как журналируемую файловую систему UFS2 (Soft Updates Journaling).
