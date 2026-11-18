@@ -3,7 +3,7 @@
 //! Обеспечивает достаточный объем памяти (32 МиБ в BSS) для безопасной
 //! распаковки системных пакетов ядра и работы с базами реестра.
 
-const WSP_HEAP_SIZE: usize = 32 * 1024 * 1024;
+const WSP_HEAP_SIZE: usize = 128 * 1024 * 1024;
 
 pub struct SimpleBumpAllocator {
     heap: core::cell::UnsafeCell<[u8; WSP_HEAP_SIZE]>,

@@ -127,27 +127,44 @@ fn load_repo_packages() -> Vec<libpackwunix::sources::RepoPackage> {
 
 fn load_installed_packages() -> Vec<InstalledPkg> {
     let fd = open(WSP_DB_PATH, O_RDONLY as u64, 0);
-    if fd < 0 {
-        return get_default_packages();
-    }
-
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let n = read(fd as u64, &mut chunk);
-        if n <= 0 {
-            break;
+    let mut list = if fd < 0 {
+        get_default_packages()
+    } else {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = read(fd as u64, &mut chunk);
+            if n <= 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n as usize]);
         }
-        buf.extend_from_slice(&chunk[..n as usize]);
-    }
-    close(fd as u64);
+        close(fd as u64);
 
-    if buf.is_empty() {
-        return get_default_packages();
+        if buf.is_empty() {
+            get_default_packages()
+        } else {
+            let text = core::str::from_utf8(&buf).unwrap_or("");
+            parse_installed_json(text)
+        }
+    };
+
+    if !list.iter().any(|p| p.name == "wunix-kernel") {
+        let kfd = open(b"/boot/wunix-kernel\0", O_RDONLY as u64, 0);
+        if kfd >= 0 {
+            close(kfd as u64);
+            list.insert(
+                0,
+                InstalledPkg {
+                    name: "wunix-kernel".to_string(),
+                    version: Version::new(1, 0, 0),
+                    tier: "critical".to_string(),
+                },
+            );
+        }
     }
 
-    let text = core::str::from_utf8(&buf).unwrap_or("");
-    parse_installed_json(text)
+    list
 }
 
 fn parse_installed_json(text: &str) -> Vec<InstalledPkg> {

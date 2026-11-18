@@ -96,13 +96,60 @@ pub fn run_audit(verify_files: bool) -> i32 {
 }
 
 pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
-    let has_alert = has_critical_alert();
+    let installed = load_installed_packages();
+    let repo_packages = load_repo_packages("");
+
+    let mut updates_available = 0;
+    let mut critical_count = 0;
+    let mut details: alloc::vec::Vec<alloc::string::String> = alloc::vec::Vec::new();
+
+    for inst in &installed {
+        let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(1, 0, 0));
+        if let Some(rp) = repo_packages.iter().find(|p| p.name == inst.name) {
+            if rp.version > inst_ver {
+                let is_critical = rp.tier == "critical" || rp.name == "wunix-kernel";
+                if critical_only && !is_critical {
+                    continue;
+                }
+                updates_available += 1;
+                if is_critical {
+                    critical_count += 1;
+                }
+                details.push(format!("    - {:<16} {} -> {} [{}]", inst.name, inst.version, rp.version, rp.tier));
+            }
+        }
+    }
+
+    if !installed.iter().any(|p| p.name == "wunix-kernel") {
+        if let Some(rp) = repo_packages.iter().find(|p| p.name == "wunix-kernel") {
+            updates_available += 1;
+            critical_count += 1;
+            details.push(format!("    - {:<16} {} -> {} [critical]", "wunix-kernel", "1.0.0", rp.version));
+        }
+    }
+
+    let has_alert = has_critical_alert() || critical_count > 0;
 
     if json_output {
-        if has_alert {
-            println!("{{\"updates_available\": true, \"critical\": true}}");
+        if updates_available > 0 || has_alert {
+            println!("{{\"updates_available\": true, \"critical\": {}, \"count\": {}}}", has_alert, updates_available);
         } else {
-            println!("{{\"updates_available\": false, \"critical\": false}}");
+            println!("{{\"updates_available\": false, \"critical\": false, \"count\": 0}}");
+        }
+    } else if updates_available > 0 {
+        if critical_count > 0 {
+            println!("{}{}Внимание:{} {}", COLOR_BOLD, COLOR_YELLOW, COLOR_RESET, t("доступны критические системные обновления ядра!", "critical kernel updates are available!"));
+        } else {
+            println!("{}{}Доступны системные обновления WSP:{} ({} компонентов)", COLOR_BOLD, COLOR_GREEN, COLOR_RESET, updates_available);
+        }
+        for d in &details {
+            println!("{}", d);
+        }
+        println!();
+        if critical_count > 0 {
+            println!("  Выполните: sudo wsp upgrade --critical");
+        } else {
+            println!("  Выполните: sudo wsp upgrade");
         }
     } else if has_alert {
         println!("{}{}Внимание:{} {}", COLOR_BOLD, COLOR_YELLOW, COLOR_RESET, t("доступны критические системные обновления ядра!", "critical kernel updates are available!"));
@@ -111,5 +158,11 @@ pub fn run_check(critical_only: bool, json_output: bool) -> i32 {
         println!("wsp: базовая система Wunix полностью актуальна.");
     }
 
-    if has_alert { 2 } else { 0 }
+    if has_alert {
+        2
+    } else if updates_available > 0 {
+        1
+    } else {
+        0
+    }
 }

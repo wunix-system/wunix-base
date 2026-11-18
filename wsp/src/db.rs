@@ -22,7 +22,7 @@ pub struct SystemPackageEntry {
     pub files: Vec<String>,
 }
 
-fn get_path(root: &str, sub: &str) -> String {
+pub(crate) fn get_path(root: &str, sub: &str) -> String {
     if root.is_empty() {
         sub.to_string()
     } else {
@@ -30,7 +30,7 @@ fn get_path(root: &str, sub: &str) -> String {
     }
 }
 
-fn open_c(path: &str, flags: u64, mode: u64) -> i64 {
+pub(crate) fn open_c(path: &str, flags: u64, mode: u64) -> i64 {
     let mut null_p = [0u8; 256];
     let b = path.as_bytes();
     let l = b.len().min(255);
@@ -186,7 +186,7 @@ pub fn load_installed_packages_from(root: &str) -> Vec<SystemPackageEntry> {
     }
 
     let content = core::str::from_utf8(&buf).unwrap_or("");
-    let parsed = parse_installed_db(content);
+    let mut parsed = parse_installed_db(content);
     if parsed.is_empty() {
         if root.is_empty() || root == "/" {
             let defaults = get_default_base_packages();
@@ -196,6 +196,27 @@ pub fn load_installed_packages_from(root: &str) -> Vec<SystemPackageEntry> {
             Vec::new()
         }
     } else {
+        if !parsed.iter().any(|p| p.name == "wunix-kernel") {
+            let kpath = get_path(root, "/boot/wunix-kernel");
+            let kfd = open_c(&kpath, O_RDONLY as u64, 0);
+            if kfd >= 0 {
+                close(kfd as u64);
+                parsed.insert(
+                    0,
+                    SystemPackageEntry {
+                        name: "wunix-kernel".to_string(),
+                        version: "1.0.0".to_string(),
+                        tier: "critical".to_string(),
+                        description: "Монолитное ядро Wunix с VFS и вытесняющим планировщиком процессов".to_string(),
+                        files: alloc::vec![
+                            "/boot/wunix-kernel".to_string(),
+                            "/boot/limine.conf".to_string(),
+                        ],
+                    },
+                );
+                save_installed_packages_to(root, &parsed);
+            }
+        }
         parsed
     }
 }

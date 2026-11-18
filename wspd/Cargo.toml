@@ -1,6 +1,6 @@
 [package]
 name = "wspd"
-version = "0.1.0"
+version = "1.0.2"
 edition = "2024"
 license = "MIT"
 description = "Системный фоновый демон проверки обновлений WSP (Wunix System Package Daemon)"

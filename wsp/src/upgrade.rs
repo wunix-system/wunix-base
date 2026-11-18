@@ -60,6 +60,27 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
         }
     }
 
+    if !installed.iter().any(|p| p.name == "wunix-kernel") {
+        if let Some(repo_pkg) = repo_packages.iter().find(|p| p.name == "wunix-kernel") {
+            let k_path = crate::db::get_path(root_dir, "/boot/wunix-kernel");
+            let fd = crate::db::open_c(&k_path, libwunix::O_RDONLY as u64, 0);
+            if fd >= 0 {
+                libwunix::close(fd as u64);
+                let inst_ver = Version::new(1, 0, 0);
+                if repo_pkg.version > inst_ver {
+                    upgradable.push(UpgradableItem {
+                        name: "wunix-kernel".to_string(),
+                        old_version: inst_ver,
+                        new_version: repo_pkg.version,
+                        tier: repo_pkg.tier.clone(),
+                        size: repo_pkg.size,
+                        filename: repo_pkg.filename.clone(),
+                    });
+                }
+            }
+        }
+    }
+
     if upgradable.is_empty() {
         if critical_only {
             println!("wsp: все критические компоненты ядра находятся в актуальном состоянии.");
@@ -159,6 +180,11 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
         }
 
         if let Some(data) = pkg_data {
+            if item.name == "wunix-kernel" {
+                let cur_k = crate::db::get_path(root_dir, "/boot/wunix-kernel");
+                let old_k = crate::db::get_path(root_dir, "/boot/wunix-kernel.old");
+                let _ = crate::db::copy_file(&cur_k, &old_k);
+            }
             if let Ok((manifest, files)) = unpack_wsp_package_to(&data, root_dir, false) {
                 if item.name == "wunix-kernel" {
                     apply_kernel_rotation_with(
