@@ -94,12 +94,7 @@ pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
                 let (len, exit) = input_password_nav(13, field_col, &mut pass1, field_w);
                 pass1_len = len;
                 match exit {
-                    InputExit::Next | InputExit::Submit => {
-                        if len == 0 {
-                            continue;
-                        }
-                        cur_field = 2;
-                    }
+                    InputExit::Next | InputExit::Submit => cur_field = 2,
                     InputExit::Prev => cur_field = 0,
                     InputExit::Cancel => return None,
                 }
