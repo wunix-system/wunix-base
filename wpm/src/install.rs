@@ -4,7 +4,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libwunix::{close, geteuid, getuid, mkdir, open, println, read, t, unlink, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
+use libwunix::{close, getdents64, geteuid, getuid, mkdir, open, println, read, t, unlink, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 
 use libpackwunix::format::PackageContainer;
 
@@ -23,6 +23,85 @@ pub struct InstalledApp {
     pub version: String,
     pub description: String,
     pub files: Vec<String>,
+}
+
+pub fn scan_dir_for_package(dir: &str, pkg: &str) -> Option<String> {
+    let mut null_dir = [0u8; 256];
+    let db = dir.as_bytes();
+    if db.len() >= 255 {
+        return None;
+    }
+    null_dir[..db.len()].copy_from_slice(db);
+    null_dir[db.len()] = 0;
+
+    let fd = open(&null_dir, O_RDONLY as u64, 0);
+    if fd < 0 {
+        return None;
+    }
+
+    let mut buf = [0u8; 4096];
+    let prefix = format!("{}-", pkg);
+    let exact = format!("{}.wp", pkg);
+    let mut found = None;
+
+    loop {
+        let n = getdents64(fd as u64, &mut buf);
+        if n <= 0 {
+            break;
+        }
+        let total = (n as usize).min(buf.len());
+        let mut pos = 0;
+        while pos + 19 <= total {
+            let reclen = u16::from_ne_bytes([buf[pos + 16], buf[pos + 17]]) as usize;
+            if reclen == 0 || pos + reclen > total {
+                break;
+            }
+            let name_start = pos + 19;
+            let mut name_end = name_start;
+            let max_end = pos + reclen;
+            while name_end < max_end && buf[name_end] != 0 {
+                name_end += 1;
+            }
+            if name_end > name_start {
+                if let Ok(name) = core::str::from_utf8(&buf[name_start..name_end]) {
+                    if (name == exact || name.starts_with(&prefix))
+                        && (name.ends_with(".wp") || name.ends_with(".wsp"))
+                    {
+                        let full = format!("{}/{}", dir.trim_end_matches('/'), name);
+                        found = Some(full);
+                        break;
+                    }
+                }
+            }
+            pos += reclen;
+        }
+        if found.is_some() {
+            break;
+        }
+    }
+    let _ = close(fd as u64);
+    found
+}
+
+pub fn detect_pkg_version(pkg: &str) -> String {
+    let dirs = [
+        "/var/cache/wpm",
+        "/var/lib/wpm/repo/apps/x86_64",
+        "/repo/apps/x86_64",
+        "/repositories/apps/x86_64",
+    ];
+    for dir in dirs {
+        if let Some(path) = scan_dir_for_package(dir, pkg) {
+            let fname = path.rsplit('/').next().unwrap_or(&path);
+            let prefix = format!("{}-", pkg);
+            if let Some(rest) = fname.strip_prefix(&prefix) {
+                if let Some(ver) = rest.strip_suffix(".wp").or_else(|| rest.strip_suffix(".wsp")) {
+                    return ver.to_string();
+                }
+            }
+        }
+    }
+    "0.1".to_string()
 }
 
 pub fn ensure_db_dir_in(root: &str) {
@@ -208,7 +287,7 @@ fn parse_installed_db(content: &str) -> Vec<InstalledApp> {
             if !cur_name.is_empty() {
                 apps.push(InstalledApp {
                     name: cur_name.clone(),
-                    version: if cur_version.is_empty() { "1.0.0".to_string() } else { cur_version.clone() },
+                    version: if cur_version.is_empty() { "0.1".to_string() } else { cur_version.clone() },
                     description: cur_desc.clone(),
                     files: cur_files.clone(),
                 });
@@ -250,7 +329,7 @@ pub fn get_default_installed_apps() -> Vec<InstalledApp> {
     alloc::vec![
         InstalledApp {
             name: "archiveutils".to_string(),
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("archiveutils"),
             description: "Пользовательские утилиты работы со специальными архивными контейнерами (ar, cpio, unrar)".to_string(),
             files: alloc::vec![
                 "/bin/ar".to_string(),
@@ -260,7 +339,7 @@ pub fn get_default_installed_apps() -> Vec<InstalledApp> {
         },
         InstalledApp {
             name: "curl".to_string(),
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("curl"),
             description: "Сетевой клиент HTTP/HTTPS для передачи данных и API".to_string(),
             files: alloc::vec![
                 "/bin/curl".to_string(),
@@ -268,7 +347,7 @@ pub fn get_default_installed_apps() -> Vec<InstalledApp> {
         },
         InstalledApp {
             name: "gzip".to_string(),
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("gzip"),
             description: "Утилиты потокового сжатия и распаковки gzip (gzip, gunzip)".to_string(),
             files: alloc::vec![
                 "/bin/gzip".to_string(),
@@ -299,7 +378,7 @@ pub fn get_default_installed_apps() -> Vec<InstalledApp> {
         },
         InstalledApp {
             name: "tar".to_string(),
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("tar"),
             description: "Утилита работы со стандартными архивами tar".to_string(),
             files: alloc::vec![
                 "/bin/tar".to_string(),
@@ -307,7 +386,7 @@ pub fn get_default_installed_apps() -> Vec<InstalledApp> {
         },
         InstalledApp {
             name: "wc".to_string(),
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("wc"),
             description: "Пользовательская программа wc для подсчета строк, слов и байтов".to_string(),
             files: alloc::vec![
                 "/bin/wc".to_string(),
@@ -315,7 +394,7 @@ pub fn get_default_installed_apps() -> Vec<InstalledApp> {
         },
         InstalledApp {
             name: "zip".to_string(),
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("zip"),
             description: "Утилиты сжатия и распаковки ZIP архивов (zip, unzip)".to_string(),
             files: alloc::vec![
                 "/bin/zip".to_string(),
@@ -438,27 +517,14 @@ pub fn locate_package_file_in(pkg: &str, root_opt: Option<&str>) -> Option<Strin
         }
     }
 
-    candidates.push(format!("/var/cache/wpm/{}.wp", pkg_id));
-    candidates.push(format!("/var/cache/wpm/{}-1.0.0.wp", pkg_id));
-    candidates.push(format!("/var/cache/wpm/{}-1.0.1.wp", pkg_id));
-    candidates.push(format!("/var/lib/wpm/repo/apps/x86_64/{}.wp", pkg_id));
-    candidates.push(format!("/var/lib/wpm/repo/apps/x86_64/{}-1.0.1.wp", pkg_id));
-    candidates.push(format!("/repo/apps/x86_64/{}.wp", pkg_id));
-    candidates.push(format!("/repositories/apps/x86_64/{}.wp", pkg_id));
+    for repo_dir in &repo_dirs {
+        if let Some(found) = scan_dir_for_package(repo_dir, pkg_id) {
+            candidates.push(found);
+        }
+        candidates.push(format!("{}/{}.wp", repo_dir, pkg_id));
+    }
     candidates.push(format!("/usr/share/wpm/packages/{}.wp", pkg_id));
     candidates.push(format!("/var/cache/wpm/{}.wp", pkg));
-
-    if let Some(root) = root_opt {
-        if !root.is_empty() && root != "/" {
-            let r = root.trim_end_matches('/');
-            candidates.push(format!("{}/var/cache/wpm/{}.wp", r, pkg_id));
-            candidates.push(format!("{}/var/cache/wpm/{}-1.0.0.wp", r, pkg_id));
-            candidates.push(format!("{}/var/cache/wpm/{}-1.0.1.wp", r, pkg_id));
-            candidates.push(format!("{}/var/lib/wpm/repo/apps/x86_64/{}.wp", r, pkg_id));
-            candidates.push(format!("{}/repo/apps/x86_64/{}.wp", r, pkg_id));
-            candidates.push(format!("{}/repositories/apps/x86_64/{}.wp", r, pkg_id));
-        }
-    }
 
     for path in &candidates {
         let mut null_p = [0u8; 256];
@@ -534,18 +600,35 @@ pub fn find_repo_package(pkg: &str, root_opt: Option<&str>) -> Option<(libpackwu
         }
     }
 
+    for dir in &repo_dirs {
+        if let Some(pkg_path) = scan_dir_for_package(dir, pkg_id) {
+            if let Ok(pkg_data) = read_file_to_vec(&pkg_path) {
+                if let Ok(container) = PackageContainer::parse(&pkg_data) {
+                    let filename = pkg_path.rsplit('/').next().unwrap_or(&pkg_path).to_string();
+                    let p = libpackwunix::sources::RepoPackage {
+                        name: container.manifest.name,
+                        version: container.manifest.version,
+                        arch: container.manifest.arch,
+                        tier: "optional".to_string(),
+                        package_type: "user".to_string(),
+                        description: container.manifest.description,
+                        filename: filename.clone(),
+                        size: pkg_data.len() as u64,
+                        sha256: String::new(),
+                    };
+                    let download_url = format!("{}/{}", server_url, filename);
+                    return Some((p, download_url));
+                }
+            }
+        }
+    }
+
     // Резервный каталог официальных пакетов WPM на случай отсутствия локального packages.json
     let fallback_data = match pkg_id {
-        "git" => Some(("git", "2.43.0", "git-2.43.0.wp", 1925203, "26818a878c233c8017938d59d38d4c73a9487de474834f09fe6a60c6221ed503")),
-        "curl" => Some(("curl", "1.0.0", "curl-1.0.0.wp", 2415523, "5a925a4c7efb2f586e30f64da0026d51ea0899bee1288197daec3baca3983c62")),
-        "tinycc" => Some(("tinycc", "0.9.27", "tinycc-0.9.27.wp", 244586, "7764258292f4320ecd4da8934287de05672c45ddc1caf5876f77c1c90909fea9")),
-        "nano" => Some(("nano", "7.2.0", "nano-7.2.0.wp", 866660, "b269ea7b3ad4cd4f485a6c9750cfb298946d6934c638e1277a856a5d33032554")),
-        "openssh" => Some(("openssh", "9.8.0", "openssh-9.8.0.wp", 12713083, "c68e22d8438d45ee9c74ae077f242f10b42ed7a0cea972a718719aed862c97ad")),
-        "archiveutils" => Some(("archiveutils", "1.0.0", "archiveutils-1.0.0.wp", 16911, "5faaeeae793d56cf44356bcb8c648d9b9cbf561b3966b706fb8eeadf751dea5b")),
-        "tar" => Some(("tar", "1.0.0", "tar-1.0.0.wp", 9408, "e7b4aeeec55fda71d104fe549fc95ad7262221d12128927993ed2cbae93dc0b9")),
-        "gzip" => Some(("gzip", "1.0.0", "gzip-1.0.0.wp", 15221, "0befdd0e455d3d50213dc62847f39c5a575b97fa458871eb72c1db51f48a718a")),
-        "zip" => Some(("zip", "1.0.0", "zip-1.0.0.wp", 17516, "216bbad31de9fac72c20e2a51f81c610336aaf9dbe788d4a23b9361ab7dbeacb")),
-        "wc" => Some(("wc", "1.0.0", "wc-1.0.0.wp", 6186, "4342103b0b667fffd177144f75dd71abb6adc88a0767938a13b4c6b4aa60a60f")),
+        "git" => Some(("git", "2.43.0", "git-2.43.0.wp", 5902526, "")),
+        "tinycc" => Some(("tinycc", "0.9.27", "tinycc-0.9.27.wp", 244487, "")),
+        "nano" => Some(("nano", "7.2.0", "nano-7.2.0.wp", 866627, "")),
+        "openssh" => Some(("openssh", "9.8.0", "openssh-9.8.0.wp", 12713078, "")),
         _ => None,
     };
 
@@ -771,7 +854,8 @@ pub fn run_install_in(
                     Ok(d) => d,
                     Err(_) => {
                         println!("wpm: загрузка пакета '{}' из репозитория...", target.name);
-                        match crate::http::fetch_to_file(&download_url, &dest_path, Some(&sha256), &filename) {
+                        let sha_opt = if sha256.is_empty() { None } else { Some(sha256.as_str()) };
+                        match crate::http::fetch_to_file(&download_url, &dest_path, sha_opt, &filename) {
                             Ok(_) => match read_file_to_vec(&dest_path) {
                                 Ok(d) => d,
                                 Err(e) => {

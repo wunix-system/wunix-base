@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use libwunix::println;
 
 use crate::display::{COLOR_GREEN, COLOR_RESET};
-use crate::install::load_installed_apps;
+use crate::install::{detect_pkg_version, load_installed_apps};
 use crate::progress::format_bytes;
 use crate::unpack::read_file_to_vec;
 
@@ -87,7 +87,7 @@ pub fn get_default_wpm_catalog() -> Vec<CatalogPackage> {
         CatalogPackage {
             name: "archiveutils".to_string(),
             aliases: alloc::vec!["ar".to_string(), "cpio".to_string(), "unrar".to_string()],
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("archiveutils"),
             category: "applications".to_string(),
             description: "Пользовательские утилиты работы со специальными архивными контейнерами (ar, cpio, unrar)".to_string(),
             size: "16.5 КиБ".to_string(),
@@ -95,7 +95,7 @@ pub fn get_default_wpm_catalog() -> Vec<CatalogPackage> {
         CatalogPackage {
             name: "curl".to_string(),
             aliases: alloc::vec![],
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("curl"),
             category: "applications".to_string(),
             description: "Сетевой клиент HTTP/HTTPS для передачи данных и API".to_string(),
             size: "2.35 МиБ".to_string(),
@@ -111,7 +111,7 @@ pub fn get_default_wpm_catalog() -> Vec<CatalogPackage> {
         CatalogPackage {
             name: "gzip".to_string(),
             aliases: alloc::vec!["gunzip".to_string()],
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("gzip"),
             category: "applications".to_string(),
             description: "Утилиты потокового сжатия и распаковки gzip (gzip, gunzip)".to_string(),
             size: "14.9 КиБ".to_string(),
@@ -135,7 +135,7 @@ pub fn get_default_wpm_catalog() -> Vec<CatalogPackage> {
         CatalogPackage {
             name: "tar".to_string(),
             aliases: alloc::vec![],
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("tar"),
             category: "applications".to_string(),
             description: "Утилита работы со стандартными архивами tar".to_string(),
             size: "9.2 КиБ".to_string(),
@@ -151,7 +151,7 @@ pub fn get_default_wpm_catalog() -> Vec<CatalogPackage> {
         CatalogPackage {
             name: "wc".to_string(),
             aliases: alloc::vec![],
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("wc"),
             category: "applications".to_string(),
             description: "Пользовательская программа wc для подсчета строк, слов и байтов".to_string(),
             size: "6.1 КиБ".to_string(),
@@ -159,7 +159,7 @@ pub fn get_default_wpm_catalog() -> Vec<CatalogPackage> {
         CatalogPackage {
             name: "zip".to_string(),
             aliases: alloc::vec!["unzip".to_string()],
-            version: "1.0.0".to_string(),
+            version: detect_pkg_version("zip"),
             category: "applications".to_string(),
             description: "Утилиты сжатия и распаковки ZIP архивов (zip, unzip)".to_string(),
             size: "17.1 КиБ".to_string(),

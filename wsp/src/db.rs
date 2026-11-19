@@ -384,7 +384,7 @@ fn parse_installed_db(content: &str) -> Vec<SystemPackageEntry> {
             if !cur_name.is_empty() {
                 list.push(SystemPackageEntry {
                     name: cur_name.clone(),
-                    version: if cur_version.is_empty() { "1.0.0".to_string() } else { cur_version.clone() },
+                    version: if cur_version.is_empty() { "0.1".to_string() } else { cur_version.clone() },
                     tier: if cur_tier.is_empty() { "base".to_string() } else { cur_tier.clone() },
                     description: cur_desc.clone(),
                     files: cur_files.clone(),
