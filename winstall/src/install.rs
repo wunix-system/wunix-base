@@ -4,7 +4,7 @@ use crate::disk::install_limine_bootloader;
 use crate::net::{apply_network_config, NetConfig};
 
 use libwunix::{
-    close, hash_password, mkdir, mount, open, pread64, pwrite64, symlink, umount2, unlink,
+    close, getdents64, hash_password, mkdir, mount, open, pread64, pwrite64, symlink, umount2, unlink,
     O_APPEND, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
 };
 
@@ -203,86 +203,107 @@ fn run_command(cmd: &[u8], args: &[&[u8]]) -> bool {
     res == 0
 }
 
-fn copy_repo_metadata() {
-    // Копируем системные пакеты WSP в кэш целевой системы
-    const WSP_CACHE_FILES: &[&[u8]] = &[
-        b"wunix-kernel-1.0.0.wp\0",
-        b"wunix-kernel-1.0.1.wp\0",
-        b"wunix-kernel-1.0.2.wp\0",
-        b"libwunix-1.0.0.wp\0",
-        b"libpackwunix-1.0.0.wp\0",
-        b"libcwunix-1.0.0.wp\0",
-        b"wunix-base-1.0.0.wp\0",
-        b"wunix-base-1.0.1.wp\0",
-        b"wunix-base-1.0.2.wp\0",
-        b"coreutils-1.0.0.wp\0",
-        b"coreutils-1.0.1.wp\0",
-        b"coreutils-1.0.2.wp\0",
-        b"netutils-1.0.0.wp\0",
-        b"netutils-1.0.1.wp\0",
-        b"netutils-1.0.2.wp\0",
-        b"sysutils-1.0.0.wp\0",
-        b"sysutils-1.0.1.wp\0",
-        b"sysutils-1.0.2.wp\0",
-        b"authutils-1.0.0.wp\0",
-        b"authutils-1.0.1.wp\0",
-        b"authutils-1.0.2.wp\0",
-        b"wspd-1.0.0.wp\0",
-        b"wspd-1.0.1.wp\0",
-        b"wspd-1.0.2.wp\0",
-        b"openssl-3.4.0.wp\0",
-        b"ncurses-6.4.0.wp\0",
-        b"zlib-1.3.1.wp\0",
-    ];
+fn copy_dir_packages(src_dir: &[u8], dst_dir: &[u8]) {
+    let sfd = open(src_dir, O_RDONLY as u64, 0);
+    if sfd < 0 {
+        return;
+    }
+    let s_len = src_dir.iter().position(|&b| b == 0).unwrap_or(src_dir.len());
+    let clean_src = &src_dir[..s_len];
 
+    let d_len = dst_dir.iter().position(|&b| b == 0).unwrap_or(dst_dir.len());
+    let clean_dst = &dst_dir[..d_len];
+
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = getdents64(sfd as u64, &mut buf);
+        if n <= 0 {
+            break;
+        }
+        let total = (n as usize).min(buf.len());
+        let mut pos = 0;
+        while pos + 19 <= total {
+            let reclen = u16::from_ne_bytes([buf[pos + 16], buf[pos + 17]]) as usize;
+            if reclen == 0 || pos + reclen > total {
+                break;
+            }
+            let name_start = pos + 19;
+            let mut name_end = name_start;
+            let max_end = pos + reclen;
+            while name_end < max_end && buf[name_end] != 0 {
+                name_end += 1;
+            }
+            if name_end > name_start {
+                let name = &buf[name_start..name_end];
+                if name != b"." && name != b".." {
+                    let is_target = name.ends_with(b".wp")
+                        || name.ends_with(b".wsp")
+                        || name.ends_with(b".json")
+                        || name.ends_with(b".txt");
+                    if is_target {
+                        let mut src_path = [0u8; 256];
+                        let mut dst_path = [0u8; 256];
+                        let mut sp = ap(&mut src_path, 0, clean_src);
+                        if sp > 0 && src_path[sp - 1] != b'/' {
+                            src_path[sp] = b'/';
+                            sp += 1;
+                        }
+                        sp = ap(&mut src_path, sp, name);
+                        src_path[sp] = 0;
+
+                        let mut dp = ap(&mut dst_path, 0, clean_dst);
+                        if dp > 0 && dst_path[dp - 1] != b'/' {
+                            dst_path[dp] = b'/';
+                            dp += 1;
+                        }
+                        dp = ap(&mut dst_path, dp, name);
+                        dst_path[dp] = 0;
+
+                        copy_file(&src_path[..sp + 1], &dst_path[..dp + 1], 0o644);
+                    }
+                }
+            }
+            pos += reclen;
+        }
+    }
+    let _ = close(sfd as u64);
+}
+
+fn copy_repo_metadata() {
+    // Подготавливаем каталоги репозиториев на установленном диске
+    let _ = mkdir(b"/mnt/var\0", 0o755);
+    let _ = mkdir(b"/mnt/var/cache\0", 0o755);
+    let _ = mkdir(b"/mnt/var/cache/wsp\0", 0o755);
+    let _ = mkdir(b"/mnt/var/cache/wpm\0", 0o777);
+    let _ = mkdir(b"/mnt/var/lib\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wsp\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wsp/repo\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wsp/repo/system\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wsp/repo/system/x86_64\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wpm\0", 0o777);
+    let _ = mkdir(b"/mnt/var/lib/wpm/repo\0", 0o777);
+    let _ = mkdir(b"/mnt/var/lib/wpm/repo/apps\0", 0o777);
+    let _ = mkdir(b"/mnt/var/lib/wpm/repo/apps/x86_64\0", 0o777);
+
+    // Динамически копируем системные пакеты WSP и метаданные без жестких версий
+    copy_dir_packages(b"/var/cache/wsp\0", b"/mnt/var/cache/wsp\0");
+    copy_dir_packages(b"/var/lib/wsp/repo/system/x86_64\0", b"/mnt/var/lib/wsp/repo/system/x86_64\0");
+    copy_dir_packages(b"/var/lib/wsp/repo/system/x86_64\0", b"/mnt/var/cache/wsp\0");
+    copy_dir_packages(b"/repositories/system/x86_64\0", b"/mnt/var/lib/wsp/repo/system/x86_64\0");
+    copy_dir_packages(b"/repositories/system/x86_64\0", b"/mnt/var/cache/wsp\0");
+
+    // Динамически копируем прикладные пакеты WPM и метаданные без жестких версий
+    copy_dir_packages(b"/var/cache/wpm\0", b"/mnt/var/cache/wpm\0");
+    copy_dir_packages(b"/var/lib/wpm/repo/apps/x86_64\0", b"/mnt/var/lib/wpm/repo/apps/x86_64\0");
+    copy_dir_packages(b"/var/lib/wpm/repo/apps/x86_64\0", b"/mnt/var/cache/wpm\0");
+    copy_dir_packages(b"/repositories/apps/x86_64\0", b"/mnt/var/lib/wpm/repo/apps/x86_64\0");
+    copy_dir_packages(b"/repositories/apps/x86_64\0", b"/mnt/var/cache/wpm\0");
+
+    // Гарантированно копируем файлы индексов репозиториев
     copy_file(b"/var/lib/wsp/repo/system/x86_64/packages.json\0", b"/mnt/var/lib/wsp/repo/system/x86_64/packages.json\0", 0o644);
     copy_file(b"/var/cache/wsp/packages.json\0", b"/mnt/var/cache/wsp/packages.json\0", 0o644);
-
-    for &f in WSP_CACHE_FILES {
-        let mut src = [0u8; 128];
-        let mut dst = [0u8; 128];
-        let mut spos = ap(&mut src, 0, b"/var/cache/wsp/");
-        spos = ap(&mut src, spos, f);
-        src[spos] = 0;
-
-        let mut dpos = ap(&mut dst, 0, b"/mnt/var/cache/wsp/");
-        dpos = ap(&mut dst, dpos, f);
-        dst[dpos] = 0;
-
-        copy_file(&src[..spos + 1], &dst[..dpos + 1], 0o644);
-    }
-
-    // Копируем прикладные пакеты WPM в кэш целевой системы
-    const WPM_CACHE_FILES: &[&[u8]] = &[
-        b"archiveutils-1.0.0.wp\0",
-        b"curl-1.0.0.wp\0",
-        b"git-2.43.0.wp\0",
-        b"gzip-1.0.0.wp\0",
-        b"nano-7.2.0.wp\0",
-        b"openssh-9.8.0.wp\0",
-        b"tar-1.0.0.wp\0",
-        b"tinycc-0.9.27.wp\0",
-        b"wc-1.0.0.wp\0",
-        b"wc-1.0.1.wp\0",
-        b"zip-1.0.0.wp\0",
-    ];
-
     copy_file(b"/var/lib/wpm/repo/apps/x86_64/packages.json\0", b"/mnt/var/lib/wpm/repo/apps/x86_64/packages.json\0", 0o644);
     copy_file(b"/var/cache/wpm/packages.json\0", b"/mnt/var/cache/wpm/packages.json\0", 0o644);
-
-    for &f in WPM_CACHE_FILES {
-        let mut src = [0u8; 128];
-        let mut dst = [0u8; 128];
-        let mut spos = ap(&mut src, 0, b"/var/cache/wpm/");
-        spos = ap(&mut src, spos, f);
-        src[spos] = 0;
-
-        let mut dpos = ap(&mut dst, 0, b"/mnt/var/cache/wpm/");
-        dpos = ap(&mut dst, dpos, f);
-        dst[dpos] = 0;
-
-        copy_file(&src[..spos + 1], &dst[..dpos + 1], 0o644);
-    }
 }
 
 pub fn total_install_items() -> usize {

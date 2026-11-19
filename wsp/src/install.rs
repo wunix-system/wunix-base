@@ -12,6 +12,64 @@ use crate::display::{confirm_prompt, print_access_denied, print_disk_space_chang
 use crate::http;
 use crate::unpack::{self, read_file_to_vec};
 
+fn scan_dir_for_package(dir: &str, pkg: &str) -> Option<String> {
+    let mut null_dir = [0u8; 256];
+    let db = dir.as_bytes();
+    if db.len() >= 255 {
+        return None;
+    }
+    null_dir[..db.len()].copy_from_slice(db);
+    null_dir[db.len()] = 0;
+
+    let fd = libwunix::open(&null_dir, libwunix::O_RDONLY as u64, 0);
+    if fd < 0 {
+        return None;
+    }
+
+    let mut buf = [0u8; 4096];
+    let prefix = format!("{}-", pkg);
+    let exact = format!("{}.wp", pkg);
+    let mut found = None;
+
+    loop {
+        let n = libwunix::getdents64(fd as u64, &mut buf);
+        if n <= 0 {
+            break;
+        }
+        let total = (n as usize).min(buf.len());
+        let mut pos = 0;
+        while pos + 19 <= total {
+            let reclen = u16::from_ne_bytes([buf[pos + 16], buf[pos + 17]]) as usize;
+            if reclen == 0 || pos + reclen > total {
+                break;
+            }
+            let name_start = pos + 19;
+            let mut name_end = name_start;
+            let max_end = pos + reclen;
+            while name_end < max_end && buf[name_end] != 0 {
+                name_end += 1;
+            }
+            if name_end > name_start {
+                if let Ok(name) = core::str::from_utf8(&buf[name_start..name_end]) {
+                    if (name == exact || name.starts_with(&prefix))
+                        && (name.ends_with(".wp") || name.ends_with(".wsp"))
+                    {
+                        let full = format!("{}/{}", dir.trim_end_matches('/'), name);
+                        found = Some(full);
+                        break;
+                    }
+                }
+            }
+            pos += reclen;
+        }
+        if found.is_some() {
+            break;
+        }
+    }
+    let _ = libwunix::close(fd as u64);
+    found
+}
+
 pub fn locate_system_package(pkg: &str, root_dir: &str) -> Option<String> {
     if pkg.ends_with(".wp") || pkg.ends_with(".wsp") || pkg.contains('/') {
         if let Ok(d) = read_file_to_vec(pkg) {
@@ -21,47 +79,39 @@ pub fn locate_system_package(pkg: &str, root_dir: &str) -> Option<String> {
         }
     }
 
-    let mut candidates = alloc::vec![
-        format!("/var/cache/wsp/{}.wp", pkg),
-        format!("/var/cache/wsp/{}-1.0.0.wp", pkg),
-        format!("/var/cache/wsp/{}-1.0.1.wp", pkg),
-        format!("/var/cache/wsp/{}-1.0.2.wp", pkg),
-        format!("/var/lib/wsp/repo/system/x86_64/{}.wp", pkg),
-        format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.0.wp", pkg),
-        format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.1.wp", pkg),
-        format!("/var/lib/wsp/repo/system/x86_64/{}-1.0.2.wp", pkg),
-        format!("/repositories/system/x86_64/{}.wp", pkg),
-        format!("/repositories/system/x86_64/{}-1.0.0.wp", pkg),
-        format!("/repositories/system/x86_64/{}-1.0.1.wp", pkg),
-        format!("/repositories/system/x86_64/{}-1.0.2.wp", pkg),
+    let mut search_dirs: Vec<String> = alloc::vec![
+        "/var/cache/wsp".to_string(),
+        "/var/lib/wsp/repo/system/x86_64".to_string(),
+        "/repositories/system/x86_64".to_string(),
     ];
 
     if !root_dir.is_empty() && root_dir != "/" {
         let r = root_dir.trim_end_matches('/');
-        candidates.push(format!("{}/var/cache/wsp/{}.wp", r, pkg));
-        candidates.push(format!("{}/var/cache/wsp/{}-1.0.0.wp", r, pkg));
-        candidates.push(format!("{}/var/cache/wsp/{}-1.0.1.wp", r, pkg));
-        candidates.push(format!("{}/var/cache/wsp/{}-1.0.2.wp", r, pkg));
-        candidates.push(format!("{}/var/lib/wsp/repo/system/x86_64/{}.wp", r, pkg));
-        candidates.push(format!("{}/var/lib/wsp/repo/system/x86_64/{}-1.0.1.wp", r, pkg));
-        candidates.push(format!("{}/var/lib/wsp/repo/system/x86_64/{}-1.0.2.wp", r, pkg));
+        search_dirs.insert(0, format!("{}/var/cache/wsp", r));
+        search_dirs.insert(1, format!("{}/var/lib/wsp/repo/system/x86_64", r));
+        search_dirs.insert(2, format!("{}/repositories/system/x86_64", r));
     }
 
+    // 1. Поиск по имени файла из каталога packages.json
     let repo_pkgs = load_repo_packages(root_dir);
     if let Some(rp) = repo_pkgs.iter().find(|p| p.name == pkg) {
-        candidates.push(format!("/var/cache/wsp/{}", rp.filename));
-        candidates.push(format!("/var/lib/wsp/repo/system/x86_64/{}", rp.filename));
-        candidates.push(format!("/repositories/system/x86_64/{}", rp.filename));
-        if !root_dir.is_empty() && root_dir != "/" {
-            let r = root_dir.trim_end_matches('/');
-            candidates.push(format!("{}/var/cache/wsp/{}", r, rp.filename));
+        for dir in &search_dirs {
+            let path = format!("{}/{}", dir, rp.filename);
+            if let Ok(d) = read_file_to_vec(&path) {
+                if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
+                    return Some(path);
+                }
+            }
         }
     }
 
-    for path in &candidates {
-        if let Ok(d) = read_file_to_vec(path) {
-            if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
-                return Some(path.clone());
+    // 2. Динамический поиск по префиксу пакета в директориях кэша и репозитория
+    for dir in &search_dirs {
+        if let Some(path) = scan_dir_for_package(dir, pkg) {
+            if let Ok(d) = read_file_to_vec(&path) {
+                if libpackwunix::format::PackageContainer::parse(&d).is_ok() {
+                    return Some(path);
+                }
             }
         }
     }
