@@ -1,10 +1,9 @@
 #![cfg_attr(test, allow(dead_code))]
 
-use crate::terminal::read_password_line;
+use crate::auth::authenticate_user;
 use crate::ticket::{check_cached_auth, remove_cached_auth, touch_cached_auth};
 use libwunix::{
-    execve, get_passwd_by_uid, getuid, setgid, setuid, t, user_in_group, verify_password, write,
-    STDERR_FILENO, STDOUT_FILENO,
+    execve, get_passwd_by_uid, getuid, setgid, setuid, t, user_in_group, write, STDERR_FILENO,
 };
 
 /// Сбрасывает сохранённые учетные данные пользователя (для `sudo -k`).
@@ -50,18 +49,7 @@ pub fn run_validate() -> bool {
         return true;
     }
 
-    let prompt_pre = t("[sudo] пароль для ", "[sudo] password for ");
-    let prompt_post = ": ";
-    write(STDOUT_FILENO, prompt_pre.as_bytes());
-    write(STDOUT_FILENO, username.as_bytes());
-    write(STDOUT_FILENO, prompt_post.as_bytes());
-
-    let mut pwd_buf = [0u8; 128];
-    let raw_pwd = read_password_line(&mut pwd_buf);
-
-    if verify_password(username, raw_pwd).is_err() {
-        let fail = t("sudo: неверный пароль\n", "sudo: Authentication failure: incorrect password\n");
-        write(STDERR_FILENO, fail.as_bytes());
+    if !authenticate_user(username) {
         return false;
     }
 
@@ -97,18 +85,7 @@ pub fn run_sudo(cmd_path: &str, argv: *const *const u8, start_idx: usize, argc: 
     // 2. Аутентификация (запрос пароля только если нет действующего билета)
     if real_uid != 0 {
         if !check_cached_auth(username) {
-            let prompt_pre = t("[sudo] пароль для ", "[sudo] password for ");
-            let prompt_post = ": ";
-            write(STDOUT_FILENO, prompt_pre.as_bytes());
-            write(STDOUT_FILENO, username.as_bytes());
-            write(STDOUT_FILENO, prompt_post.as_bytes());
-
-            let mut pwd_buf = [0u8; 128];
-            let raw_pwd = read_password_line(&mut pwd_buf);
-
-            if verify_password(username, raw_pwd).is_err() {
-                let fail = t("sudo: неверный пароль\n", "sudo: Authentication failure: incorrect password\n");
-                write(STDERR_FILENO, fail.as_bytes());
+            if !authenticate_user(username) {
                 return false;
             }
 

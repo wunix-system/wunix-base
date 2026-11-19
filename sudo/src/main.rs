@@ -3,6 +3,7 @@
 #![cfg_attr(test, allow(dead_code, unused_imports))]
 
 mod action;
+mod auth;
 mod terminal;
 pub mod ticket;
 

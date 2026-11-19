@@ -3,6 +3,7 @@
 use libwunix::read_password_masked;
 
 /// Считывает пароль пользователя для sudo с отображением звёздочек '*' вместо скрытого ввода.
-pub fn read_password_line(buf: &mut [u8]) -> &str {
-    read_password_masked(buf).unwrap_or("")
+/// Возвращает None, если пользователь прервал ввод через Ctrl+C.
+pub fn read_password_line<'a>(buf: &'a mut [u8]) -> Option<&'a str> {
+    read_password_masked(buf)
 }
