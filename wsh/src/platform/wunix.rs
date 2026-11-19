@@ -86,22 +86,26 @@ fn init_env_if_needed(vars: &mut Option<Vec<(String, String)>>) -> &mut Vec<(Str
         v.push((String::from("PATH"), String::from("/bin:/usr/bin")));
         v.push((String::from("TERM"), String::from("linux")));
         v.push((String::from("BASH_VERSION"), String::from("5.2.0(1)-release")));
+        v.push((String::from("LANG"), String::from("ru_RU.UTF-8")));
+        v.push((String::from("LC_ALL"), String::from("ru_RU.UTF-8")));
 
-        // Загрузка глобальных переменных окружения из /etc/environment
-        if let Some(content) = read_file("/etc/environment") {
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() || trimmed.starts_with('#') {
-                    continue;
-                }
-                if let Some((k, val)) = trimmed.split_once('=') {
-                    let k = k.trim();
-                    let clean_val = val.trim().trim_matches('"').trim_matches('\'');
-                    if !k.is_empty() {
-                        if let Some((_, existing)) = v.iter_mut().find(|(name, _)| name == k) {
-                            *existing = String::from(clean_val);
-                        } else {
-                            v.push((String::from(k), String::from(clean_val)));
+        // Загрузка глобальных переменных окружения из /etc/environment и /etc/locale
+        for conf_path in &["/etc/environment", "/etc/locale"] {
+            if let Some(content) = read_file(conf_path) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+                    if let Some((k, val)) = trimmed.split_once('=') {
+                        let k = k.trim();
+                        let clean_val = val.trim().trim_matches('"').trim_matches('\'');
+                        if !k.is_empty() {
+                            if let Some((_, existing)) = v.iter_mut().find(|(name, _)| name == k) {
+                                *existing = String::from(clean_val);
+                            } else {
+                                v.push((String::from(k), String::from(clean_val)));
+                            }
                         }
                     }
                 }

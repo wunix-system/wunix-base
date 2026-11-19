@@ -55,6 +55,8 @@ pub fn spawn_user_session(user_entry: &PasswdEntry, _preserve_env: bool) -> ! {
 
     let env_path = b"PATH=/bin:/usr/bin\0";
     let env_term = b"TERM=linux\0";
+    let env_lang = b"LANG=ru_RU.UTF-8\0";
+    let env_lc_all = b"LC_ALL=ru_RU.UTF-8\0";
 
     let envp_ptrs = [
         env_user.as_ptr(),
@@ -63,6 +65,8 @@ pub fn spawn_user_session(user_entry: &PasswdEntry, _preserve_env: bool) -> ! {
         env_shell.as_ptr(),
         env_path.as_ptr(),
         env_term.as_ptr(),
+        env_lang.as_ptr(),
+        env_lc_all.as_ptr(),
         core::ptr::null(),
     ];
 
