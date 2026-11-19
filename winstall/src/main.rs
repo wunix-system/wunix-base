@@ -37,7 +37,7 @@ pub extern "C" fn _start(_argc: isize, _argv: *const *const u8) -> ! {
 }
 
 fn run_wizard() -> ! {
-    // Если в параметрах ядра указан mode=install, сразу переходим к установщику
+    // Если в параметрах ядра указан mode=install или install=auto, сразу переходим к установщику
     let mut cmdline_buf = [0u8; 256];
     let cmd_fd = open(b"/proc/cmdline\0", O_RDONLY as u64, 0);
     if cmd_fd >= 0 {
@@ -45,7 +45,9 @@ fn run_wizard() -> ! {
         close(cmd_fd as u64);
         if n > 0 {
             let cmd_str = core::str::from_utf8(&cmdline_buf[..n as usize]).unwrap_or("");
-            if cmd_str.contains("mode=install") {
+            if cmd_str.contains("install=auto") || cmd_str.contains("mode=auto-install") {
+                run_auto_install();
+            } else if cmd_str.contains("mode=install") {
                 run_install_wizard();
             }
         }
@@ -66,6 +68,81 @@ fn run_wizard() -> ! {
             launch_shell();
         }
     }
+}
+
+fn run_auto_install() -> ! {
+    restore_termios();
+    show_cursor();
+    write(STDOUT_FILENO, b"\n=== Starting Wunix Unattended Auto-Install ===\n");
+    let mut disks = [DiskInfo::default(); MAX_DISKS];
+    let disk_count = scan_disks(&mut disks);
+    if disk_count == 0 {
+        write(STDERR_FILENO, b"Error: No disks found for auto-install\n");
+        exit(1);
+    }
+    let target_disk = disks[0];
+    let fs_choice = "ext4";
+    let mut plans = [PartitionPlan::empty(); MAX_PARTITIONS];
+    let plan_count = build_auto_partition_plan(target_disk.sector_count, fs_choice, &mut plans);
+
+    write(STDOUT_FILENO, b"--> Wiping partition signatures...\n");
+    wipe_disk_signatures(target_disk.path);
+
+    write(STDOUT_FILENO, b"--> Writing MBR partition table...\n");
+    if !write_mbr_table(target_disk.path, &plans[..plan_count], plan_count) {
+        write(STDERR_FILENO, b"Error: Failed to write MBR table\n");
+        exit(1);
+    }
+
+    let mut root_part_num = 1u8;
+    let mut boot_part_num = 0u8;
+    for (idx, p) in plans[..plan_count].iter().enumerate() {
+        if p.mount_point == "/" {
+            root_part_num = (idx + 1) as u8;
+            write(STDOUT_FILENO, b"--> Formatting root partition (ext4)...\n");
+            if !format_ext4(target_disk.path, p.start_lba as u64, p.sector_count as u64) {
+                write(STDERR_FILENO, b"Error: Failed to format root partition\n");
+                exit(1);
+            }
+        } else if p.mount_point == "/boot" && p.fstype == "fat32" {
+            boot_part_num = (idx + 1) as u8;
+            write(STDOUT_FILENO, b"--> Formatting boot partition (FAT32)...\n");
+            let _ = format_fat32(target_disk.path, p.start_lba as u64, p.sector_count as u64);
+        } else if p.mount_point == "swap" || p.fstype == "swap" {
+            write(STDOUT_FILENO, b"--> Initializing swap partition...\n");
+            let _ = init_swap(target_disk.path, p.start_lba as u64, p.sector_count as u64);
+        }
+    }
+
+    let net_cfg = NetConfig::default();
+
+    let username = "admin";
+    let password = b"admin";
+    let hostname = "wunix";
+    let timezone = "Europe/Moscow";
+    let fs_type_bytes = b"ext4\0";
+
+    write(STDOUT_FILENO, b"--> Installing packages to /mnt...\n");
+    let ok = install_base(
+        target_disk.path,
+        root_part_num,
+        boot_part_num,
+        fs_type_bytes,
+        hostname,
+        timezone,
+        username,
+        password,
+        &net_cfg,
+        |_pct, _stage, _done, _total| {},
+    );
+
+    if !ok {
+        write(STDERR_FILENO, b"Error: install_base failed\n");
+        exit(1);
+    }
+
+    write(STDOUT_FILENO, b"\n=== Auto-Install Completed Successfully! Rebooting... ===\n");
+    do_reboot();
 }
 
 fn run_install_wizard() -> ! {

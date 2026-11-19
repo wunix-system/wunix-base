@@ -29,6 +29,7 @@ pub const SYSTEM_PACKAGES: &[&str] = &[
 pub const APP_PACKAGES: &[&str] = &[
     "archiveutils",
     "curl",
+    "git",
     "gzip",
     "nano",
     "openssh",
@@ -598,8 +599,14 @@ directory = /\n";
     }
     done += 1;
 
-    // 9. Маркер установленной системы
-    progress(90, "Фиксация флага установки...", done, total);
+    // 9. Маркер установленной системы и системная локаль
+    progress(90, "Фиксация флага установки и локали...", done, total);
+    let locale_env = b"LANG=ru_RU.UTF-8\nLC_ALL=ru_RU.UTF-8\n";
+    write_file(b"/mnt/etc/environment\0", locale_env, 0o644);
+    write_file(b"/etc/environment\0", locale_env, 0o644);
+    write_file(b"/mnt/etc/locale\0", locale_env, 0o644);
+    write_file(b"/etc/locale\0", locale_env, 0o644);
+
     write_file(
         b"/mnt/etc/installed\0",
         b"WUNIX_INSTALLED=1\nINSTALL_STAGE=11\nRELEASE=1.0\n",

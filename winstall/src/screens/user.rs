@@ -37,13 +37,11 @@ pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
     let mut cur_field: usize = 0;
 
     let mut ubuf = [0u8; 64];
-    ubuf[..5].copy_from_slice(b"admin");
     let mut pass1 = [0u8; 128];
     let mut pass1_len = 0;
     let mut pass2 = [0u8; 128];
     let mut pass2_len = 0;
     let mut hbuf = [0u8; 64];
-    hbuf[..5].copy_from_slice(b"wunix");
 
     loop {
         hide_cursor();
@@ -96,7 +94,12 @@ pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
                 let (len, exit) = input_password_nav(13, field_col, &mut pass1, field_w);
                 pass1_len = len;
                 match exit {
-                    InputExit::Next | InputExit::Submit => cur_field = 2,
+                    InputExit::Next | InputExit::Submit => {
+                        if len == 0 {
+                            continue;
+                        }
+                        cur_field = 2;
+                    }
                     InputExit::Prev => cur_field = 0,
                     InputExit::Cancel => return None,
                 }
@@ -117,6 +120,10 @@ pub fn screen_user_and_hostname() -> Option<UserHostnameConfig> {
                     InputExit::Submit => {
                         if pass1[..pass1_len] != pass2[..pass2_len] {
                             error_msg = Some("Пароли не совпадают! Повторите ввод пароля.");
+                            pass1 = [0; 128];
+                            pass1_len = 0;
+                            pass2 = [0; 128];
+                            pass2_len = 0;
                             cur_field = 1;
                             continue;
                         }
