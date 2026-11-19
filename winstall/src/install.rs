@@ -29,7 +29,6 @@ pub const SYSTEM_PACKAGES: &[&str] = &[
 pub const APP_PACKAGES: &[&str] = &[
     "archiveutils",
     "curl",
-    "git",
     "gzip",
     "nano",
     "openssh",
@@ -458,6 +457,7 @@ where
     // Устанавливаем строгие права 0600 на закрытые серверные ключи OpenSSH
     let _ = libwunix::chmod(b"/mnt/etc/ssh/ssh_host_ed25519_key\0", 0o600);
     let _ = libwunix::chmod(b"/mnt/etc/ssh/ssh_host_rsa_key\0", 0o600);
+    let _ = libwunix::symlink(b"certs/ca-certificates.crt\0", b"/mnt/etc/ssl/cert.pem\0");
 
     for (src, dst) in INSTALL_EXTRA_FILES {
         copy_file(src, dst, 0o644);
