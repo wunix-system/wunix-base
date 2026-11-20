@@ -4,7 +4,10 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libwunix::{close, geteuid, getuid, open, println, t, unlink, write, O_CREAT, O_TRUNC, O_WRONLY};
+use libwunix::{
+    close, geteuid, getuid, mkdir, mount, open, println, t, umount2, unlink, write, O_CREAT,
+    O_TRUNC, O_WRONLY,
+};
 use libpackwunix::kernel::{generate_limine_conf, KernelEntry};
 use libpackwunix::version::Version;
 
@@ -254,16 +257,24 @@ pub fn run_upgrade(root_dir: &str, critical_only: bool, assume_yes: bool, dry_ru
 }
 
 fn apply_kernel_rotation_with(new_ver: &Version, old_ver: &Version, root_dir: &str) {
+    let mut cmdline = "root=/dev/vda1 lang=ru mode=disk".to_string();
+    if let Ok(c) = crate::unpack::read_file_to_vec("/proc/cmdline") {
+        let s = core::str::from_utf8(&c).unwrap_or("").trim();
+        if !s.is_empty() {
+            cmdline = s.to_string();
+        }
+    }
+
     let current_entry = KernelEntry {
         version: *new_ver,
         kernel_path: "boot():/boot/wunix-kernel".into(),
-        cmdline: "root=/dev/vda1 lang=ru mode=disk".into(),
+        cmdline: cmdline.clone(),
     };
 
     let fallback_entry = KernelEntry {
         version: *old_ver,
         kernel_path: "boot():/boot/wunix-kernel.old".into(),
-        cmdline: "root=/dev/vda1 lang=ru mode=disk".into(),
+        cmdline,
     };
 
     let new_conf = generate_limine_conf(&current_entry, Some(&fallback_entry), 3);
@@ -284,5 +295,40 @@ fn apply_kernel_rotation_with(new_ver: &Version, old_ver: &Version, root_dir: &s
     if fd >= 0 {
         let _ = write(fd as u64, new_conf.as_bytes());
         close(fd as u64);
+    }
+
+    sync_kernel_to_boot_partition(root_dir);
+}
+
+fn sync_kernel_to_boot_partition(root_dir: &str) {
+    let candidate_devs: &[&[u8]] = &[
+        b"/dev/vda1\0",
+        b"/dev/sda1\0",
+    ];
+
+    let mnt_boot = b"/mnt_boot\0";
+    let _ = mkdir(mnt_boot, 0o755);
+
+    for dev in candidate_devs {
+        if mount(*dev, mnt_boot, b"fat32\0", 0, b"\0") >= 0 {
+            let kernel_src = crate::db::get_path(root_dir, "/boot/wunix-kernel");
+            let kernel_dst = "/mnt_boot/boot/wunix-kernel";
+            let _ = crate::db::copy_file(&kernel_src, kernel_dst);
+
+            let old_src = crate::db::get_path(root_dir, "/boot/wunix-kernel.old");
+            let old_dst = "/mnt_boot/boot/wunix-kernel.old";
+            let _ = crate::db::copy_file(&old_src, old_dst);
+
+            let conf_src = crate::db::get_path(root_dir, "/boot/limine.conf");
+            let conf_dst = "/mnt_boot/boot/limine.conf";
+            let _ = crate::db::copy_file(&conf_src, conf_dst);
+
+            let _ = umount2(mnt_boot, 0);
+            println!(
+                "  wsp: ядро успешно синхронизировано с загрузочным разделом {}",
+                core::str::from_utf8(dev).unwrap_or("").trim_end_matches('\0')
+            );
+            break;
+        }
     }
 }
