@@ -130,6 +130,9 @@ pub fn get_env(key: &str) -> Option<String> {
 }
 
 pub fn set_env(key: &str, val: &str) {
+    if key == "LC_ALL" || key == "LANG" || key == "LC_MESSAGES" {
+        libwunix::set_locale(val);
+    }
     ENV_VARS.lock(|opt| {
         let vars = init_env_if_needed(opt);
         for (k, v) in vars.iter_mut() {
