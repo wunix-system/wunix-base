@@ -1,0 +1,54 @@
+/* Wunix System Strings Catalog - French (fr_FR.UTF-8) */
+
+// Kernel and boot messages
+"wunix: system ready" = "wunix: système prêt";
+"wunix: userspace (Ring 3) verified successfully" = "wunix: espace utilisateur (Ring 3) vérifié avec succès";
+"^C (input cancelled)" = "^C (saisie annulée)";
+"type something on keyboard (layout switch: Alt+Shift)..." = "saisissez du texte (changement de disposition: Alt+Shift)...";
+"cpu" = "processeur";
+"memory" = "mémoire";
+"display" = "affichage";
+"timer" = "minuteur";
+"keyboard" = "clavier";
+"uptime" = "temps de fonctionnement";
+
+// System status and errors
+"permission denied: " = "permission refusée: ";
+"command not found: " = "commande introuvable: ";
+"Shutting down operating system..." = "Arrêt du système d'exploitation en cours...";
+"Restarting operating system..." = "Redémarrage du système d'exploitation...";
+"System halted." = "Système arrêté.";
+
+// Coreutils: touch
+"touch: cannot touch '" = "touch: impossible de créer '";
+"': failed to create file\n" = "': échec de création du fichier\n";
+
+// Coreutils: cat
+"cat: read error\n" = "cat: erreur de lecture\n";
+
+// Coreutils: chown
+"chown: path too long\n" = "chown: chemin trop long\n";
+"chown: cannot access '" = "chown: impossible d'accéder à '";
+"': No such file or directory\n" = "': Aucun fichier ou dossier de ce type\n";
+"chown: changing ownership of '" = "chown: changement de propriétaire de '";
+"': Operation not permitted\n" = "': Opération non permise\n";
+"': Permission denied\n" = "': Permission refusée\n";
+
+// Coreutils: chmod
+"chmod: path too long\n" = "chmod: chemin trop long\n";
+"chmod: cannot access '" = "chmod: impossible d'accéder à '";
+"chmod: invalid symbolic mode\n" = "chmod: mode symbolique non valide\n";
+"chmod: changing permissions of '" = "chmod: changement des permissions de '";
+
+// Coreutils: id
+"id: user '" = "id: utilisateur '";
+"': no such user\n" = "': aucun utilisateur trouvé\n";
+
+// Shell: wsh
+"wsh: cd: OLDPWD not set\n" = "wsh: cd: variable OLDPWD non définie\n";
+"wsh: type: missing operand\n" = "wsh: type: argument manquant\n";
+"is a shell builtin" = "est une fonction intégrée du shell";
+"is" = "est";
+"not found" = "non trouvé";
+"wsh: .: filename argument required\n" = "wsh: .: argument nom de fichier requis\n";
+"wsh: cannot open script: " = "wsh: impossible d'ouvrir le script: ";

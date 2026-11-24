@@ -1,0 +1,54 @@
+/* Wunix System Strings Catalog - German (de_DE.UTF-8) */
+
+// Kernel and boot messages
+"wunix: system ready" = "wunix: System ist betriebsbereit";
+"wunix: userspace (Ring 3) verified successfully" = "wunix: Benutzerbereich (Ring 3) erfolgreich verifiziert";
+"^C (input cancelled)" = "^C (Eingabe abgebrochen)";
+"type something on keyboard (layout switch: Alt+Shift)..." = "Tastatureingabe (Tastaturbelegung wechseln: Alt+Shift)...";
+"cpu" = "Prozessor";
+"memory" = "Speicher";
+"display" = "Bildschirm";
+"timer" = "Timer";
+"keyboard" = "Tastatur";
+"uptime" = "Betriebszeit";
+
+// System status and errors
+"permission denied: " = "Keine Berechtigung: ";
+"command not found: " = "Befehl nicht gefunden: ";
+"Shutting down operating system..." = "Betriebssystem wird heruntergefahren...";
+"Restarting operating system..." = "Betriebssystem wird neu gestartet...";
+"System halted." = "System angehalten.";
+
+// Coreutils: touch
+"touch: cannot touch '" = "touch: kann nicht erstellen '";
+"': failed to create file\n" = "': Fehler beim Erstellen der Datei\n";
+
+// Coreutils: cat
+"cat: read error\n" = "cat: Lesefehler\n";
+
+// Coreutils: chown
+"chown: path too long\n" = "chown: Pfad zu lang\n";
+"chown: cannot access '" = "chown: Zugriff nicht moeglich auf '";
+"': No such file or directory\n" = "': Datei oder Verzeichnis nicht gefunden\n";
+"chown: changing ownership of '" = "chown: Eigentuemer aendern von '";
+"': Operation not permitted\n" = "': Operation nicht zulaessig\n";
+"': Permission denied\n" = "': Keine Berechtigung\n";
+
+// Coreutils: chmod
+"chmod: path too long\n" = "chmod: Pfad zu lang\n";
+"chmod: cannot access '" = "chmod: Zugriff nicht moeglich auf '";
+"chmod: invalid symbolic mode\n" = "chmod: ungueltiger symbolischer Modus\n";
+"chmod: changing permissions of '" = "chmod: Rechte aendern fuer '";
+
+// Coreutils: id
+"id: user '" = "id: Benutzer '";
+"': no such user\n" = "': Benutzer nicht gefunden\n";
+
+// Shell: wsh
+"wsh: cd: OLDPWD not set\n" = "wsh: cd: OLDPWD nicht gesetzt\n";
+"wsh: type: missing operand\n" = "wsh: type: Operand fehlt\n";
+"is a shell builtin" = "ist ein Shell-Befehl";
+"is" = "ist";
+"not found" = "nicht gefunden";
+"wsh: .: filename argument required\n" = "wsh: .: Dateiname erforderlich\n";
+"wsh: cannot open script: " = "wsh: Skript kann nicht geoeffnet werden: ";

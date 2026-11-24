@@ -1,0 +1,54 @@
+/* Wunix System Strings Catalog - Russian (ru_RU.UTF-8) */
+
+// Kernel and boot messages
+"wunix: system ready" = "wunix: система готова к работе";
+"wunix: userspace (Ring 3) verified successfully" = "wunix: пространство пользователя (Ring 3) успешно верифицировано";
+"^C (input cancelled)" = "^C (ввод отменен)";
+"type something on keyboard (layout switch: Alt+Shift)..." = "введите текст с клавиатуры (переключение раскладки: Alt+Shift)...";
+"cpu" = "процессор";
+"memory" = "память";
+"display" = "экран";
+"timer" = "таймер";
+"keyboard" = "клавиатура";
+"uptime" = "время работы";
+
+// System status and errors
+"permission denied: " = "отказано в доступе: ";
+"command not found: " = "команда не найдена: ";
+"Shutting down operating system..." = "Завершение работы операционной системы...";
+"Restarting operating system..." = "Перезагрузка операционной системы...";
+"System halted." = "Система остановлена.";
+
+// Coreutils: touch
+"touch: cannot touch '" = "touch: невозможно создать '";
+"': failed to create file\n" = "': ошибка создания файла\n";
+
+// Coreutils: cat
+"cat: read error\n" = "cat: ошибка чтения\n";
+
+// Coreutils: chown
+"chown: path too long\n" = "chown: путь слишком длинный\n";
+"chown: cannot access '" = "chown: невозможно получить доступ к '";
+"': No such file or directory\n" = "': Нет такого файла или каталога\n";
+"chown: changing ownership of '" = "chown: изменение владельца '";
+"': Operation not permitted\n" = "': Операция не позволена\n";
+"': Permission denied\n" = "': Отказано в доступе\n";
+
+// Coreutils: chmod
+"chmod: path too long\n" = "chmod: путь слишком длинный\n";
+"chmod: cannot access '" = "chmod: невозможно получить доступ к '";
+"chmod: invalid symbolic mode\n" = "chmod: неверный символьный режим\n";
+"chmod: changing permissions of '" = "chmod: изменение прав для '";
+
+// Coreutils: id
+"id: user '" = "id: пользователь '";
+"': no such user\n" = "': не найден\n";
+
+// Shell: wsh
+"wsh: cd: OLDPWD not set\n" = "wsh: cd: переменная OLDPWD не задана\n";
+"wsh: type: missing operand\n" = "wsh: type: пропущен аргумент\n";
+"is a shell builtin" = "является встроенной командой шелла";
+"is" = "это";
+"not found" = "не найдено";
+"wsh: .: filename argument required\n" = "wsh: .: требуется имя файла\n";
+"wsh: cannot open script: " = "wsh: не удалось открыть скрипт: ";

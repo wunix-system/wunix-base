@@ -1,0 +1,54 @@
+/* Wunix System Strings Catalog - English (en_US.UTF-8) */
+
+// Kernel and boot messages
+"wunix: system ready" = "wunix: system ready";
+"wunix: userspace (Ring 3) verified successfully" = "wunix: userspace (Ring 3) verified successfully";
+"^C (input cancelled)" = "^C (input cancelled)";
+"type something on keyboard (layout switch: Alt+Shift)..." = "type something on keyboard (layout switch: Alt+Shift)...";
+"cpu" = "cpu";
+"memory" = "memory";
+"display" = "display";
+"timer" = "timer";
+"keyboard" = "keyboard";
+"uptime" = "uptime";
+
+// System status and errors
+"permission denied: " = "permission denied: ";
+"command not found: " = "command not found: ";
+"Shutting down operating system..." = "Shutting down operating system...";
+"Restarting operating system..." = "Restarting operating system...";
+"System halted." = "System halted.";
+
+// Coreutils: touch
+"touch: cannot touch '" = "touch: cannot touch '";
+"': failed to create file\n" = "': failed to create file\n";
+
+// Coreutils: cat
+"cat: read error\n" = "cat: read error\n";
+
+// Coreutils: chown
+"chown: path too long\n" = "chown: path too long\n";
+"chown: cannot access '" = "chown: cannot access '";
+"': No such file or directory\n" = "': No such file or directory\n";
+"chown: changing ownership of '" = "chown: changing ownership of '";
+"': Operation not permitted\n" = "': Operation not permitted\n";
+"': Permission denied\n" = "': Permission denied\n";
+
+// Coreutils: chmod
+"chmod: path too long\n" = "chmod: path too long\n";
+"chmod: cannot access '" = "chmod: cannot access '";
+"chmod: invalid symbolic mode\n" = "chmod: invalid symbolic mode\n";
+"chmod: changing permissions of '" = "chmod: changing permissions of '";
+
+// Coreutils: id
+"id: user '" = "id: user '";
+"': no such user\n" = "': no such user\n";
+
+// Shell: wsh
+"wsh: cd: OLDPWD not set\n" = "wsh: cd: OLDPWD not set\n";
+"wsh: type: missing operand\n" = "wsh: type: missing operand\n";
+"is a shell builtin" = "is a shell builtin";
+"is" = "is";
+"not found" = "not found";
+"wsh: .: filename argument required\n" = "wsh: .: filename argument required\n";
+"wsh: cannot open script: " = "wsh: cannot open script: ";
