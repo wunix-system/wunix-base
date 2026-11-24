@@ -16,6 +16,7 @@ members = [
     "init",
     "ip",
     "ln",
+    "locale",
     "login",
     "ls",
     "lsblk",
