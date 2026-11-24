@@ -13,6 +13,7 @@ use libwunix::{exit, str_utils, write, STDERR_FILENO};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
+    libwunix::init(argc, argv);
     if argc <= 1 || argv.is_null() {
         show_current_locale();
         exit(0);

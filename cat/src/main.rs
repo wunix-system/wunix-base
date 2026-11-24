@@ -12,6 +12,7 @@ const O_RDONLY: u64 = 0;
 // - чтение из STDIN при отсутствии аргументов или при указании дефиса '-'
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
+    libwunix::init(argc, argv);
     if argc <= 1 || argv.is_null() {
         cat_fd(STDIN_FILENO);
         libwunix::exit(0);

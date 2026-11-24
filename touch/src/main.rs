@@ -9,6 +9,7 @@ const O_CREAT: u64 = 0x40;
 // Принимает один или несколько путей к файлам для создания через O_CREAT.
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
+    libwunix::init(argc, argv);
     if argc <= 1 || argv.is_null() {
         libwunix::write(
             STDERR_FILENO,

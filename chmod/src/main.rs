@@ -30,6 +30,7 @@ fn print_help() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
+    libwunix::init(argc, argv);
     if argc <= 2 || argv.is_null() {
         if argc == 2 {
             let p = unsafe { *argv.add(1) };

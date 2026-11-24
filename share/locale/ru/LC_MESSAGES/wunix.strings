@@ -25,6 +25,9 @@
 
 // Coreutils: cat
 "cat: read error\n" = "cat: ошибка чтения\n";
+": No such file or directory\n" = ": Нет такого файла или каталога\n";
+": Permission denied\n" = ": Отказано в доступе\n";
+": Is a directory\n" = ": Это каталог\n";
 
 // Coreutils: chown
 "chown: path too long\n" = "chown: путь слишком длинный\n";

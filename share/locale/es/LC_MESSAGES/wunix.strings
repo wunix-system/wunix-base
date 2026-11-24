@@ -1,0 +1,57 @@
+/* Wunix System Strings Catalog - Spanish (es_ES.UTF-8) */
+
+// Kernel and boot messages
+"wunix: system ready" = "wunix: sistema listo";
+"wunix: userspace (Ring 3) verified successfully" = "wunix: espacio de usuario (Ring 3) verificado con éxito";
+"^C (input cancelled)" = "^C (entrada cancelada)";
+"type something on keyboard (layout switch: Alt+Shift)..." = "escriba en el teclado (cambiar distribución: Alt+Shift)...";
+"cpu" = "procesador";
+"memory" = "memoria";
+"display" = "pantalla";
+"timer" = "temporizador";
+"keyboard" = "teclado";
+"uptime" = "tiempo de actividad";
+
+// System status and errors
+"permission denied: " = "permiso denegado: ";
+"command not found: " = "comando no encontrado: ";
+"Shutting down operating system..." = "Apagando el sistema operativo...";
+"Restarting operating system..." = "Reiniciando el sistema operativo...";
+"System halted." = "Sistema detenido.";
+
+// Coreutils: touch
+"touch: cannot touch '" = "touch: no se puede crear '";
+"': failed to create file\n" = "': error al crear archivo\n";
+
+// Coreutils: cat
+"cat: read error\n" = "cat: error de lectura\n";
+": No such file or directory\n" = ": No existe el archivo o el directorio\n";
+": Permission denied\n" = ": Permiso denegado\n";
+": Is a directory\n" = ": Es un directorio\n";
+
+// Coreutils: chown
+"chown: path too long\n" = "chown: ruta demasiado larga\n";
+"chown: cannot access '" = "chown: no se puede acceder a '";
+"': No such file or directory\n" = "': No existe el archivo o el directorio\n";
+"chown: changing ownership of '" = "chown: cambiando propietario de '";
+"': Operation not permitted\n" = "': Operación no permitida\n";
+"': Permission denied\n" = "': Permiso denegado\n";
+
+// Coreutils: chmod
+"chmod: path too long\n" = "chmod: ruta demasiado larga\n";
+"chmod: cannot access '" = "chmod: no se puede acceder a '";
+"chmod: invalid symbolic mode\n" = "chmod: modo simbólico no válido\n";
+"chmod: changing permissions of '" = "chmod: cambiando permisos de '";
+
+// Coreutils: id
+"id: user '" = "id: usuario '";
+"': no such user\n" = "': usuario no encontrado\n";
+
+// Shell: wsh
+"wsh: cd: OLDPWD not set\n" = "wsh: cd: OLDPWD no establecida\n";
+"wsh: type: missing operand\n" = "wsh: type: falta operando\n";
+"is a shell builtin" = "es una orden interna del intérprete";
+"is" = "es";
+"not found" = "no encontrado";
+"wsh: .: filename argument required\n" = "wsh: .: se requiere argumento de archivo\n";
+"wsh: cannot open script: " = "wsh: no se puede abrir el guion: ";

@@ -25,6 +25,9 @@
 
 // Coreutils: cat
 "cat: read error\n" = "cat: Lesefehler\n";
+": No such file or directory\n" = ": Datei oder Verzeichnis nicht gefunden\n";
+": Permission denied\n" = ": Keine Berechtigung\n";
+": Is a directory\n" = ": Ist ein Verzeichnis\n";
 
 // Coreutils: chown
 "chown: path too long\n" = "chown: Pfad zu lang\n";

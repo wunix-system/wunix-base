@@ -8,6 +8,7 @@ const STATIC_LOCALES: &[&str] = &[
     "POSIX",
     "de_DE.UTF-8",
     "en_US.UTF-8",
+    "es_ES.UTF-8",
     "fr_FR.UTF-8",
     "ru_RU.UTF-8",
 ];
