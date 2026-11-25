@@ -3,8 +3,9 @@
 //! Обеспечивает простой, легковесный и полностью функциональный интерфейс:
 //! start, stop, restart, enable, disable, status, list, edit, create, logs.
 
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
+#![cfg_attr(test, allow(dead_code, unused))]
 
 extern crate alloc;
 
@@ -121,6 +122,7 @@ fn print_help() {
     );
 }
 
+#[cfg(not(test))]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     if argc > 0 {
@@ -146,17 +148,50 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             match service::start_service(&name) {
                 Ok(code) => {
                     if code == 0 {
+                        let clean = name.strip_suffix(".conf").unwrap_or(&name);
+                        let rt = service::load_runtime_status(clean);
+                        let cfg = config::load_service(&name).ok();
+                        let detail = if rt.state == service::ServiceState::Running && rt.pid > 0 {
+                            alloc::format!(
+                                "{}, PID {}",
+                                t("фоновый демон", "background daemon"),
+                                rt.pid
+                            )
+                        } else if clean == "timesyncd" {
+                            if let Some((srv, delay)) = service::read_timesync_summary() {
+                                alloc::format!(
+                                    "NTP: {}, {}: {} {}",
+                                    srv,
+                                    t("задержка", "delay"),
+                                    delay,
+                                    t("мс", "ms")
+                                )
+                            } else {
+                                alloc::format!(
+                                    "{}: {}, {}: 0",
+                                    t("команда", "cmd"),
+                                    cfg.as_ref().map(|c| c.command.as_str()).unwrap_or("-"),
+                                    t("код", "exit")
+                                )
+                            }
+                        } else {
+                            alloc::format!(
+                                "{}: {}, {}: 0",
+                                t("команда", "cmd"),
+                                cfg.as_ref().map(|c| c.command.as_str()).unwrap_or("-"),
+                                t("код", "exit")
+                            )
+                        };
                         println!(
-                            "  {} '{}': {}",
-                            t("Служба", "Service"),
+                            "Служба '{}': {} ({})",
                             name,
-                            t("успешно запущена", "started successfully")
+                            t("успешно запущена", "started successfully"),
+                            detail
                         );
                         exit(0);
                     } else {
                         println!(
-                            "  {} '{}': {} ({})",
-                            t("Служба", "Service"),
+                            "Служба '{}': {} ({})",
                             name,
                             t("ошибка запуска", "start error"),
                             code
@@ -165,7 +200,11 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                     }
                 }
                 Err(e) => {
-                    println!("  {}: {}", t("Ошибка запуска", "Failed to start"), e);
+                    println!(
+                        "{}: {}",
+                        t("Ошибка запуска", "Failed to start"),
+                        e
+                    );
                     exit(1);
                 }
             }
@@ -290,6 +329,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     println!("panic in system");

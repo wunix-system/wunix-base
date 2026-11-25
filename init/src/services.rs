@@ -37,8 +37,34 @@ restart = on-failure\n\
 user = root\n\
 directory = /\n";
 
+fn print_str(s: &str) {
+    let _ = write(STDOUT_FILENO, s.as_bytes());
+}
+
+fn print_usize(mut n: usize) {
+    let mut buf = [0u8; 16];
+    if n == 0 {
+        let _ = write(STDOUT_FILENO, b"0");
+        return;
+    }
+    let mut idx = 0;
+    while n > 0 && idx < buf.len() {
+        buf[idx] = b'0' + (n % 10) as u8;
+        n /= 10;
+        idx += 1;
+    }
+    while idx > 0 {
+        idx -= 1;
+        let _ = write(STDOUT_FILENO, &buf[idx..idx + 1]);
+    }
+}
+
 pub fn init_services() {
     // 1. Создаем обязательные каталоги супервизора
+    print_str(t(
+        "Подготовка каталогов /run, /var/log, /etc/services.\n",
+        "Preparing /run, /var/log, /etc/services.\n",
+    ));
     let _ = mkdir(b"/run\0", 0o755);
     let _ = mkdir(b"/run/services\0", 0o755);
     let _ = mkdir(b"/var\0", 0o755);
@@ -57,7 +83,15 @@ pub fn init_services() {
     copy_if_missing(b"/bin/sftp-server\0", b"/usr/libexec/sftp-server\0", 0o755);
 
     // Очищаем runtime-состояния и PID-файлы от предыдущих загрузок/сессий
-    clean_runtime_dir();
+    let cleaned = clean_runtime_dir();
+    if cleaned > 0 {
+        print_str(t(
+            "Очистка /run/services: удалено файлов: ",
+            "Cleaned /run/services stale files: ",
+        ));
+        print_usize(cleaned);
+        print_str(".\n");
+    }
 
     // Устанавливаем строгие права 0600 на закрытые серверные ключи OpenSSH
     let _ = chmod(b"/etc/ssh/ssh_host_ed25519_key\0", 0o600);
@@ -87,30 +121,39 @@ pub fn init_services() {
         b"/etc/services/enabled/wspd.conf\0",
     );
 
-    // 4. Оповещаем пользователя о начале старта служб
-    write(
-        STDOUT_FILENO,
-        t(
-            "Инициализация служб...\n",
-            "Initializing services...\n",
-        )
-        .as_bytes(),
-    );
+    // 4. Запускаем ключевые службы в классическом Unix/BSD стиле
+    print_str(t(
+        "Запуск системных служб (/etc/services/enabled):\n",
+        "Starting system services (/etc/services/enabled):\n",
+    ));
 
-    // 5. Запускаем ключевые службы в строго определенном порядке
-    start_one_service("network");
-    start_one_service("timesyncd");
-    start_one_service("sshd");
-    start_one_service("wspd");
+    const BOOT_SERVICES: [(&str, &str, &str); 4] = [
+        ("network", "сетевые интерфейсы", "network interfaces"),
+        ("timesyncd", "синхронизация времени NTP", "NTP clock sync"),
+        ("sshd", "сервер удалённого доступа SSH", "OpenSSH daemon"),
+        ("wspd", "проверка обновлений WSP", "WSP update check"),
+    ];
 
-    write(
-        STDOUT_FILENO,
-        t(
-            "Системные службы запущены.\n\n",
-            "System services started.\n\n",
-        )
-        .as_bytes(),
-    );
+    let mut ok_count = 0usize;
+    for (svc, desc_ru, desc_en) in BOOT_SERVICES {
+        print_str("  ");
+        print_str(svc);
+        print_str(" (");
+        print_str(t(desc_ru, desc_en));
+        print_str("): ");
+        if start_one_service(svc) {
+            ok_count += 1;
+        }
+    }
+
+    print_str(t(
+        "Системные службы запущены (",
+        "System services started (",
+    ));
+    print_usize(ok_count);
+    print_str("/");
+    print_usize(BOOT_SERVICES.len());
+    print_str(").\n");
 }
 
 fn create_service_if_missing(path: &[u8], content: &[u8]) {
@@ -145,11 +188,11 @@ fn copy_if_missing(src: &[u8], dst: &[u8], mode: u64) {
     close(dfd as u64);
 }
 
-fn start_one_service(clean_name: &str) {
+fn start_one_service(clean_name: &str) -> bool {
     let mut null_name = [0u8; 64];
     let b = clean_name.as_bytes();
     if b.len() >= null_name.len() {
-        return;
+        return false;
     }
     null_name[..b.len()].copy_from_slice(b);
     null_name[b.len()] = 0;
@@ -164,13 +207,14 @@ fn start_one_service(clean_name: &str) {
         core::ptr::null(),
     ];
 
-    let _ = execve(sys_bin, argv_ptrs.as_ptr() as u64, 0);
+    execve(sys_bin, argv_ptrs.as_ptr() as u64, 0) == 0
 }
 
-fn clean_runtime_dir() {
+fn clean_runtime_dir() -> usize {
+    let mut removed = 0usize;
     let fd = open(b"/run/services\0", O_RDONLY as u64, 0);
     if fd < 0 {
-        return;
+        return 0;
     }
     let mut buf = [0u8; 1024];
     loop {
@@ -200,7 +244,9 @@ fn clean_runtime_dir() {
                         path[..prefix.len()].copy_from_slice(prefix);
                         path[prefix.len()..prefix.len() + name.len()].copy_from_slice(name);
                         path[prefix.len() + name.len()] = 0;
-                        let _ = unlink(&path[..prefix.len() + name.len() + 1]);
+                        if unlink(&path[..prefix.len() + name.len() + 1]) == 0 {
+                            removed += 1;
+                        }
                     }
                 }
             }
@@ -208,4 +254,5 @@ fn clean_runtime_dir() {
         }
     }
     let _ = close(fd as u64);
+    removed
 }

@@ -257,7 +257,7 @@ pub fn start_service(name: &str) -> Result<i32, &'static str> {
         close(old_stderr as u64);
     }
 
-    let daemon_pid = read_daemon_pid(clean_name);
+    let daemon_pid = read_daemon_pid(clean_name, my_pid);
     let end_log_fd = open(&null_log[..lb.len() + 1], (O_WRONLY | O_CREAT | O_APPEND) as u64, 0o644);
 
     if let Some(pid) = daemon_pid {
@@ -289,12 +289,15 @@ pub fn start_service(name: &str) -> Result<i32, &'static str> {
     Ok(exit_code)
 }
 
-fn read_daemon_pid(name: &str) -> Option<u64> {
+pub fn is_valid_daemon_pid(pid: u64, supervisor_pid: u64) -> bool {
+    pid > 0 && pid != supervisor_pid
+}
+
+fn read_daemon_pid(name: &str, supervisor_pid: u64) -> Option<u64> {
     let clean = name.strip_suffix(".conf").unwrap_or(name);
     let candidates = [
         format!("/var/run/{}.pid", clean),
         format!("/run/{}.pid", clean),
-        format!("/run/services/{}.pid", clean),
     ];
 
     for path in &candidates {
@@ -314,7 +317,7 @@ fn read_daemon_pid(name: &str) -> Option<u64> {
             if n > 0 {
                 if let Ok(text) = core::str::from_utf8(&buf[..n as usize]) {
                     if let Ok(pid) = text.trim().parse::<u64>() {
-                        if pid > 0 {
+                        if is_valid_daemon_pid(pid, supervisor_pid) {
                             return Some(pid);
                         }
                     }
@@ -461,4 +464,65 @@ fn ensure_sshd_host_keys() {
     let _ = libwunix::chmod(ed_key, 0o600);
     let _ = libwunix::chmod(rsa_key, 0o600);
     let _ = libwunix::chmod(b"/etc/ssh/ssh_host_ecdsa_key\0", 0o600);
+}
+
+/// Извлекает сервер NTP и задержку (мс) из содержимого `/run/timesync/status`, если синхронизация прошла.
+pub fn parse_timesync_summary(text: &str) -> Option<(String, String)> {
+    let mut server = None;
+    let mut delay = None;
+    let mut synced = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(val) = trimmed.strip_prefix("Server=") {
+            server = Some(String::from(val.trim()));
+        } else if let Some(val) = trimmed.strip_prefix("DelayMS=") {
+            delay = Some(String::from(val.trim()));
+        } else if let Some(val) = trimmed.strip_prefix("Synchronized=") {
+            synced = val.trim() == "yes";
+        }
+    }
+
+    if synced {
+        Some((server?, delay.unwrap_or_else(|| String::from("0"))))
+    } else {
+        None
+    }
+}
+
+pub fn read_timesync_summary() -> Option<(String, String)> {
+    let fd = open(b"/run/timesync/status\0", O_RDONLY as u64, 0);
+    if fd < 0 {
+        return None;
+    }
+    let mut buf = [0u8; 512];
+    let n = read(fd as u64, &mut buf);
+    close(fd as u64);
+    if n <= 0 {
+        return None;
+    }
+    let text = core::str::from_utf8(&buf[..n as usize]).ok()?;
+    parse_timesync_summary(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_timesync_summary_extracts_server_and_delay() {
+        let sample = "Server=10.0.2.2\nServerIP=10.0.2.2\nStratum=2\nDelayMS=3\nSynchronized=yes\n";
+        assert_eq!(
+            parse_timesync_summary(sample),
+            Some((String::from("10.0.2.2"), String::from("3")))
+        );
+        assert_eq!(parse_timesync_summary("Synchronized=no\n"), None);
+    }
+
+    #[test]
+    fn test_is_valid_daemon_pid_rejects_supervisor() {
+        assert!(!is_valid_daemon_pid(0, 10));
+        assert!(!is_valid_daemon_pid(10, 10));
+        assert!(is_valid_daemon_pid(14, 10));
+    }
 }

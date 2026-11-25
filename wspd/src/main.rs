@@ -136,9 +136,6 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         exit(0);
     }
 
-    // Сохраняем PID файл для супервизора system
-    write_pid_file();
-
     if opts.once || !opts.daemon {
         if opts.verbose {
             println!("wspd: запуск проверки системных компонентов WSP...");
@@ -146,6 +143,9 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         let _res = check_system_updates(opts.verbose);
         exit(0);
     }
+
+    // Сохраняем PID файл для супервизора system только в режиме фонового демона
+    write_pid_file();
 
     // Режим непрерывного демона
     if opts.verbose {
