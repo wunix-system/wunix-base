@@ -95,7 +95,7 @@ pub fn confirm_prompt(prompt: &str, default_yes: bool) -> bool {
 }
 
 pub fn print_version() {
-    println!("wpm (Wunix Package Manager) 0.1-{} (x86_64)", env!("WUNIX_GIT_COMMIT"));
+    println!("wpm (Wunix Package Manager) {} (x86_64)", env!("WUNIX_PKG_VERSION"));
 }
 
 pub fn print_help() {

@@ -102,7 +102,7 @@ fn write_pid_file() {
 }
 
 fn print_version() {
-    println!("wspd (Wunix System Package Daemon) 0.1-{} (x86_64)", env!("WUNIX_GIT_COMMIT"));
+    println!("wspd (Wunix System Package Daemon) {} (x86_64)", env!("WUNIX_PKG_VERSION"));
 }
 
 #[unsafe(no_mangle)]

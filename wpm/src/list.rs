@@ -30,7 +30,8 @@ pub fn run_list_in(root: &str, filter_critical: bool) -> i32 {
         } else {
             format!("{}[{}]{}", COLOR_GREEN, p.pkg_type, COLOR_RESET)
         };
-        println!("  {:<18} v{:<14} {}", p.name, p.version, tier_badge);
+        let ver_col = format!("v{}", p.version);
+        println!("  {:<18} {:<24} {}", p.name, ver_col, tier_badge);
         if !p.description.is_empty() {
             println!("    {}", p.description);
         }
