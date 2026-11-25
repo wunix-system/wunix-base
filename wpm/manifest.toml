@@ -1,0 +1,22 @@
+[package]
+name = "wpm"
+version = "auto"
+arch = "x86_64"
+type = "system"
+tier = "critical"
+description = "Единый пакетный менеджер Wunix Package Manager (системные и прикладные пакеты .wp)"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = ["libwunix >= 0.1", "libpackwunix >= 0.1"]
+conflicts = []
+replaces = ["wsp"]
+
+[build]
+version_source = "git:programs"
+bins = ["wpm"]
+dirs = ["/var/lib/wpm", "/var/cache/wpm", "/etc/wpm"]
+
+[build.inline_files]
+"/etc/wpm/wpm.conf" = "# Единая конфигурация пакетного менеджера WPM\n[general]\ncache_dir = \"/var/cache/wpm\"\nverify_checksum = true\nbackup_kernel = true\nblock_user_packages_on_critical = true\n"
+"/etc/wpm/sources.conf" = "# Источники репозиториев WPM\n[apps]\nServer = http://wunix.rusos.site/repo/apps/x86_64\n"

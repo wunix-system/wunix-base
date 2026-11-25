@@ -1,0 +1,21 @@
+[package]
+name = "minimal-live"
+version = "auto"
+arch = "x86_64"
+type = "system"
+tier = "base"
+meta = true
+description = "Метапакет Live-окружения и установщика Wunix OS"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = [
+    "base",
+    "base-apps",
+    "winstall",
+]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"

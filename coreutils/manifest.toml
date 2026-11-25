@@ -1,0 +1,37 @@
+[package]
+name = "coreutils"
+version = "auto"
+arch = "x86_64"
+type = "system"
+tier = "base"
+description = "Базовые файловые и терминальные утилиты командной строки Wunix Coreutils"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = ["libwunix >= 0.1"]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"
+bins = [
+    "ls", "cat", "echo", "touch", "rm", "mkdir", "rmdir", "ln", "readlink", "pwd",
+    "uname", "whoami", "id", "chmod", "chown", "mv", "reboot", "shutdown",
+    "date", "time", "timedatectl", "clear", "man", "locale",
+]
+include_locales = true
+include_man = true
+
+[build.symlinks]
+"/bin/md" = "mkdir"
+"/bin/rd" = "rmdir"
+"/bin/mklink" = "ln"
+"/win/drives/c/Windows/System32/shutdown.exe" = "/bin/shutdown"
+"/win/drives/c/Windows/System32/date.exe" = "/bin/date"
+"/win/drives/c/Windows/System32/time.exe" = "/bin/time"
+"/win/drives/c/Windows/System32/md.exe" = "/bin/mkdir"
+"/win/drives/c/Windows/System32/mkdir.exe" = "/bin/mkdir"
+"/win/drives/c/Windows/System32/rd.exe" = "/bin/rmdir"
+"/win/drives/c/Windows/System32/rmdir.exe" = "/bin/rmdir"
+"/win/drives/c/Windows/System32/mklink.exe" = "/bin/ln"
+"/win/drives/c/Windows/System32/ln.exe" = "/bin/ln"

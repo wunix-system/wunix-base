@@ -1,6 +1,4 @@
-//! Модуль отображения и текстового вывода WPM.
-//!
-//! Чистый, строгий и удобный системный интерфейс без посторонних значков и эмодзи.
+//! Модуль отображения и текстового вывода единого WPM.
 
 extern crate alloc;
 use alloc::format;
@@ -53,7 +51,6 @@ pub fn get_system_used_bytes() -> u64 {
             }
         }
     }
-    // Базовый вес системы по умолчанию при невозможности опросить файловую систему
     65_000_000
 }
 
@@ -104,55 +101,68 @@ pub fn print_version() {
 pub fn print_help() {
     println!("{}", t(
         "Использование: wpm [ОПЦИИ]... [КОМАНДА] [АРГУМЕНТЫ]...\n\
-         Менеджер пользовательских программ и пакетов .wp в ОС Wunix.\n\n\
+         Единый пакетный менеджер ОС Wunix (системные, прикладные пакеты .wp и метапакеты).\n\n\
          Команды и короткие флаги (стиль pacman):\n\
-           -S, install <пакет>...       Установка программ\n\
-           -Syu                         Синхронизация и обновление всех программ\n\
-           -Sy, update                  Синхронизация списков репозиториев\n\
-           -Su, upgrade                 Обновление установленных программ\n\
-           -Ss, search <запрос>         Поиск программ в репозиториях\n\
-           -Si, info <пакет>            Информация о программе\n\
+           -S, install <пакет>...       Установка одного или нескольких пакетов\n\
+           reinstall <пакет>...         Принудительная переустановка пакетов\n\
+           -Syu                         Синхронизация и обновление всех пакетов\n\
+           -Sy, update                  Синхронизация системного и пользовательских каталогов\n\
+           -Su, upgrade                 Обновление установленных пакетов и ядра\n\
+           -Ss, search <запрос>         Поиск пакетов во всех репозиториях\n\
+           -Si, info <пакет>            Подробная информация о пакете\n\
            -Sc, clean                   Очистка локального кэша /var/cache/wpm\n\
-           -R, remove <пакет>...        Удаление установленных программ\n\
-           -Q, list                     Список установленных программ\n\
-           -Qu, check, updates          Список программ, доступных к обновлению\n\
-           -Qi <пакет>                  Информация об установленной программе\n\
-           -U <файл.wp>...              Установка из локального файла пакета\n\
-           repo [list|add|rm]           Управление источниками репозиториев\n\n\
+           -R, remove <пакет>...        Удаление пользовательских пакетов\n\
+           -Q, list                     Список установленных пакетов\n\
+           -Qu, check, updates          Проверка доступных обновлений\n\
+           -Qi <пакет>                  Информация об установленном пакете\n\
+           -U <файл.wp>...              Установка из локального файла .wp\n\
+           repo [list|add|rm|ping]      Управление пользовательскими репозиториями\n\
+           audit [-v]                   Аудит целостности ядра и системных файлов\n\
+           kernel [list|rollback|clean] Управление ядрами в /boot\n\
+           rollback                     Откат к резервному ядру\n\n\
          Опции:\n\
            -v, -V, --version            Показать версию утилиты\n\
            -h, --help                   Показать эту справку\n\
-           -u, --upgradable             Показать только программы, доступные к обновлению\n\
+           -c, --critical               Работать только с критическими системными пакетами\n\
+           -u, --upgradable             Показать доступные обновления\n\
            -y, --yes, --noconfirm       Подтверждать операции без запроса\n\
            -d, --verbose                Подробный вывод процесса\n\
+           -f, --files                  Показать список файлов в info\n\
            -q, --quiet                  Минимальный вывод сообщений\n\
-           --reinstall                  Переустановить уже установленные программы\n\
-           --purge                      Удалить конфигурационные файлы при удалении\n\
-           --ignore-critical-unsafe     Игнорировать защитный барьер безопасности WSP",
+           --reinstall                  Переустановить уже установленные пакеты\n\
+           --dry-run                    Симуляция обновления без записи на диск\n\
+           --ignore-critical-unsafe     Игнорировать защитный барьер критических обновлений",
         "Usage: wpm [OPTIONS]... [COMMAND] [ARGS]...\n\
-         User package manager for Wunix OS (.wp).\n\n\
+         Unified package manager for Wunix OS (system, user .wp packages and metapackages).\n\n\
          Commands and short flags (pacman style):\n\
-           -S, install <pkg>...         Install software\n\
+           -S, install <pkg>...         Install one or more packages\n\
+           reinstall <pkg>...           Force reinstall packages\n\
            -Syu                         Synchronize and upgrade all packages\n\
-           -Sy, update                  Synchronize repository indexes\n\
-           -Su, upgrade                 Upgrade installed software\n\
-           -Ss, search <query>          Search available applications\n\
-           -Si, info <pkg>              Show details for a package\n\
+           -Sy, update                  Synchronize system and user repositories\n\
+           -Su, upgrade                 Upgrade installed packages and kernel\n\
+           -Ss, search <query>          Search packages across repositories\n\
+           -Si, info <pkg>              Show package details\n\
            -Sc, clean                   Clean /var/cache/wpm\n\
-           -R, remove <pkg>...          Remove installed software\n\
-           -Q, list                     List installed software\n\
-           -Qi <pkg>                    Show details of installed software\n\
-           -U <file.wp>...              Install software from local package file\n\
-           repo [list|add|rm]           Manage repository sources\n\n\
+           -R, remove <pkg>...          Remove user packages\n\
+           -Q, list                     List installed packages\n\
+           -Qu, check, updates          Check available updates\n\
+           -Qi <pkg>                    Show installed package details\n\
+           -U <file.wp>...              Install from local .wp file\n\
+           repo [list|add|rm|ping]      Manage user repositories\n\
+           audit [-v]                   Audit kernel and system file integrity\n\
+           kernel [list|rollback|clean] Manage kernels in /boot\n\
+           rollback                     Rollback to fallback kernel\n\n\
          Options:\n\
            -v, -V, --version            Show version information\n\
            -h, --help                   Show this help message\n\
+           -c, --critical               Target critical system packages only\n\
            -y, --yes, --noconfirm       Do not prompt for confirmation\n\
-           -d, --verbose                Verbose logs\n\
+           -d, --verbose                Verbose output\n\
+           -f, --files                  Show file list in info\n\
            -q, --quiet                  Quiet mode\n\
            --reinstall                  Reinstall already installed packages\n\
-           --purge                      Purge config files on remove\n\
-           --ignore-critical-unsafe     Override WSP base security check"
+           --dry-run                    Simulate upgrade without writing to disk\n\
+           --ignore-critical-unsafe     Override critical update safety check"
     ));
 }
 
@@ -163,9 +173,9 @@ pub fn print_access_denied(operation: &str, uid: u32) {
 }
 
 pub fn print_wsp_blocked() {
-    println!("{}{}wpm: внимание:{} обнаружены критические обновления базовой системы WSP.", COLOR_BOLD, COLOR_YELLOW, COLOR_RESET);
-    println!("  Установка программ временно заблокирована для сохранения стабильности ядра.");
-    println!("  1. Обновите базовую систему: sudo wsp upgrade --critical");
+    println!("{}{}wpm: внимание:{} обнаружены критические обновления базовой системы.", COLOR_BOLD, COLOR_YELLOW, COLOR_RESET);
+    println!("  Установка прикладного ПО временно заблокирована для сохранения стабильности ядра.");
+    println!("  1. Обновите базовую систему: sudo wpm upgrade --critical");
     println!("  2. Перезагрузитесь: reboot");
     println!("  (для принудительной установки укажите: --ignore-critical-unsafe)");
 }

@@ -1,0 +1,32 @@
+[package]
+name = "base"
+version = "auto"
+arch = "x86_64"
+type = "system"
+tier = "base"
+meta = true
+description = "Метапакет базовой операционной системы Wunix OS"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = [
+    "wunix-kernel",
+    "libwunix",
+    "libpackwunix",
+    "libcwunix",
+    "wunix-base",
+    "coreutils",
+    "netutils",
+    "sysutils",
+    "authutils",
+    "wpm",
+    "wspd",
+    "openssl",
+    "ncurses",
+    "zlib",
+]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"

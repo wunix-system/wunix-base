@@ -1,0 +1,17 @@
+[package]
+name = "winstall"
+version = "auto"
+arch = "x86_64"
+type = "system"
+tier = "optional"
+description = "Интерактивный TUI установщик операционной системы Wunix OS"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = ["libwunix >= 0.1", "wpm"]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"
+bins = ["winstall"]

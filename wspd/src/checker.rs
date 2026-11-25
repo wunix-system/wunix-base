@@ -13,9 +13,10 @@ use libwunix::{close, mkdir, open, read, unlink, write, O_CREAT, O_RDONLY, O_TRU
 use libpackwunix::sources::get_wsp_system_repo;
 use libpackwunix::version::Version;
 
-pub const WSP_DB_PATH: &[u8] = b"/var/lib/wsp/installed.json\0";
-pub const WSP_ALERT_PATH: &[u8] = b"/run/wsp/critical_alert.json\0";
-pub const WSP_STATUS_PATH: &[u8] = b"/run/wsp/status\0";
+pub const WPM_DB_PATH: &[u8] = b"/var/lib/wpm/installed.json\0";
+pub const LEGACY_WSP_DB_PATH: &[u8] = b"/var/lib/wsp/installed.json\0";
+pub const WPM_ALERT_PATH: &[u8] = b"/run/wpm/critical_alert.json\0";
+pub const WPM_STATUS_PATH: &[u8] = b"/run/wpm/status\0";
 
 #[derive(Debug, Clone)]
 pub struct InstalledPkg {
@@ -72,7 +73,7 @@ pub fn check_system_updates(verbose: bool) -> CheckResult {
         }
     } else {
         // Критических обновлений нет, удаляем старый alert если был
-        let _ = unlink(WSP_ALERT_PATH);
+        let _ = unlink(WPM_ALERT_PATH);
         write_status_file(&result, now);
         if verbose {
             libwunix::println!("wspd: проверка завершена, проверено пакетов: {}, система актуальна.", result.total_checked);
@@ -84,19 +85,19 @@ pub fn check_system_updates(verbose: bool) -> CheckResult {
 
 fn ensure_run_dirs() {
     let _ = mkdir(b"/run\0", 0o755);
-    let _ = mkdir(b"/run/wsp\0", 0o755);
+    let _ = mkdir(b"/run/wpm\0", 0o755);
     let _ = mkdir(b"/var\0", 0o755);
     let _ = mkdir(b"/var/lib\0", 0o755);
-    let _ = mkdir(b"/var/lib/wsp\0", 0o755);
+    let _ = mkdir(b"/var/lib/wpm\0", 0o755);
     let _ = mkdir(b"/var/cache\0", 0o755);
-    let _ = mkdir(b"/var/cache/wsp\0", 0o755);
+    let _ = mkdir(b"/var/cache/wpm\0", 0o755);
 }
 
 fn load_repo_packages() -> Vec<libpackwunix::sources::RepoPackage> {
     let candidates: [&[u8]; 3] = [
+        b"/var/lib/wpm/repo/system/x86_64/packages.json\0",
         b"/var/lib/wsp/packages.json\0",
         b"/var/lib/wsp/repo/system/x86_64/packages.json\0",
-        b"/var/cache/wsp/packages.json\0",
     ];
 
     for path in &candidates {
@@ -126,7 +127,10 @@ fn load_repo_packages() -> Vec<libpackwunix::sources::RepoPackage> {
 }
 
 fn load_installed_packages() -> Vec<InstalledPkg> {
-    let fd = open(WSP_DB_PATH, O_RDONLY as u64, 0);
+    let mut fd = open(WPM_DB_PATH, O_RDONLY as u64, 0);
+    if fd < 0 {
+        fd = open(LEGACY_WSP_DB_PATH, O_RDONLY as u64, 0);
+    }
     let mut list = if fd < 0 {
         get_default_packages()
     } else {
@@ -250,7 +254,7 @@ fn get_default_packages() -> Vec<InstalledPkg> {
 }
 
 fn write_critical_alert(res: &CheckResult, timestamp: u64) {
-    let fd = open(WSP_ALERT_PATH, (O_CREAT | O_WRONLY | O_TRUNC) as u64, 0o644);
+    let fd = open(WPM_ALERT_PATH, (O_CREAT | O_WRONLY | O_TRUNC) as u64, 0o644);
     if fd < 0 {
         return;
     }
@@ -273,7 +277,7 @@ fn write_critical_alert(res: &CheckResult, timestamp: u64) {
 }
 
 fn write_status_file(res: &CheckResult, timestamp: u64) {
-    let fd = open(WSP_STATUS_PATH, (O_CREAT | O_WRONLY | O_TRUNC) as u64, 0o644);
+    let fd = open(WPM_STATUS_PATH, (O_CREAT | O_WRONLY | O_TRUNC) as u64, 0o644);
     if fd < 0 {
         return;
     }

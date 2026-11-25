@@ -1,0 +1,17 @@
+[package]
+name = "wc"
+version = "auto"
+arch = "x86_64"
+type = "user"
+tier = "optional"
+description = "Пользовательская программа wc для подсчета строк, слов и байтов"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = ["libwunix >= 0.1"]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"
+bins = ["wc"]

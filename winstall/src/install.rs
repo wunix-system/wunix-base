@@ -1,4 +1,4 @@
-// Установка Wunix base и прикладных пакетов через WSP и WPM на смонтированный раздел.
+// Установка Wunix через единый пакетный менеджер WPM и метапакеты на смонтированный раздел.
 
 use crate::disk::install_limine_bootloader;
 use crate::net::{apply_network_config, NetConfig};
@@ -8,56 +8,26 @@ use libwunix::{
     O_APPEND, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
 };
 
-/// Список компонентов базовой системы и ядра Wunix, устанавливаемых через WSP
-pub const SYSTEM_PACKAGES: &[&str] = &[
-    "wunix-kernel",
-    "libwunix",
-    "libpackwunix",
-    "libcwunix",
-    "wunix-base",
-    "coreutils",
-    "netutils",
-    "sysutils",
-    "authutils",
-    "wspd",
-    "openssl",
-    "ncurses",
-    "zlib",
-];
-
-/// Список прикладных пользовательских программ Wunix, устанавливаемых через WPM
-pub const APP_PACKAGES: &[&str] = &[
-    "archiveutils",
-    "curl",
-    "gzip",
-    "nano",
-    "openssh",
-    "tar",
-    "wc",
-    "zip",
-];
+/// Метапакеты базовой системы и прикладных программ, устанавливаемые через WPM
+pub const INSTALL_META_PACKAGES: &[&str] = &["base", "base-apps"];
 
 pub const INSTALL_BOOT_FILES: &[(&[u8], &[u8])] = &[
-    (b"/boot/wunix-kernel\0",   b"/mnt/boot/wunix-kernel\0"),
-    (b"/boot/limine.conf\0",    b"/mnt/boot/limine.conf\0"),
-    (b"/boot/limine-bios.sys\0",b"/mnt/boot/limine-bios.sys\0"),
+    (b"/boot/wunix-kernel\0",    b"/mnt/boot/wunix-kernel\0"),
+    (b"/boot/limine.conf\0",     b"/mnt/boot/limine.conf\0"),
+    (b"/boot/limine-bios.sys\0", b"/mnt/boot/limine-bios.sys\0"),
 ];
 
 pub const INSTALL_ETC_FILES: &[(&[u8], &[u8])] = &[
-    (b"/etc/os-release\0",                 b"/mnt/etc/os-release\0"),
-    (b"/etc/locale\0",                     b"/mnt/etc/locale\0"),
-    (b"/etc/hosts\0",                      b"/mnt/etc/hosts\0"),
-    (b"/etc/resolv.conf\0",                b"/mnt/etc/resolv.conf\0"),
-    (b"/etc/timesyncd.conf\0",             b"/mnt/etc/timesyncd.conf\0"),
-    (b"/etc/ntp.conf\0",                   b"/mnt/etc/ntp.conf\0"),
+    (b"/etc/os-release\0",                    b"/mnt/etc/os-release\0"),
+    (b"/etc/locale\0",                        b"/mnt/etc/locale\0"),
+    (b"/etc/hosts\0",                         b"/mnt/etc/hosts\0"),
+    (b"/etc/resolv.conf\0",                   b"/mnt/etc/resolv.conf\0"),
+    (b"/etc/timesyncd.conf\0",                b"/mnt/etc/timesyncd.conf\0"),
+    (b"/etc/ntp.conf\0",                      b"/mnt/etc/ntp.conf\0"),
     (b"/etc/ssl/certs/ca-certificates.crt\0", b"/mnt/etc/ssl/certs/ca-certificates.crt\0"),
-    (b"/etc/ssl/openssl.cnf\0",            b"/mnt/etc/ssl/openssl.cnf\0"),
-    (b"/etc/ssh/ssh_config\0",             b"/mnt/etc/ssh/ssh_config\0"),
-    (b"/etc/ssh/sshd_config\0",            b"/mnt/etc/ssh/sshd_config\0"),
-    (b"/etc/ssh/ssh_host_ed25519_key\0",      b"/mnt/etc/ssh/ssh_host_ed25519_key\0"),
-    (b"/etc/ssh/ssh_host_ed25519_key.pub\0",  b"/mnt/etc/ssh/ssh_host_ed25519_key.pub\0"),
-    (b"/etc/ssh/ssh_host_rsa_key\0",          b"/mnt/etc/ssh/ssh_host_rsa_key\0"),
-    (b"/etc/ssh/ssh_host_rsa_key.pub\0",      b"/mnt/etc/ssh/ssh_host_rsa_key.pub\0"),
+    (b"/etc/ssl/openssl.cnf\0",               b"/mnt/etc/ssl/openssl.cnf\0"),
+    (b"/etc/ssh/ssh_config\0",                b"/mnt/etc/ssh/ssh_config\0"),
+    (b"/etc/ssh/sshd_config\0",               b"/mnt/etc/ssh/sshd_config\0"),
 ];
 
 pub const INSTALL_EXTRA_FILES: &[(&[u8], &[u8])] = &[];
@@ -272,41 +242,23 @@ fn copy_repo_metadata() {
     // Подготавливаем каталоги репозиториев на установленном диске
     let _ = mkdir(b"/mnt/var\0", 0o755);
     let _ = mkdir(b"/mnt/var/cache\0", 0o755);
-    let _ = mkdir(b"/mnt/var/cache/wsp\0", 0o755);
-    let _ = mkdir(b"/mnt/var/cache/wpm\0", 0o777);
+    let _ = mkdir(b"/mnt/var/cache/wpm\0", 0o755);
     let _ = mkdir(b"/mnt/var/lib\0", 0o755);
-    let _ = mkdir(b"/mnt/var/lib/wsp\0", 0o755);
-    let _ = mkdir(b"/mnt/var/lib/wsp/repo\0", 0o755);
-    let _ = mkdir(b"/mnt/var/lib/wsp/repo/system\0", 0o755);
-    let _ = mkdir(b"/mnt/var/lib/wsp/repo/system/x86_64\0", 0o755);
-    let _ = mkdir(b"/mnt/var/lib/wpm\0", 0o777);
-    let _ = mkdir(b"/mnt/var/lib/wpm/repo\0", 0o777);
-    let _ = mkdir(b"/mnt/var/lib/wpm/repo/apps\0", 0o777);
-    let _ = mkdir(b"/mnt/var/lib/wpm/repo/apps/x86_64\0", 0o777);
+    let _ = mkdir(b"/mnt/var/lib/wpm\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wpm/repo\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wpm/repo/system\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wpm/repo/system/x86_64\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wpm/repo/apps\0", 0o755);
+    let _ = mkdir(b"/mnt/var/lib/wpm/repo/apps/x86_64\0", 0o755);
 
-    // Динамически копируем системные пакеты WSP и метаданные без жестких версий
-    copy_dir_packages(b"/var/cache/wsp\0", b"/mnt/var/cache/wsp\0");
-    copy_dir_packages(b"/var/lib/wsp/repo/system/x86_64\0", b"/mnt/var/lib/wsp/repo/system/x86_64\0");
-    copy_dir_packages(b"/var/lib/wsp/repo/system/x86_64\0", b"/mnt/var/cache/wsp\0");
-    copy_dir_packages(b"/repositories/system/x86_64\0", b"/mnt/var/lib/wsp/repo/system/x86_64\0");
-    copy_dir_packages(b"/repositories/system/x86_64\0", b"/mnt/var/cache/wsp\0");
-
-    // Динамически копируем прикладные пакеты WPM и метаданные без жестких версий
-    copy_dir_packages(b"/var/cache/wpm\0", b"/mnt/var/cache/wpm\0");
+    copy_dir_packages(b"/var/lib/wpm/repo/system/x86_64\0", b"/mnt/var/lib/wpm/repo/system/x86_64\0");
     copy_dir_packages(b"/var/lib/wpm/repo/apps/x86_64\0", b"/mnt/var/lib/wpm/repo/apps/x86_64\0");
-    copy_dir_packages(b"/var/lib/wpm/repo/apps/x86_64\0", b"/mnt/var/cache/wpm\0");
-    copy_dir_packages(b"/repositories/apps/x86_64\0", b"/mnt/var/lib/wpm/repo/apps/x86_64\0");
-    copy_dir_packages(b"/repositories/apps/x86_64\0", b"/mnt/var/cache/wpm\0");
-
-    // Гарантированно копируем файлы индексов репозиториев
-    copy_file(b"/var/lib/wsp/repo/system/x86_64/packages.json\0", b"/mnt/var/lib/wsp/repo/system/x86_64/packages.json\0", 0o644);
-    copy_file(b"/var/cache/wsp/packages.json\0", b"/mnt/var/cache/wsp/packages.json\0", 0o644);
+    copy_file(b"/var/lib/wpm/repo/system/x86_64/packages.json\0", b"/mnt/var/lib/wpm/repo/system/x86_64/packages.json\0", 0o644);
     copy_file(b"/var/lib/wpm/repo/apps/x86_64/packages.json\0", b"/mnt/var/lib/wpm/repo/apps/x86_64/packages.json\0", 0o644);
-    copy_file(b"/var/cache/wpm/packages.json\0", b"/mnt/var/cache/wpm/packages.json\0", 0o644);
 }
 
 pub fn total_install_items() -> usize {
-    SYSTEM_PACKAGES.len() + APP_PACKAGES.len() + INSTALL_BOOT_FILES.len() + INSTALL_ETC_FILES.len() + 10
+    INSTALL_META_PACKAGES.len() + INSTALL_BOOT_FILES.len() + INSTALL_ETC_FILES.len() + 10
 }
 
 /// Выполняет установку системы Wunix на смонтированный диск
@@ -342,13 +294,14 @@ where
         b"/mnt/lib\0", b"/mnt/lib64\0",
         b"/mnt/etc/ssl\0", b"/mnt/etc/ssl/certs\0",
         b"/mnt/etc/ssh\0", b"/mnt/etc/services\0", b"/mnt/etc/services/enabled\0",
-        b"/mnt/etc/wsp\0", b"/mnt/etc/wpm\0",
+        b"/mnt/etc/wpm\0",
         b"/mnt/var\0", b"/mnt/var/run\0", b"/mnt/var/empty\0", b"/mnt/var/log\0", b"/mnt/var/log/services\0",
-        b"/mnt/var/lib/wsp\0", b"/mnt/var/lib/wpm\0",
-        b"/mnt/var/lib/wsp/repo\0", b"/mnt/var/lib/wsp/repo/system\0", b"/mnt/var/lib/wsp/repo/system/x86_64\0",
-        b"/mnt/var/lib/wpm/repo\0", b"/mnt/var/lib/wpm/repo/apps\0", b"/mnt/var/lib/wpm/repo/apps/x86_64\0",
-        b"/mnt/var/cache/wsp\0", b"/mnt/var/cache/wpm\0",
-        b"/mnt/run\0", b"/mnt/run/services\0",
+        b"/mnt/var/lib\0", b"/mnt/var/lib/wpm\0",
+        b"/mnt/var/lib/wpm/repo\0",
+        b"/mnt/var/lib/wpm/repo/system\0", b"/mnt/var/lib/wpm/repo/system/x86_64\0",
+        b"/mnt/var/lib/wpm/repo/apps\0", b"/mnt/var/lib/wpm/repo/apps/x86_64\0",
+        b"/mnt/var/cache\0", b"/mnt/var/cache/wpm\0",
+        b"/mnt/run\0", b"/mnt/run/services\0", b"/mnt/run/wpm\0",
         b"/mnt/usr\0", b"/mnt/usr/bin\0", b"/mnt/usr/lib\0", b"/mnt/usr/libexec\0",
         b"/mnt/usr/include\0", b"/mnt/usr/share\0",
     ] {
@@ -357,70 +310,32 @@ where
     let _ = libwunix::chmod(b"/mnt/tmp\0", 0o1777);
     let _ = libwunix::chmod(b"/mnt/root\0", 0o700);
     let _ = libwunix::chmod(b"/mnt/var/empty\0", 0o755);
-    let _ = libwunix::chmod(b"/mnt/var/cache/wpm\0", 0o777);
-    let _ = libwunix::chmod(b"/mnt/var/lib/wpm\0", 0o777);
-    let _ = libwunix::chmod(b"/mnt/var/lib/wpm/repo\0", 0o777);
-    let _ = libwunix::chmod(b"/mnt/var/lib/wpm/repo/apps\0", 0o777);
-    let _ = libwunix::chmod(b"/mnt/var/lib/wpm/repo/apps/x86_64\0", 0o777);
     copy_repo_metadata();
     done += 1;
 
-    // 1. Установка компонентов ядра и базовой системы через WSP
-    for &pkg in SYSTEM_PACKAGES {
-        let pct = (10 + (done * 45 / total)).min(55) as u8;
-        progress(pct, pkg, done, total);
+    // 1. Установка базовой системы и приложений через единый WPM и метапакеты
+    for (idx, &meta_pkg) in INSTALL_META_PACKAGES.iter().enumerate() {
+        let pct = (15 + idx * 30).min(75) as u8;
+        progress(pct, meta_pkg, done, total);
 
         let mut null_pkg = [0u8; 32];
-        let b = pkg.as_bytes();
+        let b = meta_pkg.as_bytes();
         let l = b.len().min(31);
         null_pkg[..l].copy_from_slice(&b[..l]);
         null_pkg[l] = 0;
 
         let _ = run_command(
-            b"/bin/wsp\0",
-            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", b"--reinstall\0", &null_pkg[..l + 1]],
-        );
-        done += 1;
-    }
-
-    // 2. Установка пользовательских прикладных программ через WPM
-    for &app in APP_PACKAGES {
-        let pct = (55 + (done * 20 / total)).min(75) as u8;
-        progress(pct, app, done, total);
-
-        let mut null_app = [0u8; 32];
-        let b = app.as_bytes();
-        let l = b.len().min(31);
-        null_app[..l].copy_from_slice(&b[..l]);
-        null_app[l] = 0;
-
-        let _ = run_command(
             b"/bin/wpm\0",
-            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", b"--reinstall\0", &null_app[..l + 1]],
+            &[b"--root\0", b"/mnt\0", b"install\0", b"-y\0", &null_pkg[..l + 1]],
         );
         done += 1;
     }
 
-    // Настраиваем системные симлинки совместимости и бинарники сетевых служб
-    let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/sh\0");
-    let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/bash\0");
-    let _ = symlink(b"/bin/wsh\0", b"/mnt/usr/bin/bash\0");
-    let _ = symlink(b"/bin/wsh\0", b"/mnt/usr/bin/sh\0");
-    let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/test\0");
-    let _ = symlink(b"/bin/wsh\0", b"/mnt/bin/unalias\0");
-    let _ = symlink(b"/bin/wsh\0", b"/mnt/usr/bin/env\0");
+    // Симлинки динамического рантайма
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib/ld-musl-x86_64.so.1\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib64/ld-musl-x86_64.so.1\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib/ld-wunix.so.1\0");
     let _ = symlink(b"/lib/libcwunix.so\0", b"/mnt/lib64/ld-wunix.so.1\0");
-    copy_file(b"/bin/sshd\0", b"/mnt/bin/sshd\0", 0o755);
-    copy_file(b"/bin/ssh\0", b"/mnt/bin/ssh\0", 0o755);
-    copy_file(b"/bin/ssh-keygen\0", b"/mnt/bin/ssh-keygen\0", 0o755);
-    copy_file(b"/bin/scp\0", b"/mnt/bin/scp\0", 0o755);
-    copy_file(b"/bin/sshd-session\0", b"/mnt/bin/sshd-session\0", 0o755);
-    copy_file(b"/bin/sshd-session\0", b"/mnt/usr/libexec/sshd-session\0", 0o755);
-    copy_file(b"/bin/sftp-server\0", b"/mnt/bin/sftp-server\0", 0o755);
-    copy_file(b"/bin/sftp-server\0", b"/mnt/usr/libexec/sftp-server\0", 0o755);
 
     // 3. Копирование файлов ядра и загрузчика (/boot)
     progress(76, "Установка ядра и загрузчика (/boot)...", done, total);
@@ -454,9 +369,6 @@ where
         done += 1;
     }
 
-    // Устанавливаем строгие права 0600 на закрытые серверные ключи OpenSSH
-    let _ = libwunix::chmod(b"/mnt/etc/ssh/ssh_host_ed25519_key\0", 0o600);
-    let _ = libwunix::chmod(b"/mnt/etc/ssh/ssh_host_rsa_key\0", 0o600);
     let _ = libwunix::symlink(b"certs/ca-certificates.crt\0", b"/mnt/etc/ssl/cert.pem\0");
 
     for (src, dst) in INSTALL_EXTRA_FILES {
@@ -506,14 +418,12 @@ directory = /\n";
     write_file(b"/mnt/etc/services/enabled/sshd.conf\0", SSH_CFG, 0o644);
     write_file(b"/mnt/etc/services/enabled/wspd.conf\0", WSPD_CFG, 0o644);
 
-    // Конфигурационные файлы пакетных менеджеров WSP и WPM
-    const WSP_DAEMON_CFG: &str = "# Конфигурация фонового демона WSP (wspd)\n[daemon]\nenabled = true\ncheck_interval = 3600\ncheck_on_boot = true\nblock_on_critical = true\nlog_file = \"/var/log/services/wspd.log\"\n";
-    const WSP_CONF: &str = "# Системный менеджер пакетов WSP\n[system]\ncache_dir = \"/var/cache/wsp\"\nbackup_kernel = true\nblock_user_packages_on_critical = true\n";
-    const WPM_CONF: &str = "# Пользовательский менеджер пакетов WPM\n[general]\ncache_dir = \"/var/cache/wpm\"\nverify_checksum = true\nblock_if_wsp_outdated = true\n";
+    // Конфигурационные файлы пакетного менеджера WPM и демона wspd
+    const WPM_DAEMON_CFG: &str = "# Конфигурация фонового демона проверки обновлений (wspd)\n[daemon]\nenabled = true\ncheck_interval = 3600\ncheck_on_boot = true\nblock_on_critical = true\nlog_file = \"/var/log/services/wspd.log\"\n";
+    const WPM_CONF: &str = "# Единая конфигурация пакетного менеджера WPM\n[general]\ncache_dir = \"/var/cache/wpm\"\nverify_checksum = true\nbackup_kernel = true\nblock_user_packages_on_critical = true\n";
     const WPM_SOURCES_CFG: &str = "# Источники репозиториев WPM\n[apps]\nServer = http://wunix.rusos.site/repo/apps/x86_64\n";
 
-    write_file(b"/mnt/etc/wsp/daemon.conf\0", WSP_DAEMON_CFG.as_bytes(), 0o644);
-    write_file(b"/mnt/etc/wsp/wsp.conf\0", WSP_CONF.as_bytes(), 0o644);
+    write_file(b"/mnt/etc/wpm/daemon.conf\0", WPM_DAEMON_CFG.as_bytes(), 0o644);
     write_file(b"/mnt/etc/wpm/wpm.conf\0", WPM_CONF.as_bytes(), 0o644);
     write_file(b"/mnt/etc/wpm/sources.conf\0", WPM_SOURCES_CFG.as_bytes(), 0o644);
 
@@ -622,9 +532,10 @@ directory = /\n";
 
     // 9. Маркер установленной системы и системная локаль
     progress(90, "Фиксация флага установки и локали...", done, total);
+    let full_env = b"PATH=/bin:/usr/bin\nSHELL=/bin/wsh\nTERM=linux\nPAGER=cat\nLANG=ru_RU.UTF-8\nLC_ALL=ru_RU.UTF-8\n";
     let locale_env = b"LANG=ru_RU.UTF-8\nLC_ALL=ru_RU.UTF-8\n";
-    write_file(b"/mnt/etc/environment\0", locale_env, 0o644);
-    write_file(b"/etc/environment\0", locale_env, 0o644);
+    write_file(b"/mnt/etc/environment\0", full_env, 0o644);
+    write_file(b"/etc/environment\0", full_env, 0o644);
     write_file(b"/mnt/etc/locale\0", locale_env, 0o644);
     write_file(b"/etc/locale\0", locale_env, 0o644);
 

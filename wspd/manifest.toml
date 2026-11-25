@@ -1,0 +1,21 @@
+[package]
+name = "wspd"
+version = "auto"
+arch = "x86_64"
+type = "system"
+tier = "base"
+description = "Фоновый системный демон проверки и аудита обновлений ядра Wunix"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = ["libwunix >= 0.1", "libpackwunix >= 0.1"]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"
+bins = ["wspd"]
+
+[build.inline_files]
+"/etc/wpm/daemon.conf" = "# Конфигурация фонового демона проверки обновлений (wspd)\n[daemon]\nenabled = true\ncheck_interval = 3600\ncheck_on_boot = true\nblock_on_critical = true\nlog_file = \"/var/log/services/wspd.log\"\n"
+"/etc/system.d/wspd.conf" = "[service]\nname = \"wspd\"\ndescription = \"Системный демон периодической проверки обновлений WPM/WSP\"\nexec = \"/bin/wspd --daemon\"\nautostart = true\nrestart = always\nrestart_delay = 10\n"

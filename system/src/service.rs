@@ -237,6 +237,10 @@ pub fn start_service(name: &str) -> Result<i32, &'static str> {
     dup2(log_fd as u64, STDERR_FILENO);
     close(log_fd as u64);
 
+    if clean_name == "sshd" || clean_name == "ssh" {
+        ensure_sshd_host_keys();
+    }
+
     let exit_code = execute_binary(&bin_path, &args);
 
     // Восстанавливаем stdin, stdout и stderr
@@ -428,4 +432,33 @@ fn execute_binary(bin: &str, args: &[String]) -> i32 {
     );
 
     ret as i32
+}
+
+fn has_nonempty_file(null_path: &[u8]) -> bool {
+    let fd = open(null_path, O_RDONLY as u64, 0);
+    if fd < 0 {
+        return false;
+    }
+    let mut probe = [0u8; 1];
+    let n = read(fd as u64, &mut probe);
+    close(fd as u64);
+    n > 0
+}
+
+fn ensure_sshd_host_keys() {
+    let ed_key = b"/etc/ssh/ssh_host_ed25519_key\0";
+    let rsa_key = b"/etc/ssh/ssh_host_rsa_key\0";
+    if has_nonempty_file(ed_key) && has_nonempty_file(rsa_key) {
+        return;
+    }
+    if !has_nonempty_file(b"/bin/ssh-keygen\0") {
+        return;
+    }
+    let _ = libwunix::mkdir(b"/etc\0", 0o755);
+    let _ = libwunix::mkdir(b"/etc/ssh\0", 0o755);
+    let args = alloc::vec![String::from("/bin/ssh-keygen"), String::from("-A")];
+    let _ = execute_binary("/bin/ssh-keygen", &args);
+    let _ = libwunix::chmod(ed_key, 0o600);
+    let _ = libwunix::chmod(rsa_key, 0o600);
+    let _ = libwunix::chmod(b"/etc/ssh/ssh_host_ecdsa_key\0", 0o600);
 }

@@ -1,15 +1,16 @@
 //! Модуль управления источниками и репозиториями WPM.
 //!
-//! Отвечает за чтение и запись конфигурации `/etc/wpm/sources.conf`.
+//! Системный репозиторий [system] встроен в бинарный файл и неизменяем.
+//! Пользовательские источники управляются через `/etc/wpm/sources.conf`.
 
 extern crate alloc;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use libwunix::{close, geteuid, getuid, mkdir, open, println, read, t, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
-use libpackwunix::sources::{parse_repo_sources, RepoSection};
+use libpackwunix::sources::{get_wsp_system_repo, parse_repo_sources, RepoSection};
 
-use crate::display::{print_access_denied, print_error, print_info, COLOR_GREEN, COLOR_RESET};
+use crate::display::{print_access_denied, print_error, print_info, COLOR_GREEN, COLOR_RED, COLOR_RESET, COLOR_YELLOW};
 
 pub const SOURCES_CONF_PATH: &[u8] = b"/etc/wpm/sources.conf\0";
 
@@ -75,12 +76,17 @@ pub fn load_sources() -> Vec<RepoSection> {
     let n = read(fd as u64, &mut buf);
     close(fd as u64);
 
-    if n == 0 {
+    if n <= 0 {
         return get_default_sources();
     }
 
     let s = core::str::from_utf8(&buf[..n as usize]).unwrap_or("");
-    parse_repo_sources(s).unwrap_or_else(|_| get_default_sources())
+    let parsed = parse_repo_sources(s).unwrap_or_else(|_| get_default_sources());
+    if parsed.is_empty() {
+        get_default_sources()
+    } else {
+        parsed
+    }
 }
 
 fn get_default_sources() -> Vec<RepoSection> {
@@ -97,8 +103,11 @@ fn save_sources(repos: &[RepoSection]) -> bool {
     let _ = mkdir(b"/etc/wpm\0", 0o755);
 
     let mut out = String::new();
-    out.push_str("# WPM Sources Configuration\n\n");
+    out.push_str("# Источники репозиториев WPM\n");
     for r in repos {
+        if r.name.eq_ignore_ascii_case("system") {
+            continue;
+        }
         out.push_str(&format!("[{}]\n", r.name));
         for s in &r.servers {
             out.push_str(&format!("Server = {}\n", s));
@@ -119,7 +128,11 @@ fn save_sources(repos: &[RepoSection]) -> bool {
 
 fn list_repos() -> i32 {
     let repos = load_sources();
-    println!("Источники репозиториев WPM (/etc/wpm/sources.conf):");
+    println!("{}:", t("Системный репозиторий (встроен, только чтение)", "System repository (built-in, read-only)"));
+    println!("  [system] {}[защищён]{}", COLOR_YELLOW, COLOR_RESET);
+    println!("    Server = {}", get_wsp_system_repo());
+    println!();
+    println!("{}:", t("Пользовательские репозитории WPM (/etc/wpm/sources.conf)", "User WPM repositories (/etc/wpm/sources.conf)"));
     for r in &repos {
         println!("  [{}]", r.name);
         for s in &r.servers {
@@ -127,14 +140,24 @@ fn list_repos() -> i32 {
         }
     }
     println!();
-    println!("Добавление репозитория: sudo wpm repo add <имя> <URL>");
+    println!("{}", t("Добавление пользовательского репозитория: sudo wpm repo add <имя> <URL>", "Add user repository: sudo wpm repo add <name> <URL>"));
     0
 }
 
 fn add_repo(name: &str, url: &str) -> i32 {
+    if name.eq_ignore_ascii_case("system") {
+        print_error(t(
+            "источник системных пакетов [system] встроен в wpm и не может быть изменён пользователем.",
+            "the [system] repository is built-in and cannot be modified by the user.",
+        ));
+        return 1;
+    }
+
     let mut repos = load_sources();
     if let Some(existing) = repos.iter_mut().find(|r| r.name == name) {
-        existing.servers.push(url.to_string());
+        if !existing.servers.iter().any(|s| s == url) {
+            existing.servers.push(url.to_string());
+        }
     } else {
         repos.push(RepoSection {
             name: name.to_string(),
@@ -155,6 +178,14 @@ fn add_repo(name: &str, url: &str) -> i32 {
 }
 
 fn remove_repo(name: &str) -> i32 {
+    if name.eq_ignore_ascii_case("system") {
+        print_error(t(
+            "системный репозиторий [system] является обязательным и не может быть удалён.",
+            "the [system] repository is mandatory and cannot be removed.",
+        ));
+        return 1;
+    }
+
     let mut repos = load_sources();
     let initial_len = repos.len();
     repos.retain(|r| r.name != name);
@@ -170,9 +201,14 @@ fn remove_repo(name: &str) -> i32 {
 }
 
 fn ping_repos(target: &str) -> i32 {
-    let repos = load_sources();
+    let mut all_repos = alloc::vec![RepoSection {
+        name: "system".to_string(),
+        servers: alloc::vec![get_wsp_system_repo().to_string()],
+    }];
+    all_repos.extend(load_sources());
+
     print_info(&format!("{}: {}", t("проверка доступности источников", "checking repository mirrors"), target));
-    for r in &repos {
+    for r in &all_repos {
         if target != "all" && r.name != target {
             continue;
         }
@@ -203,16 +239,16 @@ fn ping_repos(target: &str) -> i32 {
                                 if fd >= 0 {
                                     libwunix::close(fd as u64);
                                 }
-                                println!("  [{}] {:<48} {}{}{}", r.name, s, crate::display::COLOR_RED, t("недоступен (ошибка соединения)", "offline (connection error)"), COLOR_RESET);
+                                println!("  [{}] {:<48} {}{}{}", r.name, s, COLOR_RED, t("недоступен (ошибка соединения)", "offline (connection error)"), COLOR_RESET);
                             }
                         }
                         Err(_) => {
-                            println!("  [{}] {:<48} {}{}{}", r.name, s, crate::display::COLOR_RED, t("недоступен (DNS error)", "offline (DNS error)"), COLOR_RESET);
+                            println!("  [{}] {:<48} {}{}{}", r.name, s, COLOR_RED, t("недоступен (DNS error)", "offline (DNS error)"), COLOR_RESET);
                         }
                     }
                 }
                 Err(_) => {
-                    println!("  [{}] {:<48} {}{}{}", r.name, s, crate::display::COLOR_RED, t("некорректный URL", "invalid URL"), COLOR_RESET);
+                    println!("  [{}] {:<48} {}{}{}", r.name, s, COLOR_RED, t("некорректный URL", "invalid URL"), COLOR_RESET);
                 }
             }
         }

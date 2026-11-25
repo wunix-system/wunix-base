@@ -1,21 +1,26 @@
 #![no_std]
 #![no_main]
 
-//! Пользовательский менеджер пакетов Wunix Package Manager (WPM).
+//! Единый пакетный менеджер Wunix Package Manager (WPM).
 //!
-//! Отвечает за установку и управление прикладными программами (.wp),
-//! утилитами разработки и источниками репозиториев Wunix.
+//! Управляет как системными пакетами (ядро, библиотеки, базовые утилиты
+//! из неизменяемого источника [system]), так и прикладными программами
+//! и метапакетами (.wp).
 
 extern crate alloc;
 
 mod allocator;
+mod audit;
+mod db;
 mod display;
 mod guard;
 mod http;
 mod install;
+mod kernel_cmd;
 mod list;
 mod progress;
 mod repo_cmd;
+mod resolver;
 mod search;
 mod unpack;
 mod upgrade;
@@ -23,6 +28,8 @@ mod upgrade;
 use alloc::format;
 use alloc::vec::Vec;
 use libwunix::{exit, geteuid, getuid, println, t};
+use libpackwunix::sources::get_wsp_system_repo;
+use libpackwunix::version::Version;
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
@@ -51,37 +58,54 @@ fn do_update(root_prefix: Option<&str>, flag_quiet: bool) -> i32 {
         return 1;
     }
 
-    let sources = repo_cmd::load_sources();
+    let root_str = root_prefix.unwrap_or("/");
     if !flag_quiet {
         println!("wpm: синхронизация списков репозиториев...");
     }
+
     let mut has_errors = false;
 
-    let root_str = root_prefix.unwrap_or("/");
-    let r = if root_str == "/" { "" } else { root_str.trim_end_matches('/') };
+    // 1. Обязательная синхронизация неизменяемого системного канала [system]
+    let sys_url = get_wsp_system_repo().trim_end_matches('/');
+    if !flag_quiet {
+        println!("  [system] {}", sys_url);
+    }
+    let sys_dir = db::get_path(root_str, "/var/lib/wpm/repo/system/x86_64");
+    db::ensure_dir_recursive(&sys_dir);
+    let sys_json_url = format!("{}/packages.json", sys_url);
+    let sys_json_dst = format!("{}/packages.json", sys_dir);
+    if let Err(e) = http::fetch_to_file(&sys_json_url, &sys_json_dst, None, "system/packages.json") {
+        has_errors = true;
+        display::print_error(&format!("не удалось загрузить системный индекс {}: {:?}", sys_url, e));
+    } else {
+        let _ = http::fetch_to_file(
+            &format!("{}/index.txt", sys_url),
+            &format!("{}/index.txt", sys_dir),
+            None,
+            "system/index.txt",
+        );
+    }
 
+    // 2. Синхронизация пользовательских репозиториев из /etc/wpm/sources.conf
+    let sources = repo_cmd::load_sources();
     for section in &sources {
         for server in &section.servers {
             let s_url = server.trim_end_matches('/');
-            let json_url = format!("{}/packages.json", s_url);
             if !flag_quiet {
                 println!("  [{}] {}", section.name, s_url);
             }
-
-            let dest_dir = format!("{}/var/lib/wpm/repo/{}/x86_64", r, section.name);
-            let cache_dir = format!("{}/var/cache/wpm", r);
-            install::ensure_dir_recursive(&dest_dir);
-            install::ensure_dir_recursive(&cache_dir);
+            let dest_dir = db::get_path(root_str, &format!("/var/lib/wpm/repo/{}/x86_64", section.name));
+            db::ensure_dir_recursive(&dest_dir);
 
             let dest_path = format!("{}/packages.json", dest_dir);
-            match http::fetch_to_file(&json_url, &dest_path, None, "packages.json") {
+            match http::fetch_to_file(&format!("{}/packages.json", s_url), &dest_path, None, "packages.json") {
                 Ok(_) => {
-                    let cache_json = format!("{}/packages.json", cache_dir);
-                    let _ = install::copy_file(&dest_path, &cache_json);
-
-                    let txt_url = format!("{}/index.txt", s_url);
-                    let txt_path = format!("{}/index.txt", dest_dir);
-                    let _ = http::fetch_to_file(&txt_url, &txt_path, None, "index.txt");
+                    let _ = http::fetch_to_file(
+                        &format!("{}/index.txt", s_url),
+                        &format!("{}/index.txt", dest_dir),
+                        None,
+                        "index.txt",
+                    );
                 }
                 Err(e) => {
                     has_errors = true;
@@ -91,17 +115,14 @@ fn do_update(root_prefix: Option<&str>, flag_quiet: bool) -> i32 {
         }
     }
 
-    let installed = install::load_installed_apps_from(root_str);
-    let catalog = search::load_wpm_catalog_from(root_str);
+    let installed = db::load_installed_packages_from(root_str);
+    let catalog = db::load_unified_catalog_from(root_str);
     let mut upgradable_count = 0;
-    for app in &installed {
-        let app_ver = libpackwunix::version::Version::parse(&app.version)
-            .unwrap_or(libpackwunix::version::Version::new(0, 1, 0));
-        if let Some(cat_pkg) = catalog.iter().find(|p| p.name == app.name || p.aliases.iter().any(|a| a == &app.name)) {
-            if let Ok(cat_ver) = libpackwunix::version::Version::parse(&cat_pkg.version) {
-                if cat_ver.is_newer_than(&app_ver) {
-                    upgradable_count += 1;
-                }
+    for inst in &installed {
+        let inst_ver = Version::parse(&inst.version).unwrap_or(Version::new(0, 1, 0));
+        if let Some(entry) = catalog.iter().find(|c| c.pkg.name == inst.name) {
+            if entry.pkg.version.is_newer_than(&inst_ver) {
+                upgradable_count += 1;
             }
         }
     }
@@ -109,18 +130,12 @@ fn do_update(root_prefix: Option<&str>, flag_quiet: bool) -> i32 {
     if !flag_quiet {
         if !has_errors {
             println!(
-                "wpm: каталоги программ успешно синхронизированы (установлено: {}, можно обновить: {}).",
+                "wpm: каталоги успешно синхронизированы (установлено: {}, можно обновить: {}).",
                 installed.len(),
                 upgradable_count
             );
             if upgradable_count > 0 {
-                println!(
-                    "  {}",
-                    t(
-                        "Для просмотра доступных обновлений выполните: wpm check",
-                        "Run 'wpm check' to view available updates."
-                    )
-                );
+                println!("  {}", t("Для просмотра обновлений выполните: wpm check", "Run 'wpm check' to view updates."));
             }
         } else {
             display::print_warning("синхронизация завершена с ошибками для некоторых источников.");
@@ -132,10 +147,7 @@ fn do_update(root_prefix: Option<&str>, flag_quiet: bool) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
-    if argc > 0 {
-        let envp = unsafe { argv.add(argc as usize + 1) };
-        libwunix::env::init(envp);
-    }
+    libwunix::init(argc, argv);
 
     let mut raw_args: Vec<&str> = Vec::new();
     if argc > 1 {
@@ -144,7 +156,6 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         }
     }
 
-    // Флаги командной строки
     let mut flag_version = false;
     let mut flag_yes = false;
     let mut flag_purge = false;
@@ -153,9 +164,12 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
     let mut flag_verbose = false;
     let mut flag_reinstall = false;
     let mut flag_upgradable = false;
+    let mut flag_critical = false;
+    let mut flag_dry_run = false;
+    let mut flag_json = false;
+    let mut flag_files = false;
     let mut flag_root: Option<&str> = None;
 
-    // Pacman-флаги операций
     let mut has_s_op = false;
     let mut has_r_op = false;
     let mut has_q_op = false;
@@ -188,7 +202,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         } else if a == "--yes" || a == "-y" || a == "--noconfirm" {
             flag_yes = true;
             has_mod_y = true;
-        } else if a == "--verbose" || a == "-d" {
+        } else if a == "--verbose" || a == "-d" || a == "--verify" || a == "--verify-files" {
             flag_verbose = true;
         } else if a == "--quiet" || a == "-q" {
             flag_quiet = true;
@@ -196,6 +210,14 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             flag_purge = true;
         } else if a == "-u" || a == "--upgradable" || a == "--updates" {
             flag_upgradable = true;
+        } else if a == "-c" || a == "--critical" || a == "--critical-only" {
+            flag_critical = true;
+        } else if a == "--dry-run" {
+            flag_dry_run = true;
+        } else if a == "--json" {
+            flag_json = true;
+        } else if a == "-f" || a == "--files" {
+            flag_files = true;
         } else if a == "--reinstall" {
             flag_reinstall = true;
         } else if a == "--ignore-critical-unsafe" {
@@ -208,7 +230,6 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         } else if a.starts_with("--root=") {
             flag_root = Some(&a[7..]);
         } else if a.starts_with('-') && !a.starts_with("--") {
-            // Разбор компактных коротких флагов в стиле pacman (-Syu, -Ss, -Rns, -Qi и т.д.)
             for ch in a[1..].chars() {
                 match ch {
                     'S' => has_s_op = true,
@@ -219,10 +240,14 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
                     'u' => has_mod_u = true,
                     's' => has_mod_s = true,
                     'i' => has_mod_i = true,
-                    'c' => has_mod_c = true,
+                    'c' => {
+                        has_mod_c = true;
+                        flag_critical = true;
+                    }
                     'n' => flag_purge = true,
                     'd' => flag_verbose = true,
                     'q' => flag_quiet = true,
+                    'f' => flag_files = true,
                     'v' | 'V' => flag_version = true,
                     'h' => {
                         display::print_help();
@@ -241,7 +266,6 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         i += 1;
     }
 
-    // Определение команды (pacman-стиль имеет наивысший приоритет)
     let pacman_cmd = if has_s_op {
         if has_mod_y && has_mod_u {
             Some("update_and_upgrade")
@@ -253,7 +277,7 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             Some("search")
         } else if has_mod_i {
             Some("info")
-        } else if has_mod_c {
+        } else if has_mod_c && positional.is_empty() {
             Some("clean")
         } else {
             Some("install")
@@ -276,7 +300,6 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         None
     };
 
-    // Если был запрошен флаг версии без выполняемых операций
     if (flag_version && pacman_cmd.is_none() && positional.is_empty())
         || (raw_args.len() == 1 && (raw_args[0] == "-v" || raw_args[0] == "-V" || raw_args[0] == "--version"))
     {
@@ -298,17 +321,14 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
             display::print_version();
             0
         }
-        "check" | "updates" => {
-            list::run_check(flag_root)
-        }
+        "audit" => audit::run_audit(flag_verbose),
+        "check" | "updates" => audit::run_check(flag_root, flag_critical, flag_json),
         "update" => do_update(flag_root, flag_quiet),
-        "upgrade" => {
-            upgrade::run_upgrade(flag_root, flag_yes, flag_ignore_unsafe, flag_verbose)
-        }
+        "upgrade" => upgrade::run_upgrade(flag_root, flag_critical, flag_yes, flag_ignore_unsafe, flag_dry_run, flag_verbose),
         "update_and_upgrade" => {
             let res = do_update(flag_root, flag_quiet);
             if res == 0 {
-                upgrade::run_upgrade(flag_root, flag_yes, flag_ignore_unsafe, flag_verbose)
+                upgrade::run_upgrade(flag_root, flag_critical, flag_yes, flag_ignore_unsafe, flag_dry_run, flag_verbose)
             } else {
                 res
             }
@@ -320,28 +340,39 @@ pub extern "C" fn _start(argc: isize, argv: *const *const u8) -> ! {
         "install" => {
             install::run_install_in(rest, flag_root, flag_yes, flag_ignore_unsafe, flag_verbose, flag_reinstall)
         }
-        "remove" | "rm" => {
-            install::run_remove(rest, flag_purge, flag_yes)
+        "reinstall" => {
+            install::run_install_in(rest, flag_root, flag_yes, flag_ignore_unsafe, flag_verbose, true)
         }
+        "remove" | "rm" => install::run_remove(rest, flag_purge, flag_yes),
         "list" | "ls" => {
             if flag_upgradable {
-                list::run_check(flag_root)
-            } else if let Some(root) = flag_root {
-                list::run_list_in(root)
+                audit::run_check(flag_root, flag_critical, flag_json)
             } else {
-                list::run_list()
+                list::run_list_in(flag_root.unwrap_or("/"), flag_critical)
             }
         }
         "info" => {
             if let Some(&name) = rest.first() {
-                list::run_info(name)
+                list::run_info(name, flag_files)
             } else {
-                display::print_error(t("укажите имя программы: wpm info <программа>", "missing program name: wpm info <program>"));
+                display::print_error(t("укажите имя пакета: wpm info <пакет>", "missing package name: wpm info <package>"));
                 1
             }
         }
-        "repo" => {
-            repo_cmd::run_repo_cmd(rest)
+        "repo" => repo_cmd::run_repo_cmd(rest),
+        "kernel" => {
+            let sub = rest.first().copied().unwrap_or("list");
+            kernel_cmd::run_kernel_cmd(sub)
+        }
+        "rollback" => {
+            let uid = getuid();
+            let euid = geteuid();
+            if uid != 0 && euid != 0 {
+                display::print_access_denied("rollback", uid);
+                1
+            } else {
+                kernel_cmd::run_kernel_cmd("rollback")
+            }
         }
         "clean" => {
             let uid = getuid();

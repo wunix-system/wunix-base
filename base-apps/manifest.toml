@@ -1,0 +1,26 @@
+[package]
+name = "base-apps"
+version = "auto"
+arch = "x86_64"
+type = "user"
+tier = "optional"
+meta = true
+description = "Метапакет стандартного набора прикладных программ Wunix OS"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = [
+    "archiveutils",
+    "curl",
+    "gzip",
+    "nano",
+    "openssh",
+    "tar",
+    "wc",
+    "zip",
+]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"

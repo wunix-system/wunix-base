@@ -1,0 +1,74 @@
+[package]
+name = "wunix-base"
+version = "auto"
+arch = "x86_64"
+type = "system"
+tier = "critical"
+description = "Базовый каркас операционной системы Wunix OS (init, wsh, system, иерархия ФС)"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = [
+    "wunix-kernel",
+    "libwunix >= 0.1",
+    "coreutils",
+    "netutils",
+    "sysutils",
+    "authutils",
+    "wpm",
+    "wspd",
+]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"
+bins = ["init", "wsh", "system"]
+dirs = [
+    "/bin",
+    "/boot",
+    "/dev",
+    "/etc",
+    "/etc/services",
+    "/etc/services/enabled",
+    "/home",
+    "/lib",
+    "/lib64",
+    "/mnt",
+    "/proc",
+    "/root",
+    "/run",
+    "/run/services",
+    "/sys",
+    "/tmp",
+    "/usr",
+    "/usr/bin",
+    "/usr/include",
+    "/usr/lib",
+    "/usr/libexec",
+    "/usr/share",
+    "/var",
+    "/var/empty",
+    "/var/log",
+    "/var/log/services",
+    "/var/run",
+    "/win/drives/c/Windows/System32/drivers/etc",
+    "/win/registry",
+]
+
+[build.symlinks]
+"/bin/sh" = "/bin/wsh"
+"/bin/bash" = "/bin/wsh"
+"/bin/[" = "/bin/wsh"
+"/bin/test" = "/bin/wsh"
+"/bin/unalias" = "/bin/wsh"
+"/usr/bin/sh" = "/bin/wsh"
+"/usr/bin/bash" = "/bin/wsh"
+"/usr/bin/env" = "/bin/wsh"
+"/usr/bin/[" = "/bin/wsh"
+
+[build.inline_files]
+"/etc/environment" = "PATH=/bin:/usr/bin\nSHELL=/bin/wsh\nTERM=linux\nPAGER=cat\n"
+"/etc/os-release" = "NAME=\"Wunix\"\nPRETTY_NAME=\"Wunix OS (x86_64)\"\nID=wunix\nBUILD_ID=20261125\n"
+"/win/drives/c/Windows/system.ini" = "; Wunix NT Subsystem Configuration\n[boot]\ndrivers=serial.sys,keyboard.sys\nshell=cmd.exe\n"
+"/win/registry/SYSTEM.reg" = "Windows Registry Editor Version 5.00\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control]\n\"SystemStartOptions\"=\"NOEXECUTE=OPTIN\"\n"

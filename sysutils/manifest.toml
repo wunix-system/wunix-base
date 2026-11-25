@@ -1,0 +1,20 @@
+[package]
+name = "sysutils"
+version = "auto"
+arch = "x86_64"
+type = "system"
+tier = "base"
+description = "Системные утилиты управления дисками, устройствами и мониторинга процессов"
+maintainer = "Wunix Core Team <dev@wunix.org>"
+
+[dependencies]
+required = ["libwunix >= 0.1"]
+conflicts = []
+replaces = []
+
+[build]
+version_source = "git:programs"
+bins = [
+    "top", "free", "fdisk", "lsblk", "mount", "umount",
+    "lspci", "lshw", "lsdev", "lsmod", "modinfo", "hwclock", "fbset",
+]

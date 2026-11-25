@@ -4,7 +4,8 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use libwunix::{close, mkdir, open, read, write, O_CREAT, O_RDONLY, O_WRONLY};
 
-pub const DAEMON_CONF_PATH: &[u8] = b"/etc/wsp/daemon.conf\0";
+pub const DAEMON_CONF_PATH: &[u8] = b"/etc/wpm/daemon.conf\0";
+pub const LEGACY_DAEMON_CONF_PATH: &[u8] = b"/etc/wsp/daemon.conf\0";
 
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
@@ -29,7 +30,10 @@ impl Default for DaemonConfig {
 
 pub fn load_daemon_config() -> DaemonConfig {
     ensure_conf_dirs();
-    let fd = open(DAEMON_CONF_PATH, O_RDONLY as u64, 0);
+    let mut fd = open(DAEMON_CONF_PATH, O_RDONLY as u64, 0);
+    if fd < 0 {
+        fd = open(LEGACY_DAEMON_CONF_PATH, O_RDONLY as u64, 0);
+    }
     if fd < 0 {
         let def = DaemonConfig::default();
         save_default_config(&def);
@@ -50,12 +54,12 @@ pub fn load_daemon_config() -> DaemonConfig {
 
 fn ensure_conf_dirs() {
     let _ = mkdir(b"/etc\0", 0o755);
-    let _ = mkdir(b"/etc/wsp\0", 0o755);
+    let _ = mkdir(b"/etc/wpm\0", 0o755);
     let _ = mkdir(b"/var\0", 0o755);
     let _ = mkdir(b"/var/log\0", 0o755);
     let _ = mkdir(b"/var/log/services\0", 0o755);
     let _ = mkdir(b"/run\0", 0o755);
-    let _ = mkdir(b"/run/wsp\0", 0o755);
+    let _ = mkdir(b"/run/wpm\0", 0o755);
 }
 
 fn save_default_config(_conf: &DaemonConfig) {

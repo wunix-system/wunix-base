@@ -1,12 +1,12 @@
-//! Модуль управления ядрами WSP (`wsp kernel`).
+//! Модуль управления ядрами Wunix (`wpm kernel`, `wpm rollback`).
 
 extern crate alloc;
 use alloc::format;
-use libwunix::{close, geteuid, getuid, open, println, t, unlink, write, O_CREAT, O_RDONLY, O_WRONLY};
+use libwunix::{close, geteuid, getuid, open, println, t, unlink, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 use libpackwunix::kernel::{generate_limine_conf, KernelEntry};
 use libpackwunix::version::Version;
 
-use crate::db::log_transaction;
+use crate::db::{load_installed_packages, log_transaction};
 use crate::display::{print_access_denied, print_error, COLOR_BOLD, COLOR_GREEN, COLOR_RED, COLOR_RESET, COLOR_YELLOW};
 
 pub fn run_kernel_cmd(subcmd: &str) -> i32 {
@@ -34,14 +34,14 @@ pub fn run_kernel_cmd(subcmd: &str) -> i32 {
         }
         _ => {
             print_error(&format!("{} '{}'", t("неизвестная подкоманда", "unknown subcommand"), subcmd));
-            println!("  {}", t("Использование: wsp kernel [list | rollback | clean]", "Usage: wsp kernel [list | rollback | clean]"));
+            println!("  {}", t("Использование: wpm kernel [list | rollback | clean]", "Usage: wpm kernel [list | rollback | clean]"));
             1
         }
     }
 }
 
 fn list_kernels() -> i32 {
-    println!("Ядра в /boot:");
+    println!("{}:", t("Ядра в /boot", "Kernels in /boot"));
 
     let k_main = open(b"/boot/wunix-kernel\0", O_RDONLY as u64, 0);
     if k_main >= 0 {
@@ -63,14 +63,14 @@ fn list_kernels() -> i32 {
 }
 
 fn rollback_kernel() -> i32 {
-    println!("wsp: переключение загрузчика на резервное ядро...");
+    println!("wpm: переключение загрузчика на резервное ядро...");
 
-    let installed = crate::db::load_installed_packages();
+    let installed = load_installed_packages();
     let k_ver = installed
         .iter()
         .find(|p| p.name == "wunix-kernel")
         .and_then(|p| Version::parse(&p.version).ok())
-        .unwrap_or(Version::new(1, 0, 0));
+        .unwrap_or(Version::new(0, 1, 0));
 
     let fallback_entry = KernelEntry {
         version: k_ver,
@@ -79,13 +79,12 @@ fn rollback_kernel() -> i32 {
     };
 
     let conf = generate_limine_conf(&fallback_entry, None, 3);
-    let fd = open(b"/boot/limine.conf\0", (O_WRONLY | O_CREAT) as u64, 0o644);
+    let fd = open(b"/boot/limine.conf\0", (O_WRONLY | O_CREAT | O_TRUNC) as u64, 0o644);
     if fd >= 0 {
-        let b = conf.as_bytes();
-        let _ = write(fd as u64, b);
+        let _ = write(fd as u64, conf.as_bytes());
         close(fd as u64);
         log_transaction("kernel-rollback", "Загрузчик переключен на резервное ядро");
-        println!("wsp: резервное ядро /boot/wunix-kernel.old назначено загрузочным.");
+        println!("wpm: резервное ядро /boot/wunix-kernel.old назначено загрузочным.");
         println!("  {}: {}reboot{}", t("Перезагрузите систему для применения", "Reboot to apply"), COLOR_BOLD, COLOR_RESET);
         0
     } else {
@@ -96,6 +95,6 @@ fn rollback_kernel() -> i32 {
 
 fn clean_kernels() -> i32 {
     let _ = unlink(b"/boot/wunix-kernel.old\0");
-    println!("wsp: резервные копии ядра в /boot очищены.");
+    println!("wpm: резервные копии ядра в /boot очищены.");
     0
 }

@@ -56,7 +56,6 @@ members = [
     "whoami",
     "winstall",
     "wsh",
-    "wsp",
     "wspd",
     "wpm",
 ]

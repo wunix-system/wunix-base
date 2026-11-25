@@ -1,10 +1,6 @@
 //! Модуль распаковки и установки контейнеров Wunix Package (.wp).
 //!
-//! Отвечает за:
-//! - Проверку 128-байтного заголовка WSP1 / WP.
-//! - Валидацию типа пакета (User для WPM).
-//! - Декомпрессию gzip-пейлоада.
-//! - Разбор USTAR tar-архива и запись файлов на диск с правами 0o755/0o644.
+//! Поддерживает как системные, так и прикладные пакеты, а также метапакеты.
 
 extern crate alloc;
 use alloc::format;
@@ -12,7 +8,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use libwunix::{chmod, close, mkdir, open, read, symlink, write, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
 use libpackwunix::format::PackageContainer;
-use libpackwunix::manifest::{PackageManifest, PackageType};
+use libpackwunix::manifest::PackageManifest;
 
 const BLOCK_SIZE: usize = 512;
 
@@ -31,7 +27,13 @@ pub fn read_file_to_vec(path: &str) -> Result<Vec<u8>, &'static str> {
         return Err("не удалось открыть файл пакета");
     }
 
-    let mut result = Vec::new();
+    let mut st = libwunix::Stat::zeroed();
+    let prealloc = if libwunix::stat(&null_path[..bytes.len() + 1], &mut st) == 0 && st.st_size > 0 {
+        (st.st_size as usize).min(64 * 1024 * 1024)
+    } else {
+        0
+    };
+    let mut result = Vec::with_capacity(prealloc);
     let mut chunk = [0u8; 8192];
     loop {
         let n = read(fd as u64, &mut chunk);
@@ -49,7 +51,6 @@ pub fn read_file_to_vec(path: &str) -> Result<Vec<u8>, &'static str> {
     Ok(result)
 }
 
-/// Проверяет безопасность пути (защита от directory traversal)
 fn is_safe_path(path: &str) -> bool {
     let b = path.as_bytes();
     let mut i = 0;
@@ -66,7 +67,6 @@ fn is_safe_path(path: &str) -> bool {
     true
 }
 
-/// Создает цепочку родительских директорий
 fn ensure_parent_dirs(full_path: &str) {
     let bytes = full_path.as_bytes();
     let mut temp = [0u8; 512];
@@ -82,7 +82,6 @@ fn ensure_parent_dirs(full_path: &str) {
     }
 }
 
-/// Парсит восьмеричное число из среза заголовка tar
 fn parse_octal(bytes: &[u8]) -> u64 {
     let mut val = 0u64;
     let mut started = false;
@@ -101,7 +100,6 @@ fn parse_octal(bytes: &[u8]) -> u64 {
     val
 }
 
-/// Извлекает C-строку из среза байтов
 fn cstr_slice(bytes: &[u8]) -> &str {
     let mut len = 0;
     while len < bytes.len() && bytes[len] != 0 {
@@ -110,22 +108,35 @@ fn cstr_slice(bytes: &[u8]) -> &str {
     core::str::from_utf8(&bytes[..len]).unwrap_or("")
 }
 
-/// Распаковывает пакет WPM (.wp) в файловую систему Wunix
-#[allow(dead_code)]
-pub fn unpack_wpm_package(pkg_bytes: &[u8], verbose: bool) -> Result<(PackageManifest, Vec<String>), &'static str> {
-    unpack_wpm_package_to(pkg_bytes, None, verbose)
+fn file_exists_null(null_path: &[u8]) -> bool {
+    let fd = open(null_path, O_RDONLY as u64, 0);
+    if fd >= 0 {
+        close(fd as u64);
+        true
+    } else {
+        false
+    }
 }
 
-/// Распаковывает пакет WPM (.wp) с поддержкой целевого префикса корня
-pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbose: bool) -> Result<(PackageManifest, Vec<String>), &'static str> {
+fn is_preserved_config(sys_path: &str) -> bool {
+    matches!(
+        sys_path,
+        "/etc/wpm/sources.conf" | "/etc/wpm/wpm.conf" | "/etc/wpm/daemon.conf" | "/etc/environment"
+    )
+}
+
+/// Распаковывает пакет .wp с поддержкой целевого префикса корня и метапакетов
+pub fn unpack_package_to(
+    pkg_bytes: &[u8],
+    root_prefix: Option<&str>,
+    verbose: bool,
+) -> Result<(PackageManifest, Vec<String>), &'static str> {
     let container = PackageContainer::parse(pkg_bytes)?;
 
-    // Проверяем тип пакета: WPM ставит только пользовательские пакеты
-    if container.manifest.package_type == PackageType::System {
-        return Err("пакет является системным компонентом ядра. Используйте wsp");
+    if container.manifest.is_meta {
+        return Ok((container.manifest, Vec::new()));
     }
 
-    // 1. Декомпрессия payload (gzip -> tar) с предварительным выделением емкости
     let mut tar_bytes = if container.payload.len() >= 4 {
         let p_len = container.payload.len();
         let isize = u32::from_le_bytes([
@@ -134,7 +145,7 @@ pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbos
             container.payload[p_len - 2],
             container.payload[p_len - 1],
         ]) as usize;
-        Vec::with_capacity(isize.min(16 * 1024 * 1024))
+        Vec::with_capacity(isize.min(64 * 1024 * 1024))
     } else {
         Vec::new()
     };
@@ -143,16 +154,16 @@ pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbos
         libwunix::compression::gzip::gzip_decompress(container.payload, |chunk| {
             tar_bytes.extend_from_slice(chunk);
             Ok(())
-        }).map_err(|_| "ошибка распаковки сжатого пейлоада gzip")?;
+        })
+        .map_err(|_| "ошибка распаковки сжатого пейлоада gzip")?;
     } else {
         tar_bytes.extend_from_slice(container.payload);
     }
 
     if tar_bytes.is_empty() {
-        return Err("содержимое архива пакета пусто");
+        return Ok((container.manifest, Vec::new()));
     }
 
-    // 2. Разбор блоков USTAR tar
     let mut offset = 0usize;
     let mut installed_files: Vec<String> = Vec::new();
 
@@ -173,12 +184,9 @@ pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbos
             name.to_string()
         };
 
-        // Отсекаем ведущие '/' и './'
-        let clean_path = raw_path
-            .trim_start_matches('/')
-            .trim_start_matches("./");
+        let clean_path = raw_path.trim_start_matches('/').trim_start_matches("./");
 
-        if clean_path.is_empty() || clean_path == "manifest.toml" || !is_safe_path(clean_path) {
+        if clean_path.is_empty() || clean_path == "." || clean_path == "manifest.toml" || !is_safe_path(clean_path) {
             let padded_size = ((file_size + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
             offset += BLOCK_SIZE + padded_size;
             continue;
@@ -186,7 +194,9 @@ pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbos
 
         let sys_path = format!("/{}", clean_path);
         let target_path = match root_prefix {
-            Some(root) if !root.is_empty() => format!("{}/{}", root.trim_end_matches('/'), clean_path),
+            Some(root) if !root.is_empty() && root != "/" => {
+                format!("{}/{}", root.trim_end_matches('/'), clean_path)
+            }
             _ => sys_path.clone(),
         };
         let mut null_target = [0u8; 512];
@@ -199,11 +209,16 @@ pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbos
 
         match typeflag {
             b'5' => {
-                // Директория
-                let _ = mkdir(&null_target, 0o755);
+                let mode = if sys_path == "/tmp" {
+                    0o1777
+                } else if sys_path == "/root" {
+                    0o700
+                } else {
+                    0o755
+                };
+                let _ = mkdir(&null_target, mode);
             }
             b'2' => {
-                // Символическая ссылка
                 let linkname = cstr_slice(&block[157..257]);
                 if !linkname.is_empty() {
                     let mut null_link = [0u8; 256];
@@ -212,6 +227,7 @@ pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbos
                     null_link[..l_len].copy_from_slice(&l_bytes[..l_len]);
                     null_link[l_len] = 0;
 
+                    let _ = libwunix::unlink(&null_target);
                     let _ = symlink(&null_link, &null_target);
                     installed_files.push(sys_path);
                     if verbose {
@@ -220,19 +236,38 @@ pub fn unpack_wpm_package_to(pkg_bytes: &[u8], root_prefix: Option<&str>, verbos
                 }
             }
             _ => {
-                // Обычный файл
                 let data_start = offset + BLOCK_SIZE;
                 let data_end = data_start + file_size;
-
                 if data_end > tar_bytes.len() {
                     return Err("поврежденный архив: срез файла выходит за границы данных");
                 }
 
-                let file_data = &tar_bytes[data_start..data_end];
+                // Не затираем пользовательские настройки (sources.conf и т.д.), если файл уже существует
+                if is_preserved_config(&sys_path) && file_exists_null(&null_target) {
+                    installed_files.push(sys_path);
+                    let padded_size = ((file_size + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
+                    offset += BLOCK_SIZE + padded_size;
+                    continue;
+                }
 
-                // Исполняемые файлы в /bin, /sbin, /usr/bin получают права 0o755
-                let is_bin = sys_path.starts_with("/bin/") || sys_path.starts_with("/usr/bin/");
-                let mode: u32 = if is_bin { 0o755 } else { 0o644 };
+                let file_data = &tar_bytes[data_start..data_end];
+                let is_exec = sys_path.starts_with("/bin/")
+                    || sys_path.starts_with("/sbin/")
+                    || sys_path.starts_with("/usr/bin/")
+                    || sys_path.starts_with("/usr/libexec/")
+                    || sys_path.starts_with("/boot/");
+
+                let mode: u32 = if sys_path == "/bin/sudo"
+                    || sys_path == "/bin/su"
+                    || sys_path == "/bin/passwd"
+                    || sys_path == "/bin/sudoadd"
+                {
+                    0o4755
+                } else if is_exec {
+                    0o755
+                } else {
+                    0o644
+                };
 
                 let fd = open(&null_target, (O_CREAT | O_WRONLY | O_TRUNC) as u64, mode as u64);
                 if fd >= 0 {
