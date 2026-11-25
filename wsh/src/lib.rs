@@ -2,12 +2,14 @@
 
 pub mod builtins;
 pub mod builtins_coreutils;
+pub mod completer;
 pub mod completion;
 pub mod editor;
 pub mod highlight;
 pub mod history;
 pub mod parser;
 pub mod platform;
+pub mod program_specs;
 pub mod prompt;
 pub mod runner;
 pub mod script;

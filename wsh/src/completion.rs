@@ -11,6 +11,9 @@ pub enum CompletionKind {
     Directory,
     Symlink,
     Variable,
+    Subcommand,
+    Option,
+    Argument,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +21,109 @@ pub struct CompletionItem {
     pub text: String,
     pub display_name: String,
     pub kind: CompletionKind,
+}
+
+impl CompletionItem {
+    pub fn is_no_space(&self) -> bool {
+        self.kind == CompletionKind::Directory || self.text.ends_with('=')
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionInput {
+    pub token_start: usize,
+    pub current_token: String,
+    pub prev_words: Vec<String>,
+}
+
+/// Разбирает символы до курсора в текущий токен и список предшествующих слов активного сегмента команды.
+/// Все индексы строго символьные (`char`), чтобы кириллица и UTF-8 не сдвигали позицию в `Vec<char>`.
+pub fn parse_completion_input(chars_before: &[char]) -> CompletionInput {
+    let mut prev_words: Vec<String> = Vec::new();
+    let mut cur_word = String::new();
+    let mut cur_start: Option<usize> = None;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut i = 0;
+
+    while i < chars_before.len() {
+        let c = chars_before[i];
+
+        if escaped {
+            if cur_start.is_none() {
+                cur_start = Some(i.saturating_sub(1));
+            }
+            cur_word.push(c);
+            escaped = false;
+            i += 1;
+            continue;
+        }
+
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            } else if q == '"' && c == '\\' {
+                escaped = true;
+            } else {
+                cur_word.push(c);
+            }
+            i += 1;
+            continue;
+        }
+
+        if c == '\\' {
+            if cur_start.is_none() {
+                cur_start = Some(i);
+            }
+            escaped = true;
+            i += 1;
+            continue;
+        }
+
+        if c == '\'' || c == '"' {
+            if cur_start.is_none() {
+                cur_start = Some(i);
+            }
+            quote = Some(c);
+            i += 1;
+            continue;
+        }
+
+        // Разделители команд и конвейеры начинают новый командный сегмент
+        if c == ';' || c == '|' || c == '&' {
+            prev_words.clear();
+            cur_word.clear();
+            cur_start = None;
+            if (c == '|' || c == '&') && i + 1 < chars_before.len() && chars_before[i + 1] == c {
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if c.is_whitespace() {
+            if cur_start.is_some() {
+                prev_words.push(cur_word);
+                cur_word = String::new();
+                cur_start = None;
+            }
+            i += 1;
+            continue;
+        }
+
+        if cur_start.is_none() {
+            cur_start = Some(i);
+        }
+        cur_word.push(c);
+        i += 1;
+    }
+
+    CompletionInput {
+        token_start: cur_start.unwrap_or(chars_before.len()),
+        current_token: cur_word,
+        prev_words,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,10 +182,13 @@ pub fn find_common_prefix(words: &[String]) -> String {
     first[..prefix_len].to_string()
 }
 
-/// Состояние циклического перебора вариантов при повторных нажатиях Tab
+/// Состояние интерактивного меню и навигации по вариантам автодополнения
 #[derive(Default)]
 pub struct CompletionState {
     pub is_active: bool,
+    pub menu_rows: usize,
+    pub num_cols: usize,
+    pub scroll_row: usize,
     pub token_start: usize,
     pub original_token: String,
     pub candidates: Vec<CompletionItem>,
@@ -93,10 +202,17 @@ impl CompletionState {
 
     pub fn reset(&mut self) {
         self.is_active = false;
+        self.menu_rows = 0;
+        self.num_cols = 1;
+        self.scroll_row = 0;
         self.token_start = 0;
         self.original_token.clear();
         self.candidates.clear();
         self.current_index = None;
+    }
+
+    pub fn current_item(&self) -> Option<&CompletionItem> {
+        self.current_index.and_then(|idx| self.candidates.get(idx))
     }
 
     pub fn cycle_next(&mut self) -> Option<&CompletionItem> {
@@ -122,6 +238,127 @@ impl CompletionState {
         self.current_index = Some(prev);
         Some(&self.candidates[prev])
     }
+
+    pub fn move_right(&mut self) -> Option<&CompletionItem> {
+        self.cycle_next()
+    }
+
+    pub fn move_left(&mut self) -> Option<&CompletionItem> {
+        self.cycle_prev()
+    }
+
+    pub fn move_down(&mut self) -> Option<&CompletionItem> {
+        if self.candidates.is_empty() {
+            return None;
+        }
+        let cols = self.num_cols.max(1);
+        let len = self.candidates.len();
+        let next = match self.current_index {
+            None => 0,
+            Some(idx) => {
+                if idx + cols < len {
+                    idx + cols
+                } else {
+                    idx % cols
+                }
+            }
+        };
+        self.current_index = Some(next);
+        Some(&self.candidates[next])
+    }
+
+    pub fn move_up(&mut self) -> Option<&CompletionItem> {
+        if self.candidates.is_empty() {
+            return None;
+        }
+        let cols = self.num_cols.max(1);
+        let len = self.candidates.len();
+        let prev = match self.current_index {
+            None => len.saturating_sub(1),
+            Some(idx) => {
+                if idx >= cols {
+                    idx - cols
+                } else {
+                    let col = idx % cols;
+                    let mut bottom = col;
+                    while bottom + cols < len {
+                        bottom += cols;
+                    }
+                    bottom
+                }
+            }
+        };
+        self.current_index = Some(prev);
+        Some(&self.candidates[prev])
+    }
+
+    pub fn ensure_scroll_visible(&mut self, max_visible_rows: usize) {
+        let cols = self.num_cols.max(1);
+        let total_rows = self.candidates.len().div_ceil(cols);
+        if total_rows <= max_visible_rows || max_visible_rows == 0 {
+            self.scroll_row = 0;
+            return;
+        }
+        let sel_row = self.current_index.unwrap_or(0) / cols;
+        if sel_row < self.scroll_row {
+            self.scroll_row = sel_row;
+        } else if sel_row >= self.scroll_row + max_visible_rows {
+            self.scroll_row = sel_row + 1 - max_visible_rows;
+        }
+        let max_scroll = total_rows.saturating_sub(max_visible_rows);
+        if self.scroll_row > max_scroll {
+            self.scroll_row = max_scroll;
+        }
+    }
+}
+
+fn replace_line_range(
+    line: &mut Vec<char>,
+    start: usize,
+    len: usize,
+    replacement: &str,
+    suffix: Option<char>,
+) -> usize {
+    for _ in 0..len {
+        if start < line.len() {
+            line.remove(start);
+        }
+    }
+    let mut insert_pos = start;
+    for c in replacement.chars() {
+        line.insert(insert_pos, c);
+        insert_pos += 1;
+    }
+    if let Some(s) = suffix {
+        line.insert(insert_pos, s);
+        insert_pos += 1;
+    }
+    insert_pos
+}
+
+/// Подставляет временный предпросмотр кандидата в строку (без завершающего пробела)
+pub fn apply_preview_to_line(
+    line: &mut Vec<char>,
+    token_start: usize,
+    token_len: usize,
+    candidate: &CompletionItem,
+) -> usize {
+    let suffix = if candidate.kind == CompletionKind::Directory && !candidate.text.ends_with('/') {
+        Some('/')
+    } else {
+        None
+    };
+    replace_line_range(line, token_start, token_len, &candidate.text, suffix)
+}
+
+/// Восстанавливает исходный токен пользователя при отмене выбора (Esc)
+pub fn restore_original_token(
+    line: &mut Vec<char>,
+    token_start: usize,
+    token_len: usize,
+    original_token: &str,
+) -> usize {
+    replace_line_range(line, token_start, token_len, original_token, None)
 }
 
 /// Заменяет токен в строке на выбранный вариант автодополнения и возвращает новую позицию курсора
@@ -131,34 +368,18 @@ pub fn apply_completion_to_line(
     token_len: usize,
     candidate: &CompletionItem,
 ) -> usize {
-    // Удаляем старый токен
-    for _ in 0..token_len {
-        if token_start < line.len() {
-            line.remove(token_start);
-        }
-    }
-
-    // Вставляем текст кандидата
-    let mut insert_pos = token_start;
-    for c in candidate.text.chars() {
-        line.insert(insert_pos, c);
-        insert_pos += 1;
-    }
-
-    // Добавляем завершающий символ в зависимости от типа сущности:
-    // Каталог завершается слешем '/', чтобы можно было сразу продолжать ввод пути.
-    // Файлы, команды и переменные завершаются пробелом ' '.
-    if candidate.kind == CompletionKind::Directory {
+    let suffix = if candidate.kind == CompletionKind::Directory {
         if !candidate.text.ends_with('/') {
-            line.insert(insert_pos, '/');
-            insert_pos += 1;
+            Some('/')
+        } else {
+            None
         }
+    } else if !candidate.is_no_space() {
+        Some(' ')
     } else {
-        line.insert(insert_pos, ' ');
-        insert_pos += 1;
-    }
-
-    insert_pos
+        None
+    };
+    replace_line_range(line, token_start, token_len, &candidate.text, suffix)
 }
 
 /// Собирает кандидатов автодополнения переменных окружения
@@ -322,8 +543,11 @@ pub fn read_dir_entries(dir_path: &str) -> Vec<(String, CompletionKind)> {
     entries
 }
 
-/// Собирает кандидатов автодополнения файловых путей
-pub fn collect_path_completions(token: &str, home: &str) -> Vec<CompletionItem> {
+fn collect_path_completions_filtered(
+    token: &str,
+    home: &str,
+    dirs_only: bool,
+) -> Vec<CompletionItem> {
     let mut items = Vec::new();
     let (dir_part, prefix, token_prefix) = split_path_for_completion(token);
     let resolved_dir = expand_tilde(dir_part, home);
@@ -333,18 +557,77 @@ pub fn collect_path_completions(token: &str, home: &str) -> Vec<CompletionItem> 
         if (name == "." || name == "..") && !prefix.starts_with('.') {
             continue;
         }
+        if dirs_only && kind != CompletionKind::Directory {
+            let full_fs_path = if resolved_dir == "/" {
+                format!("/{}", name)
+            } else {
+                format!("{}/{}", resolved_dir.trim_end_matches('/'), name)
+            };
+            if kind != CompletionKind::Symlink || !crate::platform::is_dir(&full_fs_path) {
+                continue;
+            }
+        }
         if name.starts_with(prefix) {
             let full_text = format!("{}{}", token_prefix, name);
+            let effective_kind = if dirs_only {
+                CompletionKind::Directory
+            } else {
+                kind
+            };
             items.push(CompletionItem {
                 text: full_text,
                 display_name: name,
-                kind,
+                kind: effective_kind,
             });
         }
     }
 
     items.sort_by(|a, b| a.text.cmp(&b.text));
     items
+}
+
+/// Собирает кандидатов автодополнения файловых путей
+pub fn collect_path_completions(token: &str, home: &str) -> Vec<CompletionItem> {
+    collect_path_completions_filtered(token, home, false)
+}
+
+/// Собирает кандидатов автодополнения только каталогов
+pub fn collect_dir_completions(token: &str, home: &str) -> Vec<CompletionItem> {
+    collect_path_completions_filtered(token, home, true)
+}
+
+/// Собирает список исполняемых команд из `$PATH` (и `/bin` по умолчанию)
+pub fn collect_all_commands(token: &str) -> Vec<CompletionItem> {
+    if token.contains('/') {
+        let home = crate::platform::get_env("HOME").unwrap_or_else(|| String::from("/root"));
+        return collect_path_completions(token, &home);
+    }
+
+    #[cfg(test)]
+    let bin_entries: Vec<(String, CompletionKind)> = Vec::new();
+    #[cfg(not(test))]
+    let bin_entries = {
+        let path_env = crate::platform::get_env("PATH")
+            .unwrap_or_else(|| String::from("/bin:/usr/bin"));
+        let mut collected = Vec::new();
+        for dir in path_env.split(':') {
+            let trimmed = dir.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            for (name, kind) in read_dir_entries(trimmed) {
+                if kind == CompletionKind::Directory || name == "." || name == ".." {
+                    continue;
+                }
+                if !collected.iter().any(|(n, _): &(String, CompletionKind)| *n == name) {
+                    collected.push((name, CompletionKind::Command));
+                }
+            }
+        }
+        collected
+    };
+
+    collect_command_completions_with_bins(token, &bin_entries)
 }
 
 /// Главная функция сбора кандидатов для строки ввода в контексте
@@ -357,18 +640,7 @@ pub fn collect_candidates(
     let context = detect_completion_context(line_before, current_token);
     match context {
         CompletionContext::Variable => collect_variable_completions(current_token, env_vars),
-        CompletionContext::Command => {
-            if current_token.contains('/') {
-                collect_path_completions(current_token, home)
-            } else {
-                #[cfg(test)]
-                let bin_entries: Vec<(String, CompletionKind)> = Vec::new();
-                #[cfg(not(test))]
-                let bin_entries = read_dir_entries("/bin");
-
-                collect_command_completions_with_bins(current_token, &bin_entries)
-            }
-        }
+        CompletionContext::Command => collect_all_commands(current_token),
         CompletionContext::Path => collect_path_completions(current_token, home),
     }
 }
@@ -381,42 +653,94 @@ pub fn format_candidate_for_display(item: &CompletionItem) -> String {
         CompletionKind::Command | CompletionKind::Builtin => {
             format!("\x1b[1;32m{}\x1b[0m", item.display_name)
         }
+        CompletionKind::Subcommand => format!("\x1b[1;36m{}\x1b[0m", item.display_name),
+        CompletionKind::Option => format!("\x1b[33m{}\x1b[0m", item.display_name),
         CompletionKind::Variable => format!("\x1b[1;33m{}\x1b[0m", item.display_name),
+        CompletionKind::Argument => format!("\x1b[1;35m{}\x1b[0m", item.display_name),
         CompletionKind::File => item.display_name.clone(),
     }
 }
 
-/// Формирует таблицу строк для вывода кандидатов в несколько колонок
-pub fn format_candidates_grid(items: &[CompletionItem], term_width: usize) -> Vec<String> {
+fn display_suffix_len(kind: CompletionKind) -> usize {
+    if kind == CompletionKind::Directory || kind == CompletionKind::Symlink {
+        1
+    } else {
+        0
+    }
+}
+
+fn truncate_display_label(item: &CompletionItem, max_chars: usize) -> (String, usize) {
+    let suffix = match item.kind {
+        CompletionKind::Directory => "/",
+        CompletionKind::Symlink => "@",
+        _ => "",
+    };
+    let name_chars = item.display_name.chars().count();
+    let total_chars = name_chars + suffix.len();
+    if total_chars <= max_chars || max_chars < 4 {
+        return (format!("{}{}", item.display_name, suffix), total_chars);
+    }
+    let keep = max_chars.saturating_sub(3 + suffix.len());
+    let mut clipped: String = item.display_name.chars().take(keep).collect();
+    clipped.push_str("...");
+    clipped.push_str(suffix);
+    let len = clipped.chars().count();
+    (clipped, len)
+}
+
+/// Формирует таблицу кандидатов для меню с опциональным выделением выбранного элемента.
+/// Возвращает строки меню и количество колонок в сетке.
+pub fn format_candidates_menu(
+    items: &[CompletionItem],
+    term_width: usize,
+    selected: Option<usize>,
+) -> (Vec<String>, usize) {
     if items.is_empty() {
-        return Vec::new();
+        return (Vec::new(), 1);
     }
 
+    let safe_width = term_width.max(16);
+    let max_cell_cap = safe_width.saturating_sub(2).max(12);
     let max_len = items
         .iter()
-        .map(|it| it.display_name.len() + 1)
+        .map(|it| it.display_name.chars().count() + display_suffix_len(it.kind))
         .max()
-        .unwrap_or(8);
-    let col_width = (max_len + 3).max(12);
-    let num_cols = (term_width / col_width).max(1);
+        .unwrap_or(8)
+        .min(max_cell_cap);
+    let col_width = (max_len + 3).max(10).min(safe_width);
+    let num_cols = (safe_width / col_width).max(1);
 
     let mut lines = Vec::new();
     let mut current_line = String::new();
     let mut col_count = 0;
 
-    for item in items {
-        let formatted = format_candidate_for_display(item);
-        let raw_len = item.display_name.len()
-            + if item.kind == CompletionKind::Directory || item.kind == CompletionKind::Symlink {
-                1
-            } else {
-                0
-            };
-        let pad = col_width.saturating_sub(raw_len);
+    for (idx, item) in items.iter().enumerate() {
+        let is_selected = selected == Some(idx);
+        let max_label = col_width.saturating_sub(2).max(6);
+        let (label, raw_len) = truncate_display_label(item, max_label);
 
+        let formatted = if is_selected {
+            format!("\x1b[7m{}\x1b[0m", label)
+        } else if raw_len == item.display_name.chars().count() + display_suffix_len(item.kind) {
+            format_candidate_for_display(item)
+        } else {
+            let clipped_item = CompletionItem {
+                text: item.text.clone(),
+                display_name: label
+                    .trim_end_matches('/')
+                    .trim_end_matches('@')
+                    .to_string(),
+                kind: item.kind,
+            };
+            format_candidate_for_display(&clipped_item)
+        };
+
+        let pad = col_width.saturating_sub(raw_len);
         current_line.push_str(&formatted);
-        for _ in 0..pad {
-            current_line.push(' ');
+        if col_count + 1 < num_cols && idx + 1 < items.len() {
+            for _ in 0..pad {
+                current_line.push(' ');
+            }
         }
         col_count += 1;
 
@@ -431,7 +755,12 @@ pub fn format_candidates_grid(items: &[CompletionItem], term_width: usize) -> Ve
         lines.push(current_line);
     }
 
-    lines
+    (lines, num_cols)
+}
+
+/// Формирует таблицу строк для вывода кандидатов в несколько колонок
+pub fn format_candidates_grid(items: &[CompletionItem], term_width: usize) -> Vec<String> {
+    format_candidates_menu(items, term_width, None).0
 }
 
 /// Вычисляет базовый каталог и префикс для сканирования ФС
@@ -677,5 +1006,89 @@ mod tests {
         // Должны присутствовать builtin-команды cd, clear, cls
         assert!(names.contains(&"cd"));
         assert!(names.contains(&"clear"));
+    }
+
+    #[test]
+    fn test_parse_completion_input_utf8_and_segments() {
+        let chars: Vec<char> = "echo привет мир".chars().collect();
+        let parsed = parse_completion_input(&chars);
+        assert_eq!(parsed.prev_words, vec!["echo", "привет"]);
+        assert_eq!(parsed.current_token, "мир");
+        assert_eq!(parsed.token_start, 12);
+
+        let chars2: Vec<char> = "ls /etc | wpm ins".chars().collect();
+        let parsed2 = parse_completion_input(&chars2);
+        assert_eq!(parsed2.prev_words, vec!["wpm"]);
+        assert_eq!(parsed2.current_token, "ins");
+        assert_eq!(parsed2.token_start, 14);
+
+        let chars3: Vec<char> = "system ".chars().collect();
+        let parsed3 = parse_completion_input(&chars3);
+        assert_eq!(parsed3.prev_words, vec!["system"]);
+        assert_eq!(parsed3.current_token, "");
+        assert_eq!(parsed3.token_start, 7);
+    }
+
+    #[test]
+    fn test_completion_state_2d_navigation() {
+        let mut state = CompletionState::new();
+        state.candidates = (0..5)
+            .map(|i| CompletionItem {
+                text: format!("item{}", i),
+                display_name: format!("item{}", i),
+                kind: CompletionKind::File,
+            })
+            .collect();
+        state.num_cols = 3;
+
+        // Grid:
+        // 0 1 2
+        // 3 4
+        assert_eq!(state.move_down().unwrap().text, "item0");
+        assert_eq!(state.move_down().unwrap().text, "item3");
+        assert_eq!(state.move_down().unwrap().text, "item0"); // wrap column 0
+        assert_eq!(state.move_right().unwrap().text, "item1");
+        assert_eq!(state.move_down().unwrap().text, "item4");
+        assert_eq!(state.move_up().unwrap().text, "item1");
+        assert_eq!(state.move_up().unwrap().text, "item4"); // wrap column 1 to bottom
+        assert_eq!(state.move_left().unwrap().text, "item3");
+    }
+
+    #[test]
+    fn test_apply_preview_and_restore_original() {
+        let mut line: Vec<char> = "wpm in --yes".chars().collect();
+        let item = CompletionItem {
+            text: "install".to_string(),
+            display_name: "install".to_string(),
+            kind: CompletionKind::Subcommand,
+        };
+        let cursor = apply_preview_to_line(&mut line, 4, 2, &item);
+        assert_eq!(line.iter().collect::<String>(), "wpm install --yes");
+        assert_eq!(cursor, 11);
+
+        let restored = restore_original_token(&mut line, 4, cursor - 4, "in");
+        assert_eq!(line.iter().collect::<String>(), "wpm in --yes");
+        assert_eq!(restored, 6);
+    }
+
+    #[test]
+    fn test_format_candidates_menu_highlights_selected() {
+        let items = vec![
+            CompletionItem {
+                text: "alpha".to_string(),
+                display_name: "alpha".to_string(),
+                kind: CompletionKind::File,
+            },
+            CompletionItem {
+                text: "beta".to_string(),
+                display_name: "beta".to_string(),
+                kind: CompletionKind::File,
+            },
+        ];
+        let (lines, cols) = format_candidates_menu(&items, 80, Some(1));
+        assert_eq!(cols >= 2, true);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("\x1b[7m"));
+        assert!(lines[0].contains("beta"));
     }
 }

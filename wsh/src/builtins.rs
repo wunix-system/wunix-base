@@ -45,6 +45,8 @@ impl Builtins {
                 | "[["
                 | "test"
                 | "unalias"
+                | "complete"
+                | "compgen"
         )
     }
 
@@ -75,7 +77,8 @@ impl Builtins {
             "env" => Some(Self::builtin_env()),
             "history" => Some(Self::builtin_history(history, &cmd.args)),
             "clear" | "cls" => {
-                print_out("\x1b[2J\x1b[H");
+                // \x1b[H\x1b[2J\x1b[3J стирает видимый экран и scrollback-буфер терминала хоста
+                print_out("\x1b[H\x1b[2J\x1b[3J");
                 Some(0)
             }
             "whoami" => Some(Self::builtin_whoami()),
@@ -92,6 +95,8 @@ impl Builtins {
             "." | "source" => Some(Self::builtin_source(&cmd.args, history, last_status, should_exit)),
             "[" | "test" => Some(Self::builtin_test(&cmd.args)),
             "[[" => Some(crate::script_expr::eval_double_bracket(&cmd.args)),
+            "complete" => Some(crate::completer::builtin_complete(&cmd.args)),
+            "compgen" => Some(crate::completer::builtin_compgen(&cmd.args)),
             _ => None,
         }
     }
@@ -565,13 +570,13 @@ impl Builtins {
         #[cfg(not(feature = "std"))]
         {
             print_out(libwunix::t(
-                "\x1b[1;36mВстроенные команды wsh:\x1b[0m\n  \x1b[1;32mcd\x1b[0m [путь]             Сменить текущий рабочий каталог\n  \x1b[1;32mpwd\x1b[0m                   Показать текущий рабочий каталог\n  \x1b[1;32mecho\x1b[0m [-n] [текст...]   Вывести переданный текст на экран\n  \x1b[1;32mclear\x1b[0m, \x1b[1;32mcls\x1b[0m           Очистить экран терминала\n  \x1b[1;32mexport\x1b[0m [КЛЮЧ=ЗНАЧ]     Установить переменную окружения\n  \x1b[1;32munset\x1b[0m [КЛЮЧ...]        Удалить переменную окружения\n  \x1b[1;32menv\x1b[0m                   Вывести список переменных окружения\n  \x1b[1;32mhistory\x1b[0m               Показать историю введенных команд\n  \x1b[1;32mwhoami\x1b[0m                Показать имя пользователя\n  \x1b[1;32mhostname\x1b[0m              Показать имя устройства\n  \x1b[1;32mtype\x1b[0m [имя...]         Показать тип и расположение команды\n  \x1b[1;32mhelp\x1b[0m                  Показать эту справочную информацию\n  \x1b[1;32mexit\x1b[0m [код]             Завершить сессию командной строки\n\n\x1b[1;36mГорячие клавиши:\x1b[0m\n  \x1b[1mTab\x1b[0m           Автодополнение команд и путей\n  \x1b[1mCtrl+C\x1b[0m        Прервать ввод / завершить запущенную программу\n  \x1b[1mCtrl+D\x1b[0m        Конец файла (EOF) / выход\n  \x1b[1mCtrl+L\x1b[0m        Очистить экран консоли\n  \x1b[1mCtrl+A/E\x1b[0m      Начало / конец строки\n  \x1b[1mCtrl+U/K\x1b[0m      Удалить до начала / конца строки\n  \x1b[1mCtrl+W\x1b[0m        Удалить слово перед курсором\n  \x1b[1mCtrl+Y\x1b[0m        Вставить из буфера вырезания\n  \x1b[1mAlt+B/F\x1b[0m       Слово назад / вперёд\n  \x1b[1m↑ ↓\x1b[0m           История команд\n  \x1b[1mShift+←→\x1b[0m      Выделение текста\n  \x1b[1mCtrl+Shift+C/V\x1b[0m Копировать / вставить\n",
-                "\x1b[1;36mWunix Shell Builtin Commands:\x1b[0m\n  \x1b[1;32mcd\x1b[0m [dir]              Change working directory\n  \x1b[1;32mpwd\x1b[0m                   Print current working directory\n  \x1b[1;32mecho\x1b[0m [-n] [text...]    Display arguments as text\n  \x1b[1;32mclear\x1b[0m, \x1b[1;32mcls\x1b[0m           Clear terminal display\n  \x1b[1;32mexport\x1b[0m [KEY=VAL]       Set environment variable\n  \x1b[1;32munset\x1b[0m [KEY...]         Remove environment variable\n  \x1b[1;32menv\x1b[0m                   List exported environment variables\n  \x1b[1;32mhistory\x1b[0m               Display session command history\n  \x1b[1;32mwhoami\x1b[0m                Display current username\n  \x1b[1;32mhostname\x1b[0m              Display device hostname\n  \x1b[1;32mtype\x1b[0m [name...]        Display information about command type\n  \x1b[1;32mhelp\x1b[0m                  Display this help overview\n  \x1b[1;32mexit\x1b[0m [code]           Terminate shell session\n\n\x1b[1;36mKeyboard Shortcuts:\x1b[0m\n  \x1b[1mTab\x1b[0m           Autocomplete commands and file paths\n  \x1b[1mCtrl+C\x1b[0m        Interrupt input / abort running child process\n  \x1b[1mCtrl+D\x1b[0m        End-of-file (EOF) / exit\n  \x1b[1mCtrl+L\x1b[0m        Clear terminal screen\n  \x1b[1mCtrl+A/E\x1b[0m      Beginning / end of line\n  \x1b[1mCtrl+U/K\x1b[0m      Kill to line start / end\n  \x1b[1mCtrl+W\x1b[0m        Delete word backward\n  \x1b[1mCtrl+Y\x1b[0m        Yank (paste) from kill ring\n  \x1b[1mAlt+B/F\x1b[0m       Word backward / forward\n  \x1b[1m↑ ↓\x1b[0m           Navigate command history\n  \x1b[1mShift+←→\x1b[0m      Select text\n  \x1b[1mCtrl+Shift+C/V\x1b[0m Copy / paste\n",
+                "\x1b[1;36mВстроенные команды wsh:\x1b[0m\n  \x1b[1;32mcd\x1b[0m [путь]             Сменить текущий рабочий каталог\n  \x1b[1;32mpwd\x1b[0m                   Показать текущий рабочий каталог\n  \x1b[1;32mecho\x1b[0m [-n] [текст...]   Вывести переданный текст на экран\n  \x1b[1;32mclear\x1b[0m, \x1b[1;32mcls\x1b[0m           Очистить экран терминала\n  \x1b[1;32mexport\x1b[0m [КЛЮЧ=ЗНАЧ]     Установить переменную окружения\n  \x1b[1;32munset\x1b[0m [КЛЮЧ...]        Удалить переменную окружения\n  \x1b[1;32menv\x1b[0m                   Вывести список переменных окружения\n  \x1b[1;32mhistory\x1b[0m               Показать историю введенных команд\n  \x1b[1;32mcomplete\x1b[0m              Настроить автодополнение аргументов команд\n  \x1b[1;32mcompgen\x1b[0m               Сгенерировать варианты автодополнения\n  \x1b[1;32mwhoami\x1b[0m                Показать имя пользователя\n  \x1b[1;32mhostname\x1b[0m              Показать имя устройства\n  \x1b[1;32mtype\x1b[0m [имя...]         Показать тип и расположение команды\n  \x1b[1;32mhelp\x1b[0m                  Показать эту справочную информацию\n  \x1b[1;32mexit\x1b[0m [код]             Завершить сессию командной строки\n\n\x1b[1;36mГорячие клавиши:\x1b[0m\n  \x1b[1mTab\x1b[0m           Автодополнение и выбор вариантов (стрелки / Tab / Enter / Esc)\n  \x1b[1mCtrl+C\x1b[0m        Прервать ввод / завершить запущенную программу\n  \x1b[1mCtrl+D\x1b[0m        Конец файла (EOF) / выход\n  \x1b[1mCtrl+L\x1b[0m        Очистить экран консоли\n  \x1b[1mCtrl+A/E\x1b[0m      Начало / конец строки\n  \x1b[1mCtrl+U/K\x1b[0m      Удалить до начала / конца строки\n  \x1b[1mCtrl+W\x1b[0m        Удалить слово перед курсором\n  \x1b[1mCtrl+Y\x1b[0m        Вставить из буфера вырезания\n  \x1b[1mAlt+B/F\x1b[0m       Слово назад / вперёд\n  \x1b[1m↑ ↓\x1b[0m           История команд\n  \x1b[1mShift+←→\x1b[0m      Выделение текста\n  \x1b[1mCtrl+Shift+C/V\x1b[0m Копировать / вставить\n",
+                "\x1b[1;36mWunix Shell Builtin Commands:\x1b[0m\n  \x1b[1;32mcd\x1b[0m [dir]              Change working directory\n  \x1b[1;32mpwd\x1b[0m                   Print current working directory\n  \x1b[1;32mecho\x1b[0m [-n] [text...]    Display arguments as text\n  \x1b[1;32mclear\x1b[0m, \x1b[1;32mcls\x1b[0m           Clear terminal display\n  \x1b[1;32mexport\x1b[0m [KEY=VAL]       Set environment variable\n  \x1b[1;32munset\x1b[0m [KEY...]         Remove environment variable\n  \x1b[1;32menv\x1b[0m                   List exported environment variables\n  \x1b[1;32mhistory\x1b[0m               Display session command history\n  \x1b[1;32mcomplete\x1b[0m              Configure argument completion for commands\n  \x1b[1;32mcompgen\x1b[0m               Generate completion candidates\n  \x1b[1;32mwhoami\x1b[0m                Display current username\n  \x1b[1;32mhostname\x1b[0m              Display device hostname\n  \x1b[1;32mtype\x1b[0m [name...]        Display information about command type\n  \x1b[1;32mhelp\x1b[0m                  Display this help overview\n  \x1b[1;32mexit\x1b[0m [code]           Terminate shell session\n\n\x1b[1;36mKeyboard Shortcuts:\x1b[0m\n  \x1b[1mTab\x1b[0m           Autocomplete and interactive menu selection (Arrows / Tab / Enter / Esc)\n  \x1b[1mCtrl+C\x1b[0m        Interrupt input / abort running child process\n  \x1b[1mCtrl+D\x1b[0m        End-of-file (EOF) / exit\n  \x1b[1mCtrl+L\x1b[0m        Clear terminal screen\n  \x1b[1mCtrl+A/E\x1b[0m      Beginning / end of line\n  \x1b[1mCtrl+U/K\x1b[0m      Kill to line start / end\n  \x1b[1mCtrl+W\x1b[0m        Delete word backward\n  \x1b[1mCtrl+Y\x1b[0m        Yank (paste) from kill ring\n  \x1b[1mAlt+B/F\x1b[0m       Word backward / forward\n  \x1b[1m↑ ↓\x1b[0m           Navigate command history\n  \x1b[1mShift+←→\x1b[0m      Select text\n  \x1b[1mCtrl+Shift+C/V\x1b[0m Copy / paste\n",
             ));
         }
         #[cfg(feature = "std")]
         {
-            print_out("Wunix Shell Builtin Commands:\n  cd [dir]           Change working directory\n  pwd                Print current working directory\n  echo [-n] [args]   Display arguments as text\n  clear, cls         Clear terminal display\n  export [KEY=VAL]   Set environment variable\n  unset [KEY...]     Remove environment variable\n  env                List exported environment variables\n  history            Display session command history\n  whoami             Display current username\n  hostname           Display device hostname\n  type [name...]     Display information about command type\n  help               Display this help overview\n  exit [code]        Terminate shell session\n\nKeyboard Shortcuts:\n  Tab           Autocomplete commands and paths\n  Ctrl+C        Interrupt / abort\n  Ctrl+D        EOF / exit\n  Ctrl+L        Clear screen\n  Ctrl+A/E      Begin / end of line\n  Ctrl+U/K      Kill to start / end\n  Ctrl+W        Delete word backward\n  Ctrl+Y        Yank from kill ring\n  Alt+B/F       Word backward / forward\n  Up/Down       Command history\n  Shift+Arrows  Select text\n  Ctrl+Shift+C/V Copy / paste\n");
+            print_out("Wunix Shell Builtin Commands:\n  cd [dir]           Change working directory\n  pwd                Print current working directory\n  echo [-n] [args]   Display arguments as text\n  clear, cls         Clear terminal display\n  export [KEY=VAL]   Set environment variable\n  unset [KEY...]     Remove environment variable\n  env                List exported environment variables\n  history            Display session command history\n  complete           Configure argument completion for commands\n  compgen            Generate completion candidates\n  whoami             Display current username\n  hostname           Display device hostname\n  type [name...]     Display information about command type\n  help               Display this help overview\n  exit [code]        Terminate shell session\n\nKeyboard Shortcuts:\n  Tab           Autocomplete and interactive menu selection (Arrows / Tab / Enter / Esc)\n  Ctrl+C        Interrupt / abort\n  Ctrl+D        EOF / exit\n  Ctrl+L        Clear screen\n  Ctrl+A/E      Begin / end of line\n  Ctrl+U/K      Kill to start / end\n  Ctrl+W        Delete word backward\n  Ctrl+Y        Yank from kill ring\n  Alt+B/F       Word backward / forward\n  Up/Down       Command history\n  Shift+Arrows  Select text\n  Ctrl+Shift+C/V Copy / paste\n");
         }
         0
     }
@@ -932,6 +937,25 @@ mod tests {
             "\x1b[2m[12:34:56]\x1b[0m hello\n"
         );
         assert_eq!(format_printf("%04d", &[String::from("7")]), "0007");
+    }
+
+    #[test]
+    fn test_builtin_clear_emits_full_clear_and_scrollback_erase() {
+        let mut history = History::new(10);
+        let mut should_exit = false;
+
+        for name in ["clear", "cls"] {
+            let cmd = SimpleCommand {
+                name: String::from(name),
+                args: vec![],
+                redirects: vec![],
+            };
+            let (code, output) = platform::capture_stdout(|| {
+                Builtins::execute(&cmd, &mut history, 0, &mut should_exit).unwrap()
+            });
+            assert_eq!(code, 0);
+            assert_eq!(output, "\x1b[H\x1b[2J\x1b[3J");
+        }
     }
 }
 

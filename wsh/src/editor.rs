@@ -1,12 +1,12 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{string::String, string::ToString, vec::Vec};
+use alloc::{string::String, vec::Vec};
 #[cfg(all(not(feature = "std"), test))]
 use alloc::vec;
 
 #[cfg(feature = "std")]
-use std::{string::String, string::ToString, vec::Vec};
+use std::{string::String, vec::Vec};
 #[cfg(all(feature = "std", test))]
 use std::vec;
 
@@ -76,6 +76,10 @@ impl InputReader {
         }
     }
 
+    pub fn has_buffered_byte(&self) -> bool {
+        self.pos < self.len
+    }
+
     pub fn has_buffered_printable(&self) -> bool {
         if self.pos < self.len {
             let b = self.buf[self.pos];
@@ -143,8 +147,18 @@ impl LineEditor {
                 }
             };
 
-            if b != b'\t' && b != 0x1B {
+            let is_confirm_space = b == b' '
+                && completion_state.is_active
+                && completion_state.current_index.is_some();
+            let is_confirm_slash = b == b'/'
+                && completion_state.is_active
+                && completion_state
+                    .current_item()
+                    .is_some_and(|c| c.kind == CompletionKind::Directory);
+
+            if b != b'\t' && b != 0x1B && b != b'\r' && b != b'\n' && b != 0x07 && !is_confirm_space && !is_confirm_slash {
                 if completion_state.is_active {
+                    clear_completion_menu(prompt, &line_chars, cursor, &mut completion_state);
                     completion_state.reset();
                 }
             }
@@ -152,6 +166,15 @@ impl LineEditor {
             match b {
                 // Enter
                 b'\r' | b'\n' => {
+                    if completion_state.is_active {
+                        if completion_state.current_index.is_some() {
+                            selection_anchor = None;
+                            confirm_active_completion(prompt, &mut line_chars, &mut cursor, &mut completion_state);
+                            continue;
+                        }
+                        clear_completion_menu(prompt, &line_chars, cursor, &mut completion_state);
+                        completion_state.reset();
+                    }
                     let chars_after_cursor = line_chars.len().saturating_sub(cursor);
                     if chars_after_cursor > 0 {
                         print_ansi_motion('C', chars_after_cursor);
@@ -161,7 +184,21 @@ impl LineEditor {
                     let res: String = line_chars.into_iter().collect();
                     return Some(res);
                 }
-                // Tab (Автодополнение команд, путей, переменных и циклический перебор вариантов)
+                // Пробел или '/' при активном выборе кандидата подтверждают выбор
+                b' ' if is_confirm_space => {
+                    selection_anchor = None;
+                    confirm_active_completion(prompt, &mut line_chars, &mut cursor, &mut completion_state);
+                }
+                b'/' if is_confirm_slash => {
+                    selection_anchor = None;
+                    confirm_active_completion(prompt, &mut line_chars, &mut cursor, &mut completion_state);
+                }
+                // Ctrl+G — отмена открытого меню автодополнения
+                0x07 if completion_state.is_active => {
+                    selection_anchor = None;
+                    cancel_active_completion(prompt, &mut line_chars, &mut cursor, &mut completion_state);
+                }
+                // Tab (Автодополнение и переключение вариантов в меню)
                 b'\t' => {
                     selection_anchor = None;
                     handle_tab_press(prompt, &mut line_chars, &mut cursor, &mut completion_state, false);
@@ -186,9 +223,12 @@ impl LineEditor {
                         redraw_line(prompt, &line_chars, cursor, None);
                     }
                 }
-                // Ctrl+L (Clear screen)
+                // Ctrl+L (Clear screen + scrollback)
                 0x0C => {
-                    print_raw("\x1b[2J\x1b[H");
+                    if completion_state.is_active {
+                        completion_state.reset();
+                    }
+                    print_raw("\x1b[H\x1b[2J\x1b[3J");
                     redraw_line(prompt, &line_chars, cursor, get_selection_range(selection_anchor, cursor));
                 }
                 // Backspace (0x7F или 0x08)
@@ -312,19 +352,40 @@ impl LineEditor {
                         redraw_line(prompt, &line_chars, cursor, None);
                     }
                 }
-                // Escape-последовательности (стрелки, Home/End, Delete, CSI u Ctrl+Shift+C/V, Alt-хоткеи)
+                // Escape-последовательности (стрелки, Home/End, Delete, CSI u Ctrl+Shift+C/V, Alt-хоткеи) и одиночный Esc
                 0x1B => {
+                    if !reader.has_buffered_byte() && !platform::has_pending_stdin_byte_briefly() {
+                        if completion_state.is_active {
+                            selection_anchor = None;
+                            cancel_active_completion(prompt, &mut line_chars, &mut cursor, &mut completion_state);
+                        }
+                        continue;
+                    }
                     if let Some(next1) = reader.next_byte() {
+                        if next1 != b'[' && completion_state.is_active {
+                            clear_completion_menu(prompt, &line_chars, cursor, &mut completion_state);
+                            completion_state.reset();
+                        }
                         match next1 {
                             b'[' => {
                                 let action = parse_csi(&mut reader);
-                                if action != CsiAction::BackTab && completion_state.is_active {
+                                let is_menu_nav = completion_state.is_active
+                                    && matches!(
+                                        action,
+                                        CsiAction::Up | CsiAction::Down | CsiAction::Left | CsiAction::Right
+                                    );
+                                if action != CsiAction::BackTab && !is_menu_nav && completion_state.is_active {
+                                    clear_completion_menu(prompt, &line_chars, cursor, &mut completion_state);
                                     completion_state.reset();
                                 }
                                 match action {
                                     CsiAction::BackTab => {
                                         selection_anchor = None;
                                         handle_tab_press(prompt, &mut line_chars, &mut cursor, &mut completion_state, true);
+                                    }
+                                    CsiAction::Up | CsiAction::Down | CsiAction::Right | CsiAction::Left if is_menu_nav => {
+                                        selection_anchor = None;
+                                        handle_menu_navigation(prompt, &mut line_chars, &mut cursor, &mut completion_state, action);
                                     }
                                     CsiAction::Up => {
                                         selection_anchor = None;
@@ -729,14 +790,197 @@ impl LineEditor {
 }
 
 pub use crate::completion::{
-    apply_completion_to_line, collect_candidates, detect_completion_context,
+    apply_completion_to_line, apply_preview_to_line, collect_candidates, detect_completion_context,
     find_common_prefix, format_candidate_for_display, format_candidates_grid,
-    read_dir_entries, CompletionContext, CompletionItem, CompletionKind, CompletionState,
+    format_candidates_menu, parse_completion_input, read_dir_entries, restore_original_token,
+    CompletionContext, CompletionItem, CompletionKind, CompletionState,
 };
 pub use crate::completion::CompletionKind as EntryKind;
 
-/// Обрабатывает нажатие клавиши Tab (или Shift+Tab для обратного хода),
-/// выполняя контекстное автодополнение (команды, файлы, переменные) или циклический перебор кандидатов.
+fn menu_footer_text(page_info: Option<(usize, usize)>, max_width: usize) -> String {
+    let hint = {
+        #[cfg(not(feature = "std"))]
+        {
+            libwunix::t(
+                "Tab/↑↓←→: выбор · Enter: принять · Esc: отмена",
+                "Tab/Arrows: select · Enter: accept · Esc: cancel",
+            )
+        }
+        #[cfg(feature = "std")]
+        {
+            if platform::get_env("LANG").is_some_and(|l| l.starts_with("en") || l.starts_with("EN")) {
+                "Tab/Arrows: select · Enter: accept · Esc: cancel"
+            } else {
+                "Tab/↑↓←→: выбор · Enter: принять · Esc: отмена"
+            }
+        }
+    };
+    let text = match page_info {
+        Some((cur, total)) => {
+            let mut s = String::new();
+            let _ = core::fmt::write(&mut s, format_args!("[{}/{}] {}", cur, total, hint));
+            s
+        }
+        None => String::from(hint),
+    };
+    let clipped: String = text.chars().take(max_width.saturating_sub(1)).collect();
+    let mut out = String::from("\x1b[90m");
+    out.push_str(&clipped);
+    out.push_str("\x1b[0m");
+    out
+}
+
+fn line_cursor_geometry(prompt: &str, line: &[char], cursor: usize, term_width: usize) -> (usize, usize, usize) {
+    let safe_width = term_width.max(16);
+    let prompt_vis = crate::prompt::Prompt::visible_len(prompt);
+    let tail_rows = (prompt_vis + line.len()) / safe_width;
+    let cursor_abs = prompt_vis + cursor;
+    let cursor_row = cursor_abs / safe_width;
+    let cursor_col = cursor_abs % safe_width;
+    (tail_rows, cursor_row, cursor_col)
+}
+
+fn clear_completion_menu(
+    prompt: &str,
+    line: &[char],
+    cursor: usize,
+    state: &mut CompletionState,
+) {
+    if state.menu_rows == 0 {
+        return;
+    }
+    let (term_width, _) = platform::get_terminal_size();
+    let (tail_rows, cursor_row, cursor_col) = line_cursor_geometry(prompt, line, cursor, term_width);
+    let drop_rows = tail_rows.saturating_sub(cursor_row) + 1;
+
+    let mut buf = String::with_capacity(64);
+    buf.push_str("\x1b[?25l");
+    let _ = core::fmt::write(&mut buf, format_args!("\x1b[{}B\r\x1b[J\x1b[{}A\r", drop_rows, drop_rows));
+    if cursor_col > 0 {
+        let _ = core::fmt::write(&mut buf, format_args!("\x1b[{}C", cursor_col));
+    }
+    buf.push_str("\x1b[?25h");
+    print_raw(&buf);
+    flush_raw();
+    state.menu_rows = 0;
+}
+
+fn redraw_with_completion_menu(
+    prompt: &str,
+    line: &[char],
+    cursor: usize,
+    state: &mut CompletionState,
+) {
+    let (term_width, term_rows) = platform::get_terminal_size();
+    let safe_width = term_width.max(16);
+    let max_menu_rows = (term_rows / 2).clamp(3, 10);
+
+    let (all_rows, num_cols) =
+        format_candidates_menu(&state.candidates, safe_width, state.current_index);
+    state.num_cols = num_cols;
+    state.ensure_scroll_visible(max_menu_rows);
+
+    let visible_end = (state.scroll_row + max_menu_rows).min(all_rows.len());
+    let visible_rows = &all_rows[state.scroll_row..visible_end];
+    let page_info = if all_rows.len() > max_menu_rows {
+        let total_pages = all_rows.len().div_ceil(max_menu_rows);
+        let cur_page = (state.scroll_row / max_menu_rows) + 1;
+        Some((cur_page.min(total_pages), total_pages))
+    } else {
+        None
+    };
+    let footer = menu_footer_text(page_info, safe_width);
+    let drawn_rows = visible_rows.len() + 1;
+
+    let (tail_rows, cursor_row, cursor_col) = line_cursor_geometry(prompt, line, cursor, safe_width);
+    let mut buf = String::with_capacity(256 + prompt.len() + line.len() * 8);
+    buf.push_str("\x1b[?25l\r\x1b[K");
+    buf.push_str(prompt);
+    buf.push_str(&highlight::highlight_line(line));
+    buf.push_str("\r\n\x1b[J");
+    for row in visible_rows {
+        buf.push_str(row);
+        buf.push_str("\r\n");
+    }
+    buf.push_str(&footer);
+
+    let up_rows = drawn_rows + tail_rows.saturating_sub(cursor_row);
+    let _ = core::fmt::write(&mut buf, format_args!("\x1b[{}A\r", up_rows));
+    if cursor_col > 0 {
+        let _ = core::fmt::write(&mut buf, format_args!("\x1b[{}C", cursor_col));
+    }
+    buf.push_str("\x1b[?25h");
+    state.menu_rows = drawn_rows;
+    print_raw(&buf);
+    flush_raw();
+}
+
+/// Перемещает выделение по открытому меню автодополнения и обновляет предпросмотр в строке ввода.
+pub fn handle_menu_navigation(
+    prompt: &str,
+    line: &mut Vec<char>,
+    cursor: &mut usize,
+    state: &mut CompletionState,
+    action: CsiAction,
+) {
+    if !state.is_active || state.candidates.is_empty() {
+        return;
+    }
+    let cand = match action {
+        CsiAction::Down => state.move_down().cloned(),
+        CsiAction::Up => state.move_up().cloned(),
+        CsiAction::Right => state.move_right().cloned(),
+        CsiAction::Left => state.move_left().cloned(),
+        _ => None,
+    };
+    if let Some(candidate) = cand {
+        let token_len = cursor.saturating_sub(state.token_start);
+        *cursor = apply_preview_to_line(line, state.token_start, token_len, &candidate);
+        redraw_with_completion_menu(prompt, line, *cursor, state);
+    }
+}
+
+/// Подтверждает текущий выбранный вариант в меню автодополнения и закрывает меню.
+pub fn confirm_active_completion(
+    prompt: &str,
+    line: &mut Vec<char>,
+    cursor: &mut usize,
+    state: &mut CompletionState,
+) {
+    if !state.is_active {
+        return;
+    }
+    clear_completion_menu(prompt, line, *cursor, state);
+    if let Some(candidate) = state.current_item().cloned() {
+        let token_len = cursor.saturating_sub(state.token_start);
+        *cursor = apply_completion_to_line(line, state.token_start, token_len, &candidate);
+    }
+    state.reset();
+    redraw_line(prompt, line, *cursor, None);
+}
+
+/// Отменяет выбор в меню автодополнения, возвращая исходный токен пользователя.
+pub fn cancel_active_completion(
+    prompt: &str,
+    line: &mut Vec<char>,
+    cursor: &mut usize,
+    state: &mut CompletionState,
+) {
+    if !state.is_active {
+        return;
+    }
+    clear_completion_menu(prompt, line, *cursor, state);
+    if state.current_index.is_some() {
+        let token_len = cursor.saturating_sub(state.token_start);
+        *cursor = restore_original_token(line, state.token_start, token_len, &state.original_token);
+    }
+    state.reset();
+    redraw_line(prompt, line, *cursor, None);
+}
+
+/// Обрабатывает нажатие клавиши Tab (или Shift+Tab для обратного хода).
+/// Единственный вариант подставляется сразу; при нескольких вариантах сначала расширяется общий префикс,
+/// затем предлагается интерактивное меню без преждевременной подстановки первого кандидата.
 pub fn handle_tab_press(
     prompt: &str,
     line: &mut Vec<char>,
@@ -753,13 +997,8 @@ pub fn handle_tab_press(
         };
         if let Some(candidate) = cand {
             let current_len = cursor.saturating_sub(token_start);
-            *cursor = apply_completion_to_line(
-                line,
-                token_start,
-                current_len,
-                &candidate,
-            );
-            redraw_line(prompt, line, *cursor, None);
+            *cursor = apply_preview_to_line(line, token_start, current_len, &candidate);
+            redraw_with_completion_menu(prompt, line, *cursor, state);
         }
         return;
     }
@@ -768,23 +1007,20 @@ pub fn handle_tab_press(
         return;
     }
 
-    let text_before: String = line[..*cursor].iter().collect();
-    let token_start = text_before.rfind(' ').map(|i| i + 1).unwrap_or(0);
-    let current_token = &text_before[token_start..];
-
+    let chars_before = &line[..*cursor];
+    let input = parse_completion_input(chars_before);
     let home = platform::get_env("HOME").unwrap_or_else(|| String::from("/root"));
     let env_vars = platform::get_all_env();
 
-    let candidates = collect_candidates(&text_before, current_token, &home, &env_vars);
-
+    let candidates = crate::completer::complete_for_input(&input, chars_before, &home, &env_vars);
     if candidates.is_empty() {
         return;
     }
 
     if candidates.len() == 1 {
         let cand = &candidates[0];
-        let token_len = cursor.saturating_sub(token_start);
-        *cursor = apply_completion_to_line(line, token_start, token_len, cand);
+        let token_len = cursor.saturating_sub(input.token_start);
+        *cursor = apply_completion_to_line(line, input.token_start, token_len, cand);
         redraw_line(prompt, line, *cursor, None);
         return;
     }
@@ -792,47 +1028,21 @@ pub fn handle_tab_press(
     let candidate_texts: Vec<String> = candidates.iter().map(|c| c.text.clone()).collect();
     let lcp = find_common_prefix(&candidate_texts);
 
-    print_raw("\n");
-    let grid_lines = format_candidates_grid(&candidates, 80);
-    for gl in &grid_lines {
-        print_raw(gl);
-        print_raw("\n");
+    if lcp.chars().count() > input.current_token.chars().count() {
+        let token_len = cursor.saturating_sub(input.token_start);
+        *cursor = restore_original_token(line, input.token_start, token_len, &lcp);
+        redraw_line(prompt, line, *cursor, None);
+        return;
     }
 
-    if lcp.len() > current_token.len() {
-        let token_len = cursor.saturating_sub(token_start);
-        for _ in 0..token_len {
-            if token_start < line.len() {
-                line.remove(token_start);
-            }
-        }
-        let mut pos = token_start;
-        for c in lcp.chars() {
-            line.insert(pos, c);
-            pos += 1;
-        }
-        *cursor = pos;
+    state.is_active = true;
+    state.token_start = input.token_start;
+    state.original_token = input.current_token;
+    state.candidates = candidates;
+    state.current_index = None;
+    state.scroll_row = 0;
 
-        state.is_active = true;
-        state.token_start = token_start;
-        state.original_token = lcp;
-        state.candidates = candidates;
-        state.current_index = None;
-    } else {
-        state.is_active = true;
-        state.token_start = token_start;
-        state.original_token = current_token.to_string();
-        state.candidates = candidates;
-        state.current_index = None;
-
-        let token_start = state.token_start;
-        if let Some(first_cand) = state.cycle_next().cloned() {
-            let token_len = cursor.saturating_sub(token_start);
-            *cursor = apply_completion_to_line(line, token_start, token_len, &first_cand);
-        }
-    }
-
-    redraw_line(prompt, line, *cursor, None);
+    redraw_with_completion_menu(prompt, line, *cursor, state);
 }
 
 #[cfg(test)]
@@ -1608,27 +1818,84 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_tab_press_multiple_candidates_cycling() {
+    fn test_handle_tab_press_multiple_candidates_offers_then_selects() {
         let mut line: Vec<char> = "cl".chars().collect();
         let mut cursor = 2;
         let mut state = CompletionState::new();
 
-        // 1-й таб: находит "clear" и "cls", показывает варианты и выбирает первого кандидата
+        // 1-й таб при равном общем префиксе: предлагает варианты в меню, но НЕ заменяет строку сразу первым вариантом
         handle_tab_press("", &mut line, &mut cursor, &mut state, false);
         assert!(state.is_active);
-        let first_text: String = line.iter().collect();
-        assert!(first_text == "clear " || first_text == "cls ");
+        assert_eq!(state.current_index, None);
+        assert_eq!(line.iter().collect::<String>(), "cl");
+        assert_eq!(cursor, 2);
 
-        // 2-й таб: циклически переключает на следующего кандидата
+        // 2-й таб: начинает интерактивный выбор (подсвечивает 1-го кандидата в меню и делает предпросмотр)
         handle_tab_press("", &mut line, &mut cursor, &mut state, false);
-        let second_text: String = line.iter().collect();
-        assert_ne!(first_text, second_text);
-        assert!(second_text == "clear " || second_text == "cls ");
+        assert_eq!(state.current_index, Some(0));
+        let first_text: String = line.iter().collect();
+        assert_eq!(first_text, "clear");
 
-        // Shift+Tab: обратный переход
+        // 3-й таб: переключает выбор на следующего кандидата ("cls")
+        handle_tab_press("", &mut line, &mut cursor, &mut state, false);
+        assert_eq!(state.current_index, Some(1));
+        let second_text: String = line.iter().collect();
+        assert_eq!(second_text, "cls");
+
+        // Shift+Tab: обратный переход к "clear"
         handle_tab_press("", &mut line, &mut cursor, &mut state, true);
-        let back_text: String = line.iter().collect();
-        assert_eq!(first_text, back_text);
+        assert_eq!(state.current_index, Some(0));
+        assert_eq!(line.iter().collect::<String>(), "clear");
+
+        // Подтверждение выбранного кандидата добавляет завершающий пробел и сбрасывает меню
+        confirm_active_completion("", &mut line, &mut cursor, &mut state);
+        assert!(!state.is_active);
+        assert_eq!(line.iter().collect::<String>(), "clear ");
+        assert_eq!(cursor, 6);
+    }
+
+    #[test]
+    fn test_handle_tab_press_lcp_then_second_tab_offers_without_applying() {
+        // "system s": кандидаты ["start", "status", "stop"], LCP = "st" (> "s")
+        let mut line: Vec<char> = "system s".chars().collect();
+        let mut cursor = line.len();
+        let mut state = CompletionState::new();
+
+        // 1-й таб: расширяет до общего префикса "st", не открывая меню и не применяя "start"
+        handle_tab_press("", &mut line, &mut cursor, &mut state, false);
+        assert_eq!(line.iter().collect::<String>(), "system st");
+        assert!(!state.is_active);
+
+        // 2-й таб: предлагает варианты, оставляя строку "system st" нетронутой
+        handle_tab_press("", &mut line, &mut cursor, &mut state, false);
+        assert!(state.is_active);
+        assert_eq!(state.current_index, None);
+        assert_eq!(line.iter().collect::<String>(), "system st");
+
+        // Навигация стрелкой вниз/вправо выбирает первый вариант, а Esc откатывает к "st"
+        handle_menu_navigation("", &mut line, &mut cursor, &mut state, CsiAction::Down);
+        assert_eq!(state.current_index, Some(0));
+        assert_eq!(line.iter().collect::<String>(), "system start");
+
+        cancel_active_completion("", &mut line, &mut cursor, &mut state);
+        assert!(!state.is_active);
+        assert_eq!(line.iter().collect::<String>(), "system st");
+    }
+
+    #[test]
+    fn test_handle_tab_press_program_arguments() {
+        let mut line: Vec<char> = "ip a".chars().collect();
+        let mut cursor = line.len();
+        let mut state = CompletionState::new();
+        // "ip a" -> "addr", "address" (LCP = "addr")
+        handle_tab_press("", &mut line, &mut cursor, &mut state, false);
+        assert_eq!(line.iter().collect::<String>(), "ip addr");
+
+        let mut line2: Vec<char> = "wpm upg".chars().collect();
+        let mut cursor2 = line2.len();
+        let mut state2 = CompletionState::new();
+        handle_tab_press("", &mut line2, &mut cursor2, &mut state2, false);
+        assert_eq!(line2.iter().collect::<String>(), "wpm upgrade ");
     }
 
     #[test]

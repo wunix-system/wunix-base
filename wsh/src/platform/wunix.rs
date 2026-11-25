@@ -167,6 +167,84 @@ pub fn is_fd_tty(fd: u64) -> bool {
     libwunix::isatty(fd)
 }
 
+pub fn get_terminal_size() -> (usize, usize) {
+    libwunix::get_terminal_size()
+}
+
+pub fn has_pending_stdin_byte_briefly() -> bool {
+    if libwunix::stdin_bytes_available() > 0 {
+        return true;
+    }
+    libwunix::time::sleep_ms(12);
+    libwunix::stdin_bytes_available() > 0
+}
+
+pub fn run_capture_with_env(args: &[String], extra_env: &[(&str, &str)]) -> Option<String> {
+    let prog = args.first()?;
+    let mut pipe_fds = [0i32; 2];
+    if libwunix::pipe2(&mut pipe_fds, 0) != 0 {
+        return None;
+    }
+
+    let pid = libwunix::fork();
+    if pid < 0 {
+        let _ = libwunix::close(pipe_fds[0] as u64);
+        let _ = libwunix::close(pipe_fds[1] as u64);
+        return None;
+    }
+
+    if pid == 0 {
+        let _ = libwunix::close(pipe_fds[0] as u64);
+        let _ = libwunix::dup2(pipe_fds[1] as u64, 1);
+        let _ = libwunix::close(pipe_fds[1] as u64);
+
+        let null_in = libwunix::open(b"/dev/null\0", libwunix::O_RDONLY as u64, 0);
+        if null_in >= 0 {
+            let _ = libwunix::dup2(null_in as u64, 0);
+            let _ = libwunix::close(null_in as u64);
+        }
+        let null_err = libwunix::open(b"/dev/null\0", libwunix::O_WRONLY as u64, 0);
+        if null_err >= 0 {
+            let _ = libwunix::dup2(null_err as u64, 2);
+            let _ = libwunix::close(null_err as u64);
+        }
+
+        let cmd = SimpleCommand {
+            name: prog.clone(),
+            args: args[1..].to_vec(),
+            redirects: Vec::new(),
+        };
+        let _ = execve_command_with_extra_env(&cmd, extra_env);
+        libwunix::exit(127);
+    }
+
+    let _ = libwunix::close(pipe_fds[1] as u64);
+    let mut out_bytes = Vec::new();
+    let mut buf = [0u8; 512];
+    const MAX_CAPTURE: usize = 64 * 1024;
+    loop {
+        let n = libwunix::read(pipe_fds[0] as u64, &mut buf);
+        if n <= 0 {
+            break;
+        }
+        let take = (n as usize).min(MAX_CAPTURE.saturating_sub(out_bytes.len()));
+        out_bytes.extend_from_slice(&buf[..take]);
+        if out_bytes.len() >= MAX_CAPTURE {
+            break;
+        }
+    }
+    let _ = libwunix::close(pipe_fds[0] as u64);
+
+    let mut raw_status: i32 = 0;
+    let waited = libwunix::wait4(pid, &mut raw_status as *mut i32, 0);
+    let ok = waited >= 0 && (raw_status & 0x7f) == 0 && ((raw_status >> 8) & 0xff) == 0;
+    if ok {
+        Some(String::from_utf8_lossy(&out_bytes).into_owned())
+    } else {
+        None
+    }
+}
+
 pub fn can_read(path: &str) -> bool {
     let mut null_path = [0u8; PATH_BUFFER_CAPACITY];
     let b = path.as_bytes();
@@ -435,6 +513,10 @@ where
 }
 
 fn execve_command(cmd: &SimpleCommand) -> i64 {
+    execve_command_with_extra_env(cmd, &[])
+}
+
+fn execve_command_with_extra_env(cmd: &SimpleCommand, extra_env: &[(&str, &str)]) -> i64 {
     let resolved_path = resolve_in_path(&cmd.name);
     let mut null_term_path = [0u8; PATH_BUFFER_CAPACITY];
     let path_bytes = resolved_path.as_bytes();
@@ -457,7 +539,14 @@ fn execve_command(cmd: &SimpleCommand) -> i64 {
     let mut argv_ptrs: Vec<*const u8> = argv_storage.iter().map(|i| i.as_ptr()).collect();
     argv_ptrs.push(core::ptr::null());
 
-    let current_env = get_all_env();
+    let mut current_env = get_all_env();
+    for (ek, ev) in extra_env {
+        if let Some((_, existing)) = current_env.iter_mut().find(|(k, _)| k == ek) {
+            *existing = String::from(*ev);
+        } else {
+            current_env.push((String::from(*ek), String::from(*ev)));
+        }
+    }
     let mut envp_storage: Vec<Vec<u8>> = Vec::new();
     for (k, v) in current_env {
         let mut entry = Vec::new();

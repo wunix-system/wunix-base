@@ -9,6 +9,7 @@ use alloc::string::String;
 #[cfg(feature = "std")]
 use std::string::String;
 
+#[cfg(not(feature = "std"))]
 use wsh::builtins::Builtins;
 use wsh::editor::LineEditor;
 use wsh::history::History;
@@ -277,6 +278,22 @@ fn get_history_file_path() -> String {
     }
 }
 
+fn load_startup_rc(history: &mut History, should_exit: &mut bool) {
+    if let Some(content) = platform::read_file("/etc/wshrc") {
+        let _ = wsh::script::run_bash_script(&content, "/etc/wshrc", &[], history, 0, should_exit);
+    }
+    if let Some(home) = platform::get_env("HOME") {
+        let trimmed = home.trim_end_matches('/');
+        if !trimmed.is_empty() {
+            let mut user_rc = String::from(trimmed);
+            user_rc.push_str("/.wshrc");
+            if let Some(content) = platform::read_file(&user_rc) {
+                let _ = wsh::script::run_bash_script(&content, &user_rc, &[], history, 0, should_exit);
+            }
+        }
+    }
+}
+
 fn run_interactive_shell() {
     let hist_capacity = platform::get_env("HISTSIZE")
         .and_then(|s| s.parse::<usize>().ok())
@@ -305,6 +322,9 @@ fn run_interactive_shell() {
         let home = platform::get_env("HOME").unwrap_or_else(|| String::from(default_home));
         let _ = platform::set_cwd(&home);
     }
+
+    // Загружаем пользовательские и системные правила автодополнения и настройки (если есть)
+    load_startup_rc(&mut history, &mut should_exit);
 
     // Локализованная подсказка командной строки Wunix
     #[cfg(not(feature = "std"))]

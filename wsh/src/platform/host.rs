@@ -44,6 +44,50 @@ pub fn is_fd_tty(fd: u64) -> bool {
     unsafe { libc::isatty(fd as i32) == 1 }
 }
 
+pub fn get_terminal_size() -> (usize, usize) {
+    unsafe {
+        let mut ws: libc::winsize = core::mem::zeroed();
+        if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) == 0
+            && ws.ws_col > 0
+            && ws.ws_row > 0
+        {
+            (ws.ws_col as usize, ws.ws_row as usize)
+        } else {
+            (80, 24)
+        }
+    }
+}
+
+pub fn has_pending_stdin_byte_briefly() -> bool {
+    if !is_tty() {
+        return true;
+    }
+    let mut pfd = libc::pollfd {
+        fd: libc::STDIN_FILENO,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let rc = unsafe { libc::poll(&mut pfd, 1, 20) };
+    rc > 0 && (pfd.revents & libc::POLLIN) != 0
+}
+
+pub fn run_capture_with_env(args: &[String], extra_env: &[(&str, &str)]) -> Option<String> {
+    let prog = args.first()?;
+    let mut cmd = Command::new(prog);
+    cmd.args(&args[1..])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
+    let output = cmd.output().ok()?;
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).into_owned())
+    } else {
+        None
+    }
+}
+
 pub fn can_read(path: &str) -> bool {
     if let Ok(cstr) = std::ffi::CString::new(path) {
         unsafe { libc::access(cstr.as_ptr(), libc::R_OK) == 0 }
