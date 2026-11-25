@@ -5,11 +5,12 @@ use libwunix::{STDERR_FILENO, STDOUT_FILENO};
 
 // Очистка экрана консоли.
 // Отправляет ANSI escape-последовательность:
-// \x1b[2J — очистить весь экран,
-// \x1b[H  — перевести курсор в верхний левый угол (строка 1, столбец 1).
+// \x1b[H  — перевести курсор в верхний левый угол (строка 1, столбец 1),
+// \x1b[2J — очистить весь видимый экран,
+// \x1b[3J — очистить буфер прокрутки (scrollback) в терминалах хоста.
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    libwunix::write(STDOUT_FILENO, b"\x1b[2J\x1b[H");
+    libwunix::write(STDOUT_FILENO, b"\x1b[H\x1b[2J\x1b[3J");
     libwunix::exit(0);
 }
 
