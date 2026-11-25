@@ -69,16 +69,23 @@ pub fn copy_boot_files_to_boot_partition(disk_path: &[u8], boot_part_num: u8, ro
         copy_file(b"/boot/wunix-kernel\0", b"/mnt_boot/boot/wunix-kernel\0", 0o644);
         copy_file(b"/boot/limine-bios.sys\0", b"/mnt_boot/boot/limine-bios.sys\0", 0o644);
 
-        let mut conf_buf = [0u8; 512];
-        let mut cpos = 0;
-        cpos = ap(&mut conf_buf, cpos, b"timeout: 0\n\n/Wunix OS\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=");
-        cpos = ap(&mut conf_buf, cpos, root_dev_str.as_bytes());
-        cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
-        let limine_conf_content = &conf_buf[..cpos];
-        write_file(b"/mnt_boot/boot/limine.conf\0", limine_conf_content, 0o644);
+        write_bootloader_conf(b"/mnt_boot/boot/limine.conf\0", root_dev_str);
 
         let _ = umount2(b"/mnt_boot\0", 0);
     }
+}
+
+fn write_bootloader_conf(dst_path: &[u8], root_dev_str: &str) {
+    let mut conf_buf = [0u8; 512];
+    let mut cpos = 0;
+    cpos = ap(
+        &mut conf_buf,
+        cpos,
+        b"timeout: 0\nquiet: yes\ninterface_branding: Wunix OS\n\n/Wunix OS\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=",
+    );
+    cpos = ap(&mut conf_buf, cpos, root_dev_str.as_bytes());
+    cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
+    write_file(dst_path, &conf_buf[..cpos], 0o644);
 }
 
 pub fn unmount_target() {
@@ -353,14 +360,7 @@ where
     }
     part_path[plen] = b'0' + root_part_num;
     let root_dev_str = core::str::from_utf8(&part_path[..plen + 1]).unwrap_or("/dev/vda1");
-
-    let mut conf_buf = [0u8; 512];
-    let mut cpos = 0;
-    cpos = ap(&mut conf_buf, cpos, b"timeout: 0\n\n/Wunix OS\n    protocol: limine\n    kernel_path: boot():/boot/wunix-kernel\n    cmdline: root=");
-    cpos = ap(&mut conf_buf, cpos, root_dev_str.as_bytes());
-    cpos = ap(&mut conf_buf, cpos, b" lang=ru mode=disk\n");
-    let limine_conf_content = &conf_buf[..cpos];
-    write_file(b"/mnt/boot/limine.conf\0", limine_conf_content, 0o644);
+    write_bootloader_conf(b"/mnt/boot/limine.conf\0", root_dev_str);
 
     // 3. Базовые конфигурационные файлы (/etc)
     progress(68, "Копирование конфигураций (/etc)...", done, total);

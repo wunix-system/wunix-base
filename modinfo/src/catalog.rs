@@ -302,8 +302,8 @@ pub const DRIVERS: [DriverMeta; 24] = [
     DriverMeta {
         name: "limine_fb",
         filename: "kernel/src/drivers/display.rs",
-        description: "Limine Linear Framebuffer Console Display Driver",
-        description_ru: "Драйвер графической консоли линейного буфера Limine FB",
+        description: "Linear Framebuffer Console Display Driver",
+        description_ru: "Драйвер графической консоли линейного буфера (VT100)",
         author: "Wunix Kernel Team",
         license: "MIT/Apache-2.0",
         version: "1.0.0",
