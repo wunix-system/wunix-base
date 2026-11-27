@@ -854,12 +854,12 @@ fn clear_completion_menu(
     let drop_rows = tail_rows.saturating_sub(cursor_row) + 1;
 
     let mut buf = String::with_capacity(64);
-    buf.push_str("\x1b[?25l");
+    buf.push_str("\x1b[?2026h\x1b[?25l");
     let _ = core::fmt::write(&mut buf, format_args!("\x1b[{}B\r\x1b[J\x1b[{}A\r", drop_rows, drop_rows));
     if cursor_col > 0 {
         let _ = core::fmt::write(&mut buf, format_args!("\x1b[{}C", cursor_col));
     }
-    buf.push_str("\x1b[?25h");
+    buf.push_str("\x1b[?25h\x1b[?2026l");
     print_raw(&buf);
     flush_raw();
     state.menu_rows = 0;
@@ -894,10 +894,10 @@ fn redraw_with_completion_menu(
 
     let (tail_rows, cursor_row, cursor_col) = line_cursor_geometry(prompt, line, cursor, safe_width);
     let mut buf = String::with_capacity(256 + prompt.len() + line.len() * 8);
-    buf.push_str("\x1b[?25l\r\x1b[K");
+    buf.push_str("\x1b[?2026h\x1b[?25l\r");
     buf.push_str(prompt);
     buf.push_str(&highlight::highlight_line(line));
-    buf.push_str("\r\n\x1b[J");
+    buf.push_str("\x1b[K\r\n\x1b[J");
     for row in visible_rows {
         buf.push_str(row);
         buf.push_str("\r\n");
@@ -909,7 +909,7 @@ fn redraw_with_completion_menu(
     if cursor_col > 0 {
         let _ = core::fmt::write(&mut buf, format_args!("\x1b[{}C", cursor_col));
     }
-    buf.push_str("\x1b[?25h");
+    buf.push_str("\x1b[?25h\x1b[?2026l");
     state.menu_rows = drawn_rows;
     print_raw(&buf);
     flush_raw();
@@ -1108,15 +1108,17 @@ pub fn move_cursor_right(
     }
 }
 
-fn redraw_line(
+fn format_redraw_line(
     prompt: &str,
     line: &[char],
     cursor: usize,
     selection: Option<(usize, usize)>,
-) {
-    let mut buf = String::with_capacity(64 + prompt.len() + line.len() * 8);
-    // Скрываем аппаратный курсор на время отрисовки, чтобы терминал не моргал и не дергал курсор по экрану
-    buf.push_str("\x1b[?25l\r\x1b[K");
+) -> String {
+    let mut buf = String::with_capacity(80 + prompt.len() + line.len() * 8);
+    // Оборачиваем кадр в Synchronized Output (?2026h/?2026l) и НЕ стираем строку до вывода текста:
+    // при медленном COM1 UART предварительный \r\x1b[K стирает prompt и ввод на несколько кадров.
+    // Вместо этого перезаписываем поверх и очищаем только лишний хвост (\x1b[K) после текста.
+    buf.push_str("\x1b[?2026h\x1b[?25l\r");
     buf.push_str(prompt);
 
     match selection {
@@ -1150,13 +1152,26 @@ fn redraw_line(
         }
     }
 
+    // Очищаем остаток старой строки только после того, как новый текст уже записан
+    buf.push_str("\x1b[K");
+
     // Отводим курсор назад с учётом позиции в строке.
     // Количество видимых символов после позиции курсора = длина хвоста.
     let chars_after_cursor = line.len().saturating_sub(cursor);
     if chars_after_cursor > 0 {
         let _ = core::fmt::write(&mut buf, format_args!("\x1b[{}D", chars_after_cursor));
     }
-    buf.push_str("\x1b[?25h");
+    buf.push_str("\x1b[?25h\x1b[?2026l");
+    buf
+}
+
+fn redraw_line(
+    prompt: &str,
+    line: &[char],
+    cursor: usize,
+    selection: Option<(usize, usize)>,
+) {
+    let buf = format_redraw_line(prompt, line, cursor, selection);
     print_raw(&buf);
     flush_raw();
 }
@@ -1944,5 +1959,18 @@ mod tests {
                 cmd
             );
         }
+    }
+
+    #[test]
+    fn test_format_redraw_line_no_flicker_pre_clear() {
+        let line: Vec<char> = "echo hi".chars().collect();
+        let out = format_redraw_line("> ", &line, 4, None);
+        assert!(out.starts_with("\x1b[?2026h\x1b[?25l\r"), "должен начинаться со synchronized output и \\r без \\x1b[K: {:?}", out);
+        assert!(out.ends_with("\x1b[?25h\x1b[?2026l"), "должен заканчиваться показом курсора и закрытием synchronized output: {:?}", out);
+        let prompt_pos = out.find("> ").expect("prompt missing");
+        let clear_pos = out.find("\x1b[K").expect("erase-to-eol missing");
+        assert!(clear_pos > prompt_pos, "\\x1b[K должен идти ПОСЛЕ текста, а не перед prompt");
+        let back_pos = out.find("\x1b[3D").expect("cursor rewind missing");
+        assert!(back_pos > clear_pos, "отвод курсора должен идти после \\x1b[K");
     }
 }
