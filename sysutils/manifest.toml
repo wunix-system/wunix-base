@@ -16,5 +16,5 @@ replaces = []
 version_source = "git:programs"
 bins = [
     "top", "free", "fdisk", "lsblk", "mount", "umount",
-    "lspci", "lshw", "lsdev", "lsmod", "modinfo", "hwclock", "fbset",
+    "lspci", "lshw", "lsdev", "lsmod", "lsusb", "modinfo", "hwclock", "fbset",
 ]

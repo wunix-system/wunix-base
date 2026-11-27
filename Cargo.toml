@@ -24,6 +24,7 @@ members = [
     "lshw",
     "lsmod",
     "lspci",
+    "lsusb",
     "man",
     "mkdir",
     "modinfo",
