@@ -128,6 +128,8 @@ pub fn locate_local_package_file(
                 return Some(cand);
             }
         }
+        // При точном имени файла из индекса нельзя подставлять старый локальный .wp из кэша
+        return None;
     }
 
     for dir in &dirs {
